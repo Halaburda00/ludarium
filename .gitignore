@@ -195,9 +195,9 @@ cython_debug/
 .abstra/
 
 # Visual Studio Code
-#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
+#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore
 #   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#   and can be added to the global gitignore or merged into this file. However, if you prefer, 
+#   and can be added to the global gitignore or merged into this file. However, if you prefer,
 #   you could uncomment the following to ignore the entire vscode folder
 # .vscode/
 # Temporary file for partial code execution
@@ -216,3 +216,25 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# === Ludarium ===
+
+# Sekrety i dane lokalne
+.env
+.env.local
+.env.*.local
+data/
+*.db
+*.db-journal
+*.sqlite3
+*.bak
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# Narzedzia
+.ruff_cache/
+.DS_Store
+!data/.gitkeep
