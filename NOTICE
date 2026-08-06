@@ -1,0 +1,15 @@
+Ludarium
+Copyright (c) 2026 Mateusz Halaburda
+
+The source code is licensed under AGPL-3.0-or-later (see LICENSE).
+
+The name "Ludarium" and any associated logos are NOT covered by that license.
+Forks and derivative works must use a different name to avoid confusion about
+origin and support.
+
+Third-party data:
+- Metacritic scores are retrieved at runtime via the RAWG API and require
+  attribution with an active link wherever they are displayed.
+- Game metadata is retrieved at runtime via IGDB (Twitch Developer Service
+  Agreement, non-commercial use).
+Neither dataset is redistributed with this software.
