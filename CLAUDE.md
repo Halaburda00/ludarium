@@ -97,7 +97,10 @@ depend on them without pulling in Ludarium.
 These are decisions already made. Do not relitigate them without being asked.
 
 1. **Sync never deletes records.** It sets `removed_at`. Removed entries stay
-   visible in a dedicated view and can be restored in one click.
+   visible in a dedicated view and can be restored in one click. Only a run
+   that finished with status `success` may set `removed_at` — a failed or
+   partial run marks nothing as removed, or an Epic outage would empty the
+   Epic library.
 2. **Records with `source = manual` are immutable to sync.** A user may add a
    game they own on a disc or an unredeemed key; sync must never touch it.
 3. **User edits win.** Any field a user overrides is flagged and never
@@ -106,6 +109,15 @@ These are decisions already made. Do not relitigate them without being asked.
    Each provider reports its own status and last successful run.
 5. **Multiple sources per entity** with per-field precedence:
    `manual > platform API > local agent > metadata provider`.
+
+   Precedence applies only where several sources assert the same concept. A
+   platform's store name and a canonical work title are different fields, not
+   competing values for one — platforms are not a source for `work.title` at
+   all, and their names live on `entitlement.provider_title`.
+
+   Field-level exceptions: `work.title` is anchored to IGDB once matched;
+   `installed` comes from the local agent only; `playtime` takes the maximum
+   within one entitlement and the sum across entitlements of the same work.
    Exceptions: `playtime` takes the maximum; `installed` comes from the agent.
 6. **A false positive is worse than a false negative** in matching. When
    confidence is low, send the pair to the manual review queue rather than
@@ -115,7 +127,11 @@ These are decisions already made. Do not relitigate them without being asked.
    excluded from logs and exports.
 8. **The ingest endpoint is a public contract.** Remote providers, the future
    local agent and manual uploads all report through the same API shape.
-
+9. **Providers never write entity columns.** They write `field_provenance`
+   rows; only the resolver writes the resolved value onto the entity. Entity
+   columns are a denormalised result kept so that the M3 filters can be
+   indexed. This is what makes rules 3 and 5 a mechanism rather than a
+   convention: a sync that goes wrong can at worst add a losing provenance row.
 ---
 
 ## Data model (summary)
