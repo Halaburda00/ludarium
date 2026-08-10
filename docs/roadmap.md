@@ -48,10 +48,13 @@ what it deliberately is not, and why.
 
 ---
 
-## M1 — Steam → database → an ugly list · ~4 days
+## M1 — Steam → database → an ugly list · ~12 days
 
 No cover art, no filters, no matching. It must work end to end and it is
 allowed to look bad.
+
+The original estimate of ~4 days assumed the provenance layer was free; it is
+not, and the resolver has to exist before the sync service rather than after it.
 
 - [ ] SQLAlchemy models + first Alembic migration
 - [ ] Settings via pydantic-settings, Fernet encryption for the API key
