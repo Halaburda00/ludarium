@@ -118,7 +118,6 @@ These are decisions already made. Do not relitigate them without being asked.
    Field-level exceptions: `work.title` is anchored to IGDB once matched;
    `installed` comes from the local agent only; `playtime` takes the maximum
    within one entitlement and the sum across entitlements of the same work.
-   Exceptions: `playtime` takes the maximum; `installed` comes from the agent.
 6. **A false positive is worse than a false negative** in matching. When
    confidence is low, send the pair to the manual review queue rather than
    merging. Every automatic merge is reversible and leaves an audit trail.
@@ -132,6 +131,7 @@ These are decisions already made. Do not relitigate them without being asked.
    columns are a denormalised result kept so that the M3 filters can be
    indexed. This is what makes rules 3 and 5 a mechanism rather than a
    convention: a sync that goes wrong can at worst add a losing provenance row.
+
 ---
 
 ## Data model (summary)
@@ -172,6 +172,11 @@ feature-based classifier decides (year delta, publisher, platform overlap,
 cosine, fuzzy ratio). Always embed a composite document — title, year,
 publisher, platforms — never a bare title, or *Prey* (2006) and *Prey* (2017)
 collapse into one record.
+
+No string-similarity threshold can separate Prey (2006) from Prey (2017): the
+titles are identical, and the distinguishing features — year and publisher —
+are invisible to any measure over strings. This is why candidate retrieval and
+adjudication are separate steps.
 
 Store the embedding model name and version alongside the vectors. Changing the
 model invalidates the index.
