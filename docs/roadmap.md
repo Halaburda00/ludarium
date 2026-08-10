@@ -12,9 +12,9 @@ Estimates assume roughly 5 hours per day.
 Write down what has already been decided, so neither a future contributor nor
 an AI agent proposes a launcher or multi-user support three weeks from now.
 
-- [ ] `docs/schema.md` — full data model: entities, fields, relations,
+- [x] `docs/schema.md` — full data model: entities, fields, relations,
       indexes, enums, per-field source precedence
-- [ ] `docs/adr/` — one file per decision, in the format
+- [x] `docs/adr/` — one file per decision, in the format
       *Context / Decision / Consequences*:
   - ADR-0001 Catalogue, not launcher
   - ADR-0002 Self-hosted web app instead of a desktop application
@@ -26,11 +26,22 @@ an AI agent proposes a launcher or multi-user support three weeks from now.
   - ADR-0008 AGPL for the app, MIT for the library, CC0 for the data
   - ADR-0009 fastembed instead of sentence-transformers
   - ADR-0010 Sync never deletes; `manual` records are immutable
-- [ ] `README.md` — Motivation, Prior art (Playnite, GOG Galaxy, Heroic,
+  - ADR-0011 Providers write provenance rows, never entity columns
+  - ADR-0012 `work.title` is IGDB-anchored; precedence applies only to
+    competing assertions about the same concept
+  - ADR-0013 `entitlement_work` `role='primary'` is the single source of truth
+    for work membership
+  - ADR-0014 No per-field history; provenance rows are updated in place
+  - ADR-0015 Sync creates work stubs rather than deferring work creation to the
+    matcher
+- [x] `README.md` — Motivation, Prior art (Playnite, GOG Galaxy, Heroic,
       Lutris, Backloggd), Status, Roadmap, Licence
-- [ ] `CONTRIBUTING.md` — inbound = outbound, commit format, how to run tests
-- [ ] `.github/workflows/ci.yml` — ruff, mypy, pytest on a 3.11–3.13 matrix,
-      plus a frontend build
+- [x] `CONTRIBUTING.md` — inbound = outbound, commit format, how to run tests,
+      and the rule that matcher logic belongs in `ludamatch` under MIT
+- [x] `.github/workflows/ci.yml` — ruff, mypy, pytest on Python 3.13 only, plus
+      a frontend build. The application ships as a `python:3.13-slim` image, so
+      there is a single supported interpreter; a version matrix belongs to
+      `ludamatch` (created in M2), which is a library others depend on
 
 **Done when:** a stranger reading `docs/` understands what the project is,
 what it deliberately is not, and why.
@@ -46,8 +57,10 @@ allowed to look bad.
 - [ ] Settings via pydantic-settings, Fernet encryption for the API key
 - [ ] `LibraryProvider` protocol + `SteamProvider`
       (`GetOwnedGames`, playtime stored even though it is not displayed yet)
-- [ ] Sync service: upsert, `first_seen_at`, `removed_at`, per-provider status
-- [ ] `GET /api/games`, `POST /api/sync/{provider}`, `GET /api/health`
+- [ ] Sync service: upsert, `first_seen_at`, `removed_at`, per-provider status,
+      and a work stub per new entitlement (ADR-0015) so the grid is
+      work-centric from the first run
+- [ ] `GET /api/works`, `POST /api/sync/{provider}`, `GET /api/health`
 - [ ] Login (single account, argon2), session cookie
 - [ ] Onboarding: paste the Steam key + SteamID, validate immediately, show a count
 - [ ] Frontend: a plain table of titles with the platform column
@@ -61,11 +74,29 @@ frontend locally shows your real Steam library in the browser.
 ## M2 — Metadata and a real grid · ~5 days
 
 - [ ] IGDB client (Twitch OAuth, token cache, rate limiting)
+- [ ] Matching layer 1: hard IDs from IGDB `external_games`. It belongs here,
+      not in M4 — a stub has to acquire its IGDB anchor before there is
+      anything to enrich, and the IGDB client is already in this milestone
+- [ ] Create `ludamatch` as a separate MIT repository, seeded with what layer 1
+      needs: title normalisation, the `external_games` lookup, and the mapping
+      types. Ludarium depends on it from this milestone onward and keeps no
+      matcher logic of its own
+- [ ] `merge_work(source, target)` and the orphan-stub cleanup job, both
+      specified in `docs/schema.md`. Layer 1 is the first thing that merges
+      stubs, so the operation ships with it, tests and undo included
 - [ ] RAWG client for Metacritic + required attribution link in the UI
 - [ ] Enrichment pipeline with local caching — never re-fetch what we have
 - [ ] Cover art, storage and lazy loading
 - [ ] Frontend: virtualised grid, search, detail view
 - [ ] Dark mode
+
+**On the timing of `ludamatch`:** it is created here rather than at M6 for two
+reasons, neither of them preference. Licence hygiene — every line of matcher
+code is ours only until the first external contribution touches it, and after
+v0.1.0 (M5) that stops being a safe assumption; relicensing later would need
+every contributor's agreement. And cost — extracting three functions now takes
+an hour, extracting a grown matcher takes a week, and a library written as a
+library ends up with a better API than one carved out of an application.
 
 **Done when:** the library looks like something you would actually want to browse.
 
@@ -91,13 +122,24 @@ platform's own UI.
 
 - [ ] `GogProvider`
 - [ ] `EpicProvider` (auth flow modelled on legendary)
+- [ ] `POST /api/ingest` as a public contract: one payload shape carrying the
+      reporting provider, the account it describes, and a list of items
+      (`provider_item_id`, `title`, `ownership_type`, `playtime_minutes`,
+      `installed`, `acquired_at`, plus an opaque `raw` object). Versioned,
+      documented, and validated the same way whoever posts it — the Galaxy
+      upload is its first consumer, the local agent in "Later" is the second
 - [ ] Upload and parse `galaxy-2.0.db` — reaches EA, Ubisoft, Battle.net in one
-      step without reverse-engineering three APIs
+      step without reverse-engineering three APIs. Posts through `/api/ingest`;
+      the accounts it discovers are created derived, with no credentials
 - [ ] CSV/JSON import
 - [ ] Multiple accounts per platform, with labels
-- [ ] Matching layers 1–2: IGDB hard IDs + alias dataset
+- [ ] Scheduled sync on APScheduler, writing runs with
+      `SyncTrigger.scheduled`; per-provider interval, skipped while a run for
+      that provider is already in flight
+- [ ] Matching layer 2: the curated alias dataset (layer 1 shipped in M2)
 
-**Done when:** the library covers every platform you actually use.
+**Done when:** the library covers every platform you actually use, and it
+refreshes itself without being asked.
 
 ---
 
@@ -107,6 +149,10 @@ platform's own UI.
 - [ ] GitHub Actions: buildx, `linux/amd64` + `linux/arm64`, push to GHCR
 - [ ] `PUID` / `PGID` / `TZ`, healthcheck, reverse proxy and subpath support
 - [ ] `docker-compose.yml` ready to copy from the README
+- [ ] Export and backup, implementing the `licence_class` filtering in
+      `docs/schema.md` — IGDB and RAWG values are dropped on the way out. A
+      self-hosted tool people cannot get their data out of is a trap, and the
+      first release is the moment that promise has to hold
 - [ ] mkdocs-material on GitHub Pages, `ludarium.dev`
 - [ ] Screenshots — the single biggest factor in whether anyone tries it
 - [ ] release-please, CHANGELOG, tag **v0.1.0**
@@ -115,11 +161,13 @@ platform's own UI.
 
 ---
 
-## M6 — `ludamatch` · ~1 week
+## M6 — Matching layers 3–5 · ~1 week
 
-Extracted into its own repository under MIT.
+`ludamatch` already exists as its own MIT repository (M2). This milestone fills
+it out and finishes the cascade.
 
-- [ ] Title normalisation (editions, trademarks, roman numerals, punctuation)
+- [ ] Title normalisation extended: editions, trademarks, roman numerals,
+      punctuation — beyond the minimum layer 1 needed
 - [ ] Candidate retrieval: trigram / BM25 + optional ANN over embeddings
 - [ ] Feature-based classifier for adjudication
 - [ ] Optional LLM layer, batched, structured output, cached
@@ -136,9 +184,9 @@ and the README shows measured numbers rather than claims.
 
 - Wishlist with manual ordering, then Steam wishlist import
 - Achievements
-- Local agent (installed state, accurate playtime, EA/Ubisoft/Battle.net)
+- Local agent (installed state, accurate playtime, EA/Ubisoft/Battle.net),
+  reporting through the `/api/ingest` contract defined in M4
 - Statistics and backlog reports
-- Export and backup
 - Xbox, PlayStation
 - Subscription catalogues (Game Pass)
 - Paid mobile client
