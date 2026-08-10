@@ -47,6 +47,11 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF", "ASYNC"]
 
+[tool.ruff.lint.isort]
+# Without this, the alembic/ directory in the project root makes ruff read the
+# alembic package as first-party in some files and third-party in others.
+known-third-party = ["alembic"]
+
 [tool.mypy]
 python_version = "3.13"
 strict = true

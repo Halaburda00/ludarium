@@ -1,5 +1,5 @@
 import os
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -13,12 +13,38 @@ os.environ["LUDARIUM_ENCRYPTION_KEY"] = TEST_ENCRYPTION_KEY
 os.environ["LUDARIUM_DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
 import pytest  # noqa: E402
+from alembic.config import Config  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from pydantic import SecretStr  # noqa: E402
+from sqlalchemy import create_engine, make_url  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from ludarium.config import Settings  # noqa: E402
+from ludarium.db import Database  # noqa: E402
 from ludarium.main import create_app  # noqa: E402
+from ludarium.models import Base  # noqa: E402
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+
+def sync_url(url: str) -> str:
+    """The same SQLite file through pysqlite, for the sync-only tooling."""
+
+    return make_url(url).set(drivername="sqlite").render_as_string(hide_password=False)
+
+
+def create_schema(url: str) -> None:
+    engine = create_engine(sync_url(url))
+    Base.metadata.create_all(engine)
+    engine.dispose()
+
+
+def alembic_config(url: str) -> Config:
+    config = Config(BACKEND_ROOT / "alembic.ini")
+    config.set_main_option("sqlalchemy.url", url)
+    config.attributes["configure_logger"] = False
+    return config
 
 
 @pytest.fixture
@@ -31,7 +57,30 @@ def settings(tmp_path: Path) -> Settings:
 
 
 @pytest.fixture
+async def db(settings: Settings) -> AsyncIterator[Database]:
+    """A database with the schema in place, created from the models.
+
+    Not from the migration, which would make every test wait on it; a drift test
+    keeps the two equivalent.
+    """
+
+    create_schema(settings.database_url)
+    database = Database(settings.database_url)
+    try:
+        yield database
+    finally:
+        await database.dispose()
+
+
+@pytest.fixture
+async def session(db: Database) -> AsyncIterator[AsyncSession]:
+    async with db.session_factory() as session:
+        yield session
+
+
+@pytest.fixture
 def app(settings: Settings) -> FastAPI:
+    create_schema(settings.database_url)
     return create_app(settings)
 
 

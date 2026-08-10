@@ -17,7 +17,7 @@ repos:
     hooks:
       - id: mypy
         name: mypy (backend)
-        entry: bash -c 'cd backend && uv run mypy src'
+        entry: bash -c 'cd backend && uv run mypy src alembic'
         language: system
         types: [python]
         pass_filenames: false
