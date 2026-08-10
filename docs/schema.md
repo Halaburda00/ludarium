@@ -14,12 +14,15 @@ first Alembic migration follow in M1 and must match what is written here.
 |---|---|
 | Primary keys | Surrogate `INTEGER` autoincrement (`BIGSERIAL` on PostgreSQL). Natural keys are enforced with `UNIQUE` constraints, never used as PKs |
 | Timestamps | UTC, no local time anywhere. `TIMESTAMP` in SQLite (ISO-8601 text), `TIMESTAMPTZ` on PostgreSQL |
+| Dates | `DATE` where the time of day is meaningless (`work.release_date`). ISO-8601 text in SQLite, native `DATE` on PostgreSQL |
 | Enums | `TEXT` plus a `CHECK` constraint, not native PostgreSQL enum types. Adding a value must not require a type migration, and the values stay readable in a raw SQLite session |
 | Booleans | `BOOLEAN` (`INTEGER` 0/1 in SQLite) |
 | JSON | `TEXT` holding JSON in SQLite, `JSONB` on PostgreSQL. Used only for opaque payloads (matcher features, raw provider records), never for anything queried by a filter |
 | Money / scores | `INTEGER` where the scale is fixed (Metacritic 0–100), `REAL` only for scores that are genuinely continuous (matcher confidence) |
 | Naming | `snake_case`, singular table names, `*_at` for timestamps, `*_id` for FKs |
 | Deletion | `ON DELETE RESTRICT` by default. Cascades exist only where a child row is meaningless without its parent (provenance, join tables, images) |
+| Foreign keys | SQLite does not enforce them unless `PRAGMA foreign_keys = ON`, and the pragma is per connection, not per database. Every `ON DELETE` policy in this document depends on it being set on connect — the engine sets it in a pool listener, and a test asserts it is on |
+| Vector search | `sqlite-vec` on SQLite, `pgvector` on PostgreSQL. Both store the vector alongside `work_embedding`; only the ANN index differs |
 | Tenancy | Single-tenant. Every user-scoped table carries `user_id NOT NULL DEFAULT 1` so that multi-tenancy stays a UI question, not a migration (ADR-0003) |
 
 ---
@@ -87,13 +90,13 @@ Single row in practice. Exists so `user_id` FKs point at something real.
 
 #### `provider`
 
-Seeded from code, not user-created. `manual` and `agent` are provider rows too,
-so that every entitlement has a source and no FK needs to be nullable.
+Seeded from code, not user-created. `manual`, `galaxy` and `agent` are provider
+rows too, so that every entitlement has a source and no FK needs to be nullable.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
 | `id` | INTEGER | no | PK | |
-| `key` | TEXT | no | | `UNIQUE`. `steam`, `gog`, `epic`, `igdb`, `rawg`, `manual`, `agent` |
+| `key` | TEXT | no | | `UNIQUE`. `steam`, `gog`, `epic`, `ea`, `ubisoft`, `battlenet`, `igdb`, `rawg`, `galaxy`, `agent`, `manual` |
 | `kind` | TEXT | no | | `ProviderKind` |
 | `source_kind` | TEXT | no | | `SourceKind` this provider writes with |
 | `licence_class` | TEXT | no | `'redistributable'` | `runtime_only` rows are excluded from every export |
@@ -118,6 +121,7 @@ labelled (M4).
 | `provider_id` | INTEGER | no | | FK → `provider` |
 | `external_account_id` | TEXT | yes | | SteamID64, GOG user id. Null for `manual` |
 | `label` | TEXT | no | | "Main Steam", "Old account" |
+| `is_derived` | BOOLEAN | no | `false` | The account was discovered inside an import rather than connected by the user. Has no credentials and is never synced directly — data reaches it only through whatever produced it |
 | `credentials_encrypted` | BLOB | yes | | Fernet ciphertext. Never returned to the frontend, masked in the UI, excluded from logs and exports (rule 7) |
 | `credentials_updated_at` | TIMESTAMP | yes | | |
 | `is_active` | BOOLEAN | no | `true` | |
@@ -147,6 +151,26 @@ future local agent and a manual upload are indistinguishable downstream.
 | `items_removed` | INTEGER | no | `0` | Marked `removed_at`, never deleted |
 | `error_text` | TEXT | yes | | |
 
+#### Local imports and derived accounts
+
+A `galaxy-2.0.db` upload is data read off the user's own machine, which is
+exactly what the `local_agent` rung of rule 5 describes. It differs from the
+future agent only in being a one-off upload instead of a daemon, so it needs no
+new `SourceKind`.
+
+| Concern | Decision |
+|---|---|
+| Who reports it | Provider `galaxy`, `kind = agent`, `source_kind = local_agent` |
+| Who owns the entitlements | Derived accounts on `ea`, `ubisoft`, `battlenet` (`kind = platform`), created with `is_derived = true` and no credentials |
+| Which `source_kind` lands on the provenance rows | The **reporting** provider's, not the account's. A Galaxy import writes `local_agent` rows even though the account belongs to `battlenet`. `provider.source_kind` on those three says `platform_api`, describing what they would write if we ever add real clients |
+| `sync_run` shape | `provider_id = galaxy`, `account_id` = the derived account. This is the one case where a run's provider differs from its account's provider |
+| CSV/JSON import | Runs against the `manual` provider with `source_kind = manual` and `origin = import`. It is the user asserting something, with no machine behind it |
+| Re-import | The same upsert key as any sync, so a second upload updates rather than duplicates |
+
+The consequence worth knowing: because Galaxy writes at `local_agent`, a real
+`BattlenetProvider` added later would outrank it automatically, without a
+migration or a precedence tweak.
+
 ### Catalogue
 
 #### `work`
@@ -155,16 +179,23 @@ The canonical title, IGDB-anchored. Columns here hold **resolved** values only
 — they are written by the resolver, never directly by a provider (see
 [Provenance](#provenance-and-precedence)).
 
-A work row appears when the matcher creates one: against an IGDB anchor
-(`is_matched = true`), or, where IGDB has no entry at all, as a local grouping
-of entitlements that agree (`is_matched = false`, `title` taken from the primary
-entitlement). An entitlement that has not been through the matcher has no work
-and no edition; it shows in the grid under its own `provider_title`.
+**Every entitlement has a work from the moment it is synced.** A new entitlement
+gets a stub: a `work` row with `is_matched = false`, `title` copied from
+`provider_title`, and a default `Standard` edition. Enrichment attaches the IGDB
+anchor later and flips `is_matched`; matching merges stubs that turn out to be
+the same game. There is no state in which an entitlement has no work
+(ADR-0015).
+
+This costs a table of near-duplicates early on and buys three things: the grid
+is work-centric from M1, `user_work_state` has something to hang off so a status
+can be set before anything is matched, and deduplication becomes
+`merge_work(source, target)` — an operation rematching needs regardless — rather
+than a creation with a different code path.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
 | `id` | INTEGER | no | PK | |
-| `title` | TEXT | no | | Canonical title from the IGDB anchor once `is_matched`; the provider title fills in until then. Store names are not a source here — they live on `entitlement.provider_title` |
+| `title` | TEXT | no | | Canonical title from the IGDB anchor once `is_matched`; on a stub it is a copy of the primary entitlement's `provider_title`. Store names are not a *source* here — they live on `entitlement.provider_title` |
 | `sort_title` | TEXT | no | | Leading article moved; drives keyset pagination |
 | `normalised_title` | TEXT | no | | Matcher normalisation output: lowercased, punctuation and edition markers stripped, roman numerals folded |
 | `item_kind` | TEXT | no | `'game'` | `ItemKind` |
@@ -183,8 +214,8 @@ and no edition; it shows in the grid under its own `provider_title`.
 #### `edition`
 
 Differs from its work in bundled content, not in identity. Every work has at
-least one edition; a provider entry with no edition information attaches to the
-work's implicit `Standard` edition.
+least one edition — a stub is created with a default `Standard` — and a provider
+entry with no edition information attaches to it.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
@@ -279,7 +310,7 @@ title, year, publisher, platforms — never a bare title.
 | `model_version` | TEXT | no | | Changing either invalidates the whole index |
 | `dimensions` | INTEGER | no | | |
 | `document_hash` | TEXT | no | | Skip re-embedding when the composite document has not changed |
-| `vector` | BLOB | no | | Mirrored into a `sqlite-vec` virtual table for ANN search |
+| `vector` | BLOB | no | | Mirrored into a `sqlite-vec` virtual table for ANN search; `pgvector` on PostgreSQL |
 | `created_at` | TIMESTAMP | no | `now()` | |
 
 #### `title_alias`
@@ -308,7 +339,7 @@ What the user actually owns, on one account. This is the row a sync touches.
 | `id` | INTEGER | no | PK | |
 | `user_id` | INTEGER | no | `1` | |
 | `account_id` | INTEGER | no | | FK → `account` |
-| `edition_id` | INTEGER | yes | | Which edition was bought. Null while unmatched; the raw title still shows in the grid. Not the route to the work — see the `primary` link in `entitlement_work` |
+| `edition_id` | INTEGER | yes | | Which edition was bought — the stub's `Standard` until something better is known. Nullable only for the moment between insert and stub creation inside one transaction. Not the route to the work: see the `primary` link in `entitlement_work` |
 | `origin` | TEXT | no | `'sync'` | `EntitlementOrigin`. `manual` is immutable to sync (rule 2) |
 | `provider_item_id` | TEXT | yes | | Steam appid, GOG product id. Null for `manual` |
 | `provider_title` | TEXT | no | | Exactly as the platform returned it, always requested in English. Never overwritten by metadata; it is the matcher's input and the fallback display title |
@@ -454,11 +485,12 @@ Every automatic merge is reversible and leaves a trail.
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
 | `id` | INTEGER | no | PK | |
-| `entitlement_id` | INTEGER | no | | |
-| `work_id` | INTEGER | no | | |
-| `action` | TEXT | no | | `linked`, `unlinked`, `relinked` |
+| `entitlement_id` | INTEGER | yes | | Null for `merged`, which is work-to-work and touches many entitlements at once |
+| `work_id` | INTEGER | no | | The surviving work for `merged` |
+| `action` | TEXT | no | | `linked`, `unlinked`, `relinked`, `merged` |
 | `layer` | TEXT | yes | | `MatchLayer` |
-| `previous_work_id` | INTEGER | yes | | Enough to undo a relink |
+| `previous_work_id` | INTEGER | yes | | Enough to undo a relink; the deleted source for `merged` |
+| `details` | JSON | yes | | Undo payload for a `merged` action: the deleted source work's row and the ids of every row moved with it |
 | `actor` | TEXT | no | | `auto` or `user` |
 | `created_at` | TIMESTAMP | no | `now()` | |
 
@@ -586,8 +618,8 @@ erDiagram
 |---|---|---|
 | `provider` → `account` | 1:N | Several accounts per platform, labelled (M4) |
 | `account` → `entitlement` | 1:N | |
-| `work` → `edition` | 1:N | Every work has a default edition |
-| `edition` → `entitlement` | 1:N | Nullable while unmatched |
+| `work` → `edition` | 1:N | Every work has a default edition, stubs included |
+| `edition` → `entitlement` | 1:N | Set at stub creation; nullable only inside the creating transaction |
 | `entitlement` ↔ `work` | **N:M** via `entitlement_work` | See below |
 | `work` → `work` | 1:N self | `parent_work_id`; DLC folded under its parent in the grid |
 | `work` ↔ `genre` / `company` / `platform` | N:M | |
@@ -621,17 +653,49 @@ bought three times.
 | How many platforms is this on? | `user_work_state.platform_count`, recomputed on resolve |
 | Where do I actually get it? | `provider.store_url_template` filled with `entitlement.provider_item_id` |
 
-Deduplication is a side effect of matching, not a feature of its own. An
-entitlement that has not been matched has `edition_id IS NULL` and no `primary`
-link, so it stands as its own row in the grid under its `provider_title`. That
-is the correct behaviour — merging on a guess would be a false positive, and a
-false positive is worse than a false negative (rule 6).
+Deduplication is a side effect of matching, not a feature of its own. Both
+entitlements arrive as their own stub, so the same game bought twice is two
+cards until a cascade layer establishes that the stubs are one work and merges
+them. Two cards for one game is the honest intermediate state — merging on a
+guess would be a false positive, and a false positive is worse than a false
+negative (rule 6).
 
-The practical consequence: **cross-platform deduplication only starts working in
-M4**, when cascade layers 1–2 (IGDB hard IDs and the alias dataset) arrive
-alongside `GogProvider` and `EpicProvider`. Before that there is only one
-platform connected, so there is nothing to deduplicate. The schema supports it
-from M1; the behaviour appears when the matcher does.
+The practical consequence: hard-ID deduplication starts in **M2** with cascade
+layer 1, alongside the IGDB client that gives stubs their anchors; alias-based
+deduplication follows in **M4** with layer 2 and the second and third platform.
+Before M2 there is one platform connected and nothing to deduplicate anyway.
+
+### Merging stubs
+
+`merge_work(source, target)` folds one work into another. The target is the one
+carrying the IGDB anchor; where neither is matched, the older row wins. Every
+table that references the source is dealt with explicitly:
+
+| Table | Action on merge |
+|---|---|
+| `entitlement_work` | Links move to the target. A `primary` link that would collide with an existing `primary` for the same entitlement becomes `granted` |
+| `edition` | Re-parented to the target, deduplicated by `slug`. `entitlement.edition_id` is repointed to the surviving edition; a stub's `Standard` collapses into the target's default |
+| `user_work_state` | Merged, not moved: user-set fields take the source's value only where the target still holds the default. `playtime_minutes` and `platform_count` are recomputed by the resolver afterwards, not copied |
+| `field_provenance` | Rows move. On collision with the target's row for the same `(field, source_kind, source_ref)` the later `observed_at` survives. `is_effective` is cleared across the field and the resolver runs again |
+| `field_pin` | Moves, unless the target already pins that field, in which case the target's pin stands |
+| `external_id` | Moves; duplicates by `(namespace, value)` are dropped |
+| `work_genre`, `work_company`, `work_platform` | Moved, duplicates dropped |
+| `image_asset` | Moved; `checksum` deduplicates identical covers |
+| `work_embedding` | Source row deleted, target re-embedded — the composite document changed |
+| `title_alias`, `match_candidate`, `match_audit` | `work_id` repointed |
+| `work.parent_work_id` | Children of the source are repointed at the target, and a source that was itself a child carries its parent over only if the target has none. Missing this leaves the `ON DELETE RESTRICT` on the self-FK blocking the final delete |
+| `work` (source) | Deleted last, in the same transaction |
+
+The merge writes a `match_audit` row with `action = 'merged'` and a `details`
+payload holding the source work and the ids of everything moved, which is what
+makes it reversible under rule 6. Reversibility matters more here than for a
+plain link: a merge is the one matcher action that destroys a row.
+
+**Orphaned stubs** accumulate — a stub whose last entitlement was removed, or
+whose links all moved elsewhere in a rematch. A periodic job deletes works that
+have no `entitlement_work` rows, are not matched, and carry no user-authored
+state (no `user_work_state` beyond defaults, no `manual` provenance). Anything
+failing those tests is kept and surfaced, not silently dropped.
 
 ---
 
@@ -681,7 +745,7 @@ doing its job.
 
 | Field | Entity | Strategy | Reason |
 |---|---|---|---|
-| `title` | `work` | `single_source` | The IGDB anchor once `is_matched`. Before that, the `provider_title` of the primary entitlement fills in, so an unmatched game still has a name |
+| `title` | `work` | `single_source` | The IGDB anchor once `is_matched`. On a stub it is a copy of the primary entitlement's `provider_title`, taken at creation — a derived value, not a provenance row, which is how platforms stay out of this field while a stub still has a name |
 | `sort_title`, `summary`, `release_year`, `release_date` | `work` | `precedence` | Genuinely competing assertions about one fact |
 | `item_kind` | `work` | `precedence` | Platforms mislabel DLC often enough that a manual override matters |
 | `cover` (via `image_asset`) | `work`, `edition` | `precedence` | Commonly pinned; store art differs per platform |
@@ -740,7 +804,20 @@ IGDB or RAWG ships inside the repository or the Docker image; the alias dataset
 | User edits | A `manual` provenance row, which sync cannot overwrite because it writes under a different `source_kind` (rule 3) |
 | Provider isolation | `sync_run` and the status columns are per provider and per account. One provider's failure changes no other provider's rows (rule 4) |
 | Which work an entitlement belongs to | The `entitlement_work` row with `role = 'primary'`, and nothing else. `edition_id` records only which edition was bought; its `edition.work_id` must agree with the primary link. Both are written in one transaction on match and on rematch |
+| Work creation | A stub work and its default edition are created in the same transaction as the entitlement, so no entitlement is ever work-less (ADR-0015). Stubs left behind by removal or rematch are collected by the orphan job described under [Merging stubs](#merging-stubs) |
 | Enforcing that agreement | A test, not a constraint. SQLite cannot express "`edition_id → edition.work_id` equals the `work_id` of this entitlement's `primary` link" as a `CHECK` — it spans three tables. The invariant is asserted in the matcher's test suite and by a consistency check the health endpoint can run |
+
+---
+
+## Deliberately not in the schema
+
+**Demo mode** (M3) is an instance-level environment variable,
+`LUDARIUM_DEMO_MODE`, not a database flag. While it is set the backend rejects
+writes to credential fields and refuses the sync endpoints outright; the seed
+dataset is ordinary rows loaded from a fixture. A column would have to be
+checked at every write site and would eventually be missed at one of them,
+whereas a refusal at the edge is one decision in one place. Nothing in the
+schema changes, and a demo database is a normal database.
 
 ---
 
@@ -766,7 +843,7 @@ through `EXISTS` over `entitlement_work` → `entitlement`.
 | Owned on several platforms (`platform_count >= 2`) | `user_work_state (user_id, platform_count)` |
 | Favourites / hidden | `user_work_state (user_id, is_favourite) WHERE is_favourite` |
 | DLC folding | `work (parent_work_id) WHERE parent_work_id IS NOT NULL` |
-| Search (M2) | SQLite: FTS5 virtual table `work_fts(title, normalised_title, provider_title)`. PostgreSQL: `pg_trgm` GIN on `work.normalised_title` |
+| Search (M2) | SQLite: FTS5 virtual table `work_fts(title, normalised_title, summary)` over `work` columns only. PostgreSQL: `pg_trgm` GIN on `work.normalised_title`. Store titles are not in it — `provider_title` lives on `entitlement`, and searching it is a separate query against `entitlement (provider_title)`, unioned into the results |
 | Default grid order | `work (sort_title, id)` — keyset pagination for the virtualised grid |
 
 ### Structural indexes
@@ -776,6 +853,9 @@ through `EXISTS` over `entitlement_work` → `entitlement`.
 | `entitlement` | `UNIQUE (account_id, provider_item_id) WHERE provider_item_id IS NOT NULL` | The sync upsert key; also what keeps manual rows out of sync's way |
 | `entitlement` | `(edition_id)` | Edition → owners |
 | `entitlement_work` | PK `(entitlement_id, work_id)` + `(work_id, entitlement_id)` | Both traversal directions are hot |
+| `work_platform` | `(platform_id, work_id)` | Reverse of the PK, matching `work_genre`. Platform overlap is a matcher feature, so it is read per candidate pair, not only for display |
+| `work_company` | `(company_id, work_id, role)` | Same, for the publisher feature |
+| `entitlement` | `(provider_title)` | The store-title half of search, which `work_fts` cannot cover |
 | `field_provenance` | `UNIQUE (entity_type, entity_id, field, source_kind, source_ref)` | One row per source per field |
 | `field_provenance` | `UNIQUE (entity_type, entity_id, field) WHERE is_effective` | Both the lookup path for the resolver and the detail view, and the guard on the flag. `is_effective` is a denormalisation; without this index a half-finished resolve could leave two winners for one field and nothing would notice |
 | `field_pin` | `UNIQUE (entity_type, entity_id, field)` | |
@@ -849,6 +929,12 @@ separately.
 | 300 | 10 | 200 | sync | 292030 | The Witcher 3: Wild Hunt | owned | 4200 | 2026-03-02 | null |
 | 301 | 11 | 201 | sync | 1495134320 | The Witcher 3: Wild Hunt - Game of the Year Edition | owned | 900 | 2026-04-11 | null |
 | 302 | 12 | 200 | manual | null | The Witcher 3 (Xbox One disc) | physical | null | 2026-04-20 | null |
+
+This is the state after matching. Entitlements 300 and 301 arrived as two
+separate stubs — "The Witcher 3: Wild Hunt" and "The Witcher 3: Wild Hunt - Game
+of the Year Edition", two cards in the grid — and layer 1 merged the GOG stub
+into the Steam one on the shared IGDB id, keeping the GOTY edition row and
+repointing entitlement 301 at it.
 
 **`entitlement_work`** — the many-to-many, doing real work: one GOG purchase
 grants three catalogue entries.
