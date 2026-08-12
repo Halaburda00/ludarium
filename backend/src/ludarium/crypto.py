@@ -36,12 +36,6 @@ class CredentialCipher:
 
 @lru_cache
 def get_cipher() -> CredentialCipher:
+    # Cached for the life of the process, like the settings it reads: the key
+    # arrives in the environment (rule 7), and changing that means a restart.
     return CredentialCipher(get_settings().encryption_key.get_secret_value())
-
-
-def encrypt(plaintext: str) -> bytes:
-    return get_cipher().encrypt(plaintext)
-
-
-def decrypt(token: bytes) -> str:
-    return get_cipher().decrypt(token)

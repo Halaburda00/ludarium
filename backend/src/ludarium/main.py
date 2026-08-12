@@ -34,7 +34,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
-    logging.basicConfig(level=settings.log_level)
+    # force, because basicConfig is a no-op once the root logger has a handler:
+    # the module-level app below installs one at import time, and every later
+    # create_app would silently ignore LUDARIUM_LOG_LEVEL.
+    logging.basicConfig(level=settings.log_level, force=True)
 
     app = FastAPI(title="Ludarium", version=__version__, lifespan=lifespan)
     app.state.settings = settings

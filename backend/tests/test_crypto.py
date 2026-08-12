@@ -1,9 +1,10 @@
 import logging
 
 import pytest
+from conftest import TEST_ENCRYPTION_KEY
 from cryptography.fernet import Fernet
 
-from ludarium.crypto import CredentialCipher, CredentialDecryptionError, decrypt, encrypt
+from ludarium.crypto import CredentialCipher, CredentialDecryptionError, get_cipher
 
 SECRET = "steam-api-key-0123456789ABCDEF"
 
@@ -17,11 +18,11 @@ def test_round_trip(cipher: CredentialCipher) -> None:
     assert cipher.decrypt(cipher.encrypt(SECRET)) == SECRET
 
 
-def test_module_level_helpers_use_the_configured_key() -> None:
-    token = encrypt(SECRET)
+def test_the_configured_key_is_the_one_in_use() -> None:
+    cipher = get_cipher()
 
-    assert isinstance(token, bytes)
-    assert decrypt(token) == SECRET
+    assert cipher.decrypt(cipher.encrypt(SECRET)) == SECRET
+    assert CredentialCipher(TEST_ENCRYPTION_KEY).decrypt(cipher.encrypt(SECRET)) == SECRET
 
 
 def test_ciphertext_does_not_contain_the_plaintext(cipher: CredentialCipher) -> None:
