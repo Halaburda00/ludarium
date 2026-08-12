@@ -1,12 +1,10 @@
-from datetime import datetime
-
-from sqlalchemy import ForeignKey, Index, UniqueConstraint, false, func, text
+from sqlalchemy import ForeignKey, Index, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ludarium.enums import EntityType, SourceKind
 from ludarium.models.base import Base
 from ludarium.models.provider import SyncRun
-from ludarium.models.types import enum_column, utcnow
+from ludarium.models.types import CreatedAt, JsonScalar, ScalarValue, enum_column
 
 
 class FieldProvenance(Base):
@@ -46,11 +44,9 @@ class FieldProvenance(Base):
     source_kind: Mapped[SourceKind] = mapped_column(enum_column(SourceKind, "source_kind"))
     # Provider key, or `account:12` where one provider has several accounts.
     source_ref: Mapped[str]
-    # JSON-encoded scalar. Null means "this source explicitly has no value",
-    # which is not the same as having no row.
-    value: Mapped[str | None]
+    value: Mapped[ScalarValue | None] = mapped_column(JsonScalar())
     is_effective: Mapped[bool] = mapped_column(default=False, server_default=false())
-    observed_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
+    observed_at: Mapped[CreatedAt]
     # Null for user edits, which no run produced.
     run_id: Mapped[int | None] = mapped_column(ForeignKey("sync_run.id", ondelete="RESTRICT"))
 

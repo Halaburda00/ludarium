@@ -23,8 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from ludarium.config import Settings  # noqa: E402
 from ludarium.db import Database  # noqa: E402
+from ludarium.enums import ProviderKind, SourceKind  # noqa: E402
 from ludarium.main import create_app  # noqa: E402
-from ludarium.models import Base  # noqa: E402
+from ludarium.models import AppUser, Base, Provider  # noqa: E402
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -46,6 +47,25 @@ def alembic_config(url: str) -> Config:
     config.set_main_option("sqlalchemy.url", url)
     config.attributes["configure_logger"] = False
     return config
+
+
+async def make_user(session: AsyncSession, username: str = "owner") -> AppUser:
+    user = AppUser(username=username, password_hash="not-a-hash")
+    session.add(user)
+    await session.flush()
+    return user
+
+
+async def make_provider(session: AsyncSession, key: str = "steam") -> Provider:
+    provider = Provider(
+        key=key,
+        kind=ProviderKind.PLATFORM,
+        source_kind=SourceKind.PLATFORM_API,
+        display_name=key.title(),
+    )
+    session.add(provider)
+    await session.flush()
+    return provider
 
 
 @pytest.fixture

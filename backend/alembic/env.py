@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from ludarium.config import get_settings
 from ludarium.db import ensure_sqlite_directory
 from ludarium.models import Base
-from ludarium.models.types import UtcDateTime
+from ludarium.models.types import JsonScalar, UtcDateTime
 
 config = context.config
 
@@ -50,6 +50,8 @@ def render_item(type_: str, obj: Any, autogen_context: AutogenContext) -> str | 
 
     if type_ == "type" and isinstance(obj, UtcDateTime):
         return "sa.DateTime(timezone=True)"
+    if type_ == "type" and isinstance(obj, JsonScalar):
+        return "sa.Text()"
     return False
 
 

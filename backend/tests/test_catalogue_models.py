@@ -1,8 +1,9 @@
 from datetime import UTC, datetime
 
 import pytest
+from conftest import make_provider, make_user
 from sqlalchemy import func, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.enums import (
@@ -11,34 +12,25 @@ from ludarium.enums import (
     ItemKind,
     OwnershipType,
     PlayStatus,
-    ProviderKind,
     SourceKind,
     WorkLinkRole,
 )
 from ludarium.models import (
     Account,
-    AppUser,
     Edition,
     Entitlement,
     EntitlementWork,
     FieldProvenance,
-    Provider,
     UserWorkState,
     Work,
 )
+from ludarium.models.types import ScalarValue
 from ludarium.titles import sort_title
 
 
 async def make_account(session: AsyncSession, key: str = "steam") -> Account:
-    session.add(AppUser(username="owner", password_hash="not-a-hash"))
-    provider = Provider(
-        key=key,
-        kind=ProviderKind.PLATFORM,
-        source_kind=SourceKind.PLATFORM_API,
-        display_name=key.title(),
-    )
-    session.add(provider)
-    await session.flush()
+    await make_user(session)
+    provider = await make_provider(session, key=key)
     account = Account(provider_id=provider.id, external_account_id="765611979", label="Main")
     session.add(account)
     await session.flush()
@@ -172,7 +164,7 @@ async def test_one_effective_provenance_row_per_field(session: AsyncSession) -> 
             field="title",
             source_kind=SourceKind.METADATA_PROVIDER,
             source_ref="igdb",
-            value='"The Witcher 3: Wild Hunt"',
+            value="The Witcher 3: Wild Hunt",
             is_effective=True,
         )
     )
@@ -185,12 +177,72 @@ async def test_one_effective_provenance_row_per_field(session: AsyncSession) -> 
             field="title",
             source_kind=SourceKind.PLATFORM_API,
             source_ref="steam",
-            value='"The Witcher 3"',
+            value="The Witcher 3",
             is_effective=True,
         )
     )
     with pytest.raises(IntegrityError):
         await session.flush()
+
+
+@pytest.mark.parametrize("value", ["The Witcher 3", 2015, 8.5, True, None])
+async def test_a_provenance_value_keeps_its_type(
+    session: AsyncSession, value: ScalarValue | None
+) -> None:
+    """The column does the JSON encoding, so a caller cannot store `"True"`."""
+
+    work = await make_work(session)
+    session.add(
+        FieldProvenance(
+            entity_type=EntityType.WORK,
+            entity_id=work.id,
+            field="installed",
+            source_kind=SourceKind.LOCAL_AGENT,
+            source_ref="agent",
+            value=value,
+        )
+    )
+    await session.commit()
+    session.expunge_all()
+
+    assert (await session.scalars(select(FieldProvenance))).one().value == value
+
+
+async def test_a_provenance_value_is_a_scalar(session: AsyncSession) -> None:
+    work = await make_work(session)
+    session.add(
+        FieldProvenance(
+            entity_type=EntityType.WORK,
+            entity_id=work.id,
+            field="genres",
+            source_kind=SourceKind.METADATA_PROVIDER,
+            source_ref="igdb",
+            value=["rpg", "adventure"],  # type: ignore[arg-type]
+        )
+    )
+
+    with pytest.raises(StatementError, match="one scalar"):
+        await session.flush()
+
+
+async def test_a_stored_provenance_value_is_json(session: AsyncSession) -> None:
+    """What the column holds, seen from outside the ORM: `true`, not `True`."""
+
+    work = await make_work(session)
+    session.add(
+        FieldProvenance(
+            entity_type=EntityType.WORK,
+            entity_id=work.id,
+            field="installed",
+            source_kind=SourceKind.LOCAL_AGENT,
+            source_ref="agent",
+            value=True,
+        )
+    )
+    await session.commit()
+
+    stored = await session.execute(text("SELECT value FROM field_provenance"))
+    assert stored.scalar_one() == "true"
 
 
 async def test_several_sources_may_lose_the_same_field(session: AsyncSession) -> None:
@@ -205,7 +257,7 @@ async def test_several_sources_may_lose_the_same_field(session: AsyncSession) ->
                 field="title",
                 source_kind=SourceKind.PLATFORM_API,
                 source_ref="steam",
-                value='"The Witcher 3"',
+                value="The Witcher 3",
             ),
             FieldProvenance(
                 entity_type=EntityType.WORK,
@@ -213,7 +265,7 @@ async def test_several_sources_may_lose_the_same_field(session: AsyncSession) ->
                 field="title",
                 source_kind=SourceKind.PLATFORM_API,
                 source_ref="gog",
-                value='"The Witcher 3: Wild Hunt"',
+                value="The Witcher 3: Wild Hunt",
             ),
         ]
     )
@@ -233,7 +285,7 @@ async def test_one_provenance_row_per_source_per_field(session: AsyncSession) ->
                 field="release_year",
                 source_kind=SourceKind.PLATFORM_API,
                 source_ref="steam",
-                value="2015",
+                value=2015,
             )
         )
 
@@ -289,13 +341,23 @@ async def test_a_rating_outside_one_to_ten_is_refused(session: AsyncSession, rat
         await session.flush()
 
 
-async def test_deleting_a_work_takes_its_dependent_rows(session: AsyncSession) -> None:
+async def test_deleting_a_matched_work_takes_its_dependent_rows(session: AsyncSession) -> None:
+    """The entitlement points at its edition here, which is the normal matched state.
+
+    With `RESTRICT` on `edition_id` this delete fails on a foreign key instead:
+    the work cascades to the edition, and the edition cannot go while an
+    entitlement names it.
+    """
+
     account = await make_account(session)
     work = await make_work(session)
+    edition = Edition(work_id=work.id, name="Standard", slug="standard", is_default=True)
+    session.add(edition)
+    await session.flush()
     entitlement = await make_entitlement(session, account)
+    entitlement.edition_id = edition.id
     session.add_all(
         [
-            Edition(work_id=work.id, name="Standard", slug="standard"),
             EntitlementWork(entitlement_id=entitlement.id, work_id=work.id),
             UserWorkState(work_id=work.id),
         ]
@@ -303,12 +365,15 @@ async def test_deleting_a_work_takes_its_dependent_rows(session: AsyncSession) -
     await session.commit()
 
     await session.execute(text("DELETE FROM work WHERE id = :id"), {"id": work.id})
+    # The cascade happened in the database, so the identity map has not heard.
+    session.expunge_all()
 
     for model in (Edition, EntitlementWork, UserWorkState):
         assert (await session.scalars(select(func.count()).select_from(model))).one() == 0
-    # The entitlement is not a dependent row: what the user owns survives the
-    # work it was matched to (rule 1).
-    assert (await session.scalars(select(func.count()).select_from(Entitlement))).one() == 1
+    # What the user owns survives the work it was matched to (rule 1), with the
+    # edition it named set back to null.
+    stored = (await session.scalars(select(Entitlement))).one()
+    assert stored.edition_id is None
 
 
 async def test_an_account_with_entitlements_cannot_be_deleted(session: AsyncSession) -> None:

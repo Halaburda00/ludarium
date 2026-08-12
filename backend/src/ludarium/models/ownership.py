@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, ForeignKey, Index, func, text
+from sqlalchemy import JSON, ForeignKey, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -9,7 +9,7 @@ from ludarium.enums import EntitlementOrigin, ItemKind, MatchLayer, OwnershipTyp
 from ludarium.models.base import Base
 from ludarium.models.catalogue import Edition, Work
 from ludarium.models.provider import Account, SyncRun
-from ludarium.models.types import enum_column, utcnow
+from ludarium.models.types import CreatedAt, enum_column
 
 
 class Entitlement(Base):
@@ -36,8 +36,11 @@ class Entitlement(Base):
     )
     account_id: Mapped[int] = mapped_column(ForeignKey("account.id", ondelete="RESTRICT"))
     # Which edition was bought, not the route to the work: that is the `primary`
-    # link in `entitlement_work`. Null only between insert and stub creation.
-    edition_id: Mapped[int | None] = mapped_column(ForeignKey("edition.id", ondelete="RESTRICT"))
+    # link in `entitlement_work`. Null between insert and stub creation, and
+    # again if the edition is deleted — SET NULL rather than RESTRICT, because
+    # an entitlement outliving its edition is rule 1, and RESTRICT here would
+    # make deleting a matched work fail on a foreign key instead.
+    edition_id: Mapped[int | None] = mapped_column(ForeignKey("edition.id", ondelete="SET NULL"))
     origin: Mapped[EntitlementOrigin] = mapped_column(
         enum_column(EntitlementOrigin, "entitlement_origin"),
         default=EntitlementOrigin.SYNC,
@@ -59,8 +62,8 @@ class Entitlement(Base):
     installed: Mapped[bool | None]
     install_path: Mapped[str | None]
     acquired_at: Mapped[datetime | None]
-    first_seen_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
-    last_seen_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
+    first_seen_at: Mapped[CreatedAt]
+    last_seen_at: Mapped[CreatedAt]
     # Set when a run no longer sees the item, and only by a run that finished
     # `success`. Never a DELETE (rule 1).
     removed_at: Mapped[datetime | None]
@@ -115,7 +118,7 @@ class EntitlementWork(Base):
     match_layer: Mapped[MatchLayer | None] = mapped_column(enum_column(MatchLayer, "match_layer"))
     # Null for hard IDs and manual links, which are not scored.
     confidence: Mapped[float | None]
-    created_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
+    created_at: Mapped[CreatedAt]
     created_by_run_id: Mapped[int | None] = mapped_column(
         ForeignKey("sync_run.id", ondelete="RESTRICT")
     )

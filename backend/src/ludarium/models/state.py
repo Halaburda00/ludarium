@@ -1,12 +1,12 @@
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, ForeignKey, false, func, text
+from sqlalchemy import CheckConstraint, ForeignKey, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ludarium.enums import PlayStatus
 from ludarium.models.base import Base
 from ludarium.models.catalogue import Work
-from ludarium.models.types import enum_column, utcnow
+from ludarium.models.types import UpdatedAt, enum_column
 
 
 class UserWorkState(Base):
@@ -48,8 +48,6 @@ class UserWorkState(Base):
     platform_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
     started_at: Mapped[datetime | None]
     completed_at: Mapped[datetime | None]
-    updated_at: Mapped[datetime] = mapped_column(
-        default=utcnow, onupdate=utcnow, server_default=func.now()
-    )
+    updated_at: Mapped[UpdatedAt]
 
     work: Mapped[Work] = relationship(lazy="raise_on_sql")

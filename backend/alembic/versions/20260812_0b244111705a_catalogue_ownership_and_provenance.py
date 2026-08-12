@@ -247,7 +247,7 @@ def upgrade() -> None:
             ["edition_id"],
             ["edition.id"],
             name=op.f("fk_entitlement_edition_id_edition"),
-            ondelete="RESTRICT",
+            ondelete="SET NULL",
         ),
         sa.ForeignKeyConstraint(
             ["removed_by_run_id"],

@@ -1,11 +1,11 @@
 from datetime import date, datetime
 
-from sqlalchemy import ForeignKey, Index, UniqueConstraint, false, func, text
+from sqlalchemy import ForeignKey, Index, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ludarium.enums import ItemKind
 from ludarium.models.base import Base
-from ludarium.models.types import enum_column, utcnow
+from ludarium.models.types import CreatedAt, UpdatedAt, enum_column
 
 
 class Work(Base):
@@ -59,10 +59,8 @@ class Work(Base):
     igdb_id: Mapped[int | None]
     is_matched: Mapped[bool] = mapped_column(default=False, server_default=false())
     enriched_at: Mapped[datetime | None]
-    created_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        default=utcnow, onupdate=utcnow, server_default=func.now()
-    )
+    created_at: Mapped[CreatedAt]
+    updated_at: Mapped[UpdatedAt]
 
     parent_work: Mapped["Work | None"] = relationship(remote_side=[id], lazy="raise_on_sql")
 
@@ -82,6 +80,6 @@ class Edition(Base):
     name: Mapped[str]
     slug: Mapped[str]
     is_default: Mapped[bool] = mapped_column(default=False, server_default=false())
-    created_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
+    created_at: Mapped[CreatedAt]
 
     work: Mapped[Work] = relationship(lazy="raise_on_sql")

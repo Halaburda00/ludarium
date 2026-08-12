@@ -1,31 +1,13 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from conftest import make_provider, make_user
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ludarium.enums import ProviderKind, SourceKind, SyncStatus, SyncTrigger
+from ludarium.enums import SyncStatus, SyncTrigger
 from ludarium.models import Account, AppUser, Provider, SyncRun, UserSession
-
-
-async def make_user(session: AsyncSession) -> AppUser:
-    user = AppUser(username="owner", password_hash="not-a-hash")
-    session.add(user)
-    await session.flush()
-    return user
-
-
-async def make_provider(session: AsyncSession, key: str = "steam") -> Provider:
-    provider = Provider(
-        key=key,
-        kind=ProviderKind.PLATFORM,
-        source_kind=SourceKind.PLATFORM_API,
-        display_name=key.title(),
-    )
-    session.add(provider)
-    await session.flush()
-    return provider
 
 
 async def test_round_trip_with_defaults(session: AsyncSession) -> None:

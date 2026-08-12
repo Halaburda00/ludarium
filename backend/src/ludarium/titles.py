@@ -20,7 +20,7 @@ def sort_title(title: str) -> str:
     stripped = title.strip()
     for article in LEADING_ARTICLES:
         if stripped.startswith(article):
-            rest = stripped[len(article) :].strip()
+            rest = stripped.removeprefix(article).strip()
             # "The " on its own is a title, not an article; without this the
             # result would be a lone comma.
             return f"{rest}, {article.strip()}" if rest else stripped

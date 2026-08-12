@@ -16,15 +16,27 @@ def table_names(url: str) -> set[str]:
 
 
 def split_top_level(body: str) -> list[str]:
+    """Split on commas that separate parts, not on commas inside them.
+
+    Quoting matters as much as nesting here: a `CHECK (x IN ('a, b'))` or a
+    server default with a comma in it would otherwise be torn in half.
+    """
+
     items: list[str] = []
     depth = 0
+    quote = ""
     current = ""
     for character in body:
-        if character == "," and depth == 0:
+        if quote:
+            quote = "" if character == quote else quote
+        elif character in "'\"":
+            quote = character
+        elif character == "," and depth == 0:
             items.append(current.strip())
             current = ""
             continue
-        depth += (character == "(") - (character == ")")
+        else:
+            depth += (character == "(") - (character == ")")
         current += character
     items.append(current.strip())
     return items

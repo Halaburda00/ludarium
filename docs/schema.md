@@ -339,7 +339,7 @@ What the user actually owns, on one account. This is the row a sync touches.
 | `id` | INTEGER | no | PK | |
 | `user_id` | INTEGER | no | `1` | |
 | `account_id` | INTEGER | no | | FK → `account` |
-| `edition_id` | INTEGER | yes | | Which edition was bought — the stub's `Standard` until something better is known. Nullable only for the moment between insert and stub creation inside one transaction. Not the route to the work: see the `primary` link in `entitlement_work` |
+| `edition_id` | INTEGER | yes | | Which edition was bought — the stub's `Standard` until something better is known. FK → `edition`, `ON DELETE SET NULL`: `edition` cascades from `work`, and an entitlement has to outlive both (rule 1), so null means either "not yet known" or "the edition it named is gone". `RESTRICT` here would instead make deleting a matched work fail on a foreign key. Not the route to the work: see the `primary` link in `entitlement_work` |
 | `origin` | TEXT | no | `'sync'` | `EntitlementOrigin`. `manual` is immutable to sync (rule 2) |
 | `provider_item_id` | TEXT | yes | | Steam appid, GOG product id. Null for `manual` |
 | `provider_title` | TEXT | no | | Exactly as the platform returned it, always requested in English. Never overwritten by metadata; it is the matcher's input and the fallback display title |
