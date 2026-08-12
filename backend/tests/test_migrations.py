@@ -15,8 +15,54 @@ def table_names(url: str) -> set[str]:
         engine.dispose()
 
 
+def split_top_level(body: str) -> list[str]:
+    """Split on commas that separate parts, not on commas inside them.
+
+    Quoting matters as much as nesting here: a `CHECK (x IN ('a, b'))` or a
+    server default with a comma in it would otherwise be torn in half.
+    """
+
+    items: list[str] = []
+    depth = 0
+    quote = ""
+    current = ""
+    for character in body:
+        if quote:
+            quote = "" if character == quote else quote
+        elif character in "'\"":
+            quote = character
+        elif character == "," and depth == 0:
+            items.append(current.strip())
+            current = ""
+            continue
+        else:
+            depth += (character == "(") - (character == ")")
+        current += character
+    items.append(current.strip())
+    return items
+
+
+def normalise(sql: str) -> str:
+    """Whitespace and the order of the parts inside `CREATE TABLE (...)`.
+
+    SQLAlchemy emits constraints in the order the constraint objects were
+    constructed, which differs between the two paths by construction:
+    `__table_args__` is evaluated with the class body, an inline `ForeignKey`
+    becomes a constraint when the table is assembled, and an `Enum` `CHECK`
+    later still. Ordering says nothing about whether the two schemas agree, so
+    the comparison does not look at it.
+    """
+
+    flattened = " ".join(sql.split())
+    opening = flattened.find("(")
+    if not flattened.startswith("CREATE TABLE") or opening == -1:
+        return flattened
+    head, body = flattened[:opening], flattened[opening + 1 : flattened.rindex(")")]
+    return f"{head}({', '.join(sorted(split_top_level(body)))})"
+
+
 def schema_dump(url: str) -> dict[str, str]:
-    """Every CREATE statement SQLite kept, whitespace-normalised."""
+    """Every CREATE statement SQLite kept, normalised."""
 
     engine = create_engine(sync_url(url))
     try:
@@ -27,7 +73,7 @@ def schema_dump(url: str) -> dict[str, str]:
                     "WHERE sql IS NOT NULL AND name <> 'alembic_version'"
                 )
             )
-            return {name: " ".join(sql.split()) for name, sql in rows}
+            return {name: normalise(sql) for name, sql in rows}
     finally:
         engine.dispose()
 
@@ -48,6 +94,12 @@ def test_upgrade_then_downgrade_leaves_an_empty_database(settings: Settings) -> 
         "provider",
         "account",
         "sync_run",
+        "work",
+        "edition",
+        "entitlement",
+        "entitlement_work",
+        "user_work_state",
+        "field_provenance",
     }
     assert table_names(settings.database_url) == {"alembic_version"}
 

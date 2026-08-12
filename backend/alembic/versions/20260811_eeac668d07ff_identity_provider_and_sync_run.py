@@ -18,9 +18,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Column and constraint order follows the model declarations: a test compares
-    # the DDL this produces with the DDL the models produce, and that comparison
-    # is only cheap while the two are textually identical.
+    # A test compares the DDL this produces with the DDL the models produce.
+    # Ordering is not part of that comparison, so this file is free to read in
+    # whatever order is clearest.
     op.create_table(
         "app_user",
         sa.Column("id", sa.Integer(), nullable=False),

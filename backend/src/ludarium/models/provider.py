@@ -1,11 +1,11 @@
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, false, func, text, true
+from sqlalchemy import ForeignKey, Index, false, text, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ludarium.enums import LicenceClass, ProviderKind, SourceKind, SyncStatus, SyncTrigger
 from ludarium.models.base import Base
-from ludarium.models.types import enum_column, utcnow
+from ludarium.models.types import CreatedAt, enum_column
 
 
 class Provider(Base):
@@ -72,7 +72,7 @@ class Account(Base):
     credentials_encrypted: Mapped[bytes | None]
     credentials_updated_at: Mapped[datetime | None]
     is_active: Mapped[bool] = mapped_column(default=True, server_default=true())
-    created_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
+    created_at: Mapped[CreatedAt]
     last_success_at: Mapped[datetime | None]
 
     provider: Mapped[Provider] = relationship(lazy="raise_on_sql")
@@ -107,7 +107,7 @@ class SyncRun(Base):
         default=SyncStatus.RUNNING,
         server_default=text(f"'{SyncStatus.RUNNING.value}'"),
     )
-    started_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
+    started_at: Mapped[CreatedAt]
     finished_at: Mapped[datetime | None]
     items_seen: Mapped[int] = mapped_column(default=0, server_default=text("0"))
     items_added: Mapped[int] = mapped_column(default=0, server_default=text("0"))

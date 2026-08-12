@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, ClassVar
 
-from sqlalchemy import Boolean, Integer, LargeBinary, MetaData, Text
+from sqlalchemy import Boolean, Date, Float, Integer, LargeBinary, MetaData, Text
 from sqlalchemy.orm import DeclarativeBase
 
 from ludarium.models.types import UtcDateTime
@@ -23,7 +23,11 @@ class Base(DeclarativeBase):
     type_annotation_map: ClassVar[dict[Any, Any]] = {
         bool: Boolean(),
         bytes: LargeBinary(),
+        # `date` is listed next to `datetime` on purpose: `datetime` subclasses
+        # it, and only an exact entry keeps a release date out of UtcDateTime.
+        date: Date(),
         datetime: UtcDateTime(),
+        float: Float(),
         int: Integer(),
         str: Text(),
     }

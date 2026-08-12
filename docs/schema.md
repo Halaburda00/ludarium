@@ -196,8 +196,8 @@ than a creation with a different code path.
 |---|---|---|---|---|
 | `id` | INTEGER | no | PK | |
 | `title` | TEXT | no | | Canonical title from the IGDB anchor once `is_matched`; on a stub it is a copy of the primary entitlement's `provider_title`. Store names are not a *source* here — they live on `entitlement.provider_title` |
-| `sort_title` | TEXT | no | | Leading article moved; drives keyset pagination |
-| `normalised_title` | TEXT | no | | Matcher normalisation output: lowercased, punctuation and edition markers stripped, roman numerals folded |
+| `sort_title` | TEXT | no | | Leading article moved, so "The Witcher 3" files under W; drives keyset pagination. Display logic, and it stays in Ludarium |
+| `normalised_title` | TEXT | yes | | Matcher normalisation output: lowercased, punctuation and edition markers stripped, roman numerals folded. Nullable because it is `ludamatch`'s output (MIT, separate repository) and nothing writes it before M2 — populating it here would put matcher code in the wrong repository, to be extracted later. `sort_title` is the display-side counterpart and stays `NOT NULL` |
 | `item_kind` | TEXT | no | `'game'` | `ItemKind` |
 | `parent_work_id` | INTEGER | yes | | Self-FK. DLC folded under its parent game in the grid (M3) |
 | `release_year` | INTEGER | yes | | Year only; day-level precision is noise for filtering |
@@ -339,7 +339,7 @@ What the user actually owns, on one account. This is the row a sync touches.
 | `id` | INTEGER | no | PK | |
 | `user_id` | INTEGER | no | `1` | |
 | `account_id` | INTEGER | no | | FK → `account` |
-| `edition_id` | INTEGER | yes | | Which edition was bought — the stub's `Standard` until something better is known. Nullable only for the moment between insert and stub creation inside one transaction. Not the route to the work: see the `primary` link in `entitlement_work` |
+| `edition_id` | INTEGER | yes | | Which edition was bought — the stub's `Standard` until something better is known. FK → `edition`, `ON DELETE SET NULL`: `edition` cascades from `work`, and an entitlement has to outlive both (rule 1), so null means either "not yet known" or "the edition it named is gone". `RESTRICT` here would instead make deleting a matched work fail on a foreign key. Not the route to the work: see the `primary` link in `entitlement_work` |
 | `origin` | TEXT | no | `'sync'` | `EntitlementOrigin`. `manual` is immutable to sync (rule 2) |
 | `provider_item_id` | TEXT | yes | | Steam appid, GOG product id. Null for `manual` |
 | `provider_title` | TEXT | no | | Exactly as the platform returned it, always requested in English. Never overwritten by metadata; it is the matcher's input and the fallback display title |
@@ -853,6 +853,7 @@ through `EXISTS` over `entitlement_work` → `entitlement`.
 | `entitlement` | `UNIQUE (account_id, provider_item_id) WHERE provider_item_id IS NOT NULL` | The sync upsert key; also what keeps manual rows out of sync's way |
 | `entitlement` | `(edition_id)` | Edition → owners |
 | `entitlement_work` | PK `(entitlement_id, work_id)` + `(work_id, entitlement_id)` | Both traversal directions are hot |
+| `entitlement_work` | `UNIQUE (entitlement_id) WHERE role = 'primary'` | "Exactly one `primary` per entitlement" is the single source of truth for which work an entitlement belongs to, so it is an index rather than a convention — the same reasoning as the `is_effective` guard below |
 | `work_platform` | `(platform_id, work_id)` | Reverse of the PK, matching `work_genre`. Platform overlap is a matcher feature, so it is read per candidate pair, not only for display |
 | `work_company` | `(company_id, work_id, role)` | Same, for the publisher feature |
 | `entitlement` | `(provider_title)` | The store-title half of search, which `work_fts` cannot cover |

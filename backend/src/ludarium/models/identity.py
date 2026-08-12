@@ -1,10 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, func, text
+from sqlalchemy import ForeignKey, Index, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ludarium.models.base import Base
-from ludarium.models.types import utcnow
+from ludarium.models.types import CreatedAt
 
 
 class AppUser(Base):
@@ -16,7 +16,7 @@ class AppUser(Base):
     username: Mapped[str] = mapped_column(unique=True)
     password_hash: Mapped[str]
     locale: Mapped[str] = mapped_column(default="en", server_default=text("'en'"))
-    created_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
+    created_at: Mapped[CreatedAt]
     last_login_at: Mapped[datetime | None]
 
 
@@ -33,7 +33,7 @@ class UserSession(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("app_user.id", ondelete="RESTRICT"))
     token_hash: Mapped[str] = mapped_column(unique=True)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow, server_default=func.now())
+    created_at: Mapped[CreatedAt]
     expires_at: Mapped[datetime]
 
     # raise_on_sql: an implicit lazy load under asyncio fails as MissingGreenlet
