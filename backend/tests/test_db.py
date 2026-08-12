@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from ludarium.config import Settings
-from ludarium.db import Database
+from ludarium.db import Database, ensure_sqlite_directory
 
 
 @pytest.fixture
@@ -47,6 +47,12 @@ async def test_in_memory_url_needs_no_directory() -> None:
             assert (await session.execute(text("PRAGMA foreign_keys"))).scalar_one() == 1
     finally:
         await database.dispose()
+
+
+def test_a_postgres_url_creates_no_directory(tmp_path: Path) -> None:
+    ensure_sqlite_directory(f"postgresql+asyncpg://user@host/{tmp_path.name}")
+
+    assert list(tmp_path.iterdir()) == []
 
 
 async def test_sqlite_directory_is_created(tmp_path: Path) -> None:

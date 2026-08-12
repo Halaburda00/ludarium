@@ -11,8 +11,9 @@ from ludarium.models.types import enum_column, utcnow
 class Provider(Base):
     """Seeded from code, not user-created.
 
-    `manual`, `galaxy` and `agent` are provider rows too, so that every
-    entitlement has a source and no foreign key needs to be nullable.
+    `manual` is a provider row like any platform, and the local agent and the
+    metadata providers will be too, so that every entitlement has a source and
+    no foreign key needs to be nullable.
     """
 
     __tablename__ = "provider"

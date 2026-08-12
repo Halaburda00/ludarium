@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from alembic import command
 from conftest import alembic_config, create_schema, sync_url
 from sqlalchemy import create_engine, inspect, text
@@ -48,6 +50,16 @@ def test_upgrade_then_downgrade_leaves_an_empty_database(settings: Settings) -> 
         "sync_run",
     }
     assert table_names(settings.database_url) == {"alembic_version"}
+
+
+def test_upgrade_creates_the_database_directory(tmp_path: Path) -> None:
+    """A fresh checkout has no `data/`, and this is the first command we document."""
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'data' / 'ludarium.db'}"
+
+    command.upgrade(alembic_config(url), "head")
+
+    assert "provider" in table_names(url)
 
 
 def test_the_migration_and_the_models_agree(settings: Settings) -> None:

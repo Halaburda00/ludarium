@@ -5,7 +5,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.enums import LicenceClass, ProviderKind, SourceKind, SyncStatus
 from ludarium.models import Provider
-from ludarium.seed import seed_providers
+from ludarium.seed import ProviderSpec, seed_providers
+
+
+def test_every_provider_column_is_either_seeded_or_runtime() -> None:
+    """Rule 4 as a mechanism: a new column has to be put in one bucket, not both.
+
+    `test_seeding_leaves_runtime_state_alone` only guards the four columns it
+    names; this fails the moment `Provider` grows a fifth.
+    """
+
+    runtime = {"enabled", "status", "last_success_at", "last_error"}
+    columns = {column.name for column in Provider.__table__.columns} - {"id"}
+
+    assert columns == set(ProviderSpec.__dataclass_fields__) | runtime
 
 
 async def test_seeds_steam_and_manual(session: AsyncSession) -> None:

@@ -18,16 +18,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     database = Database(settings.database_url)
     app.state.database = database
     try:
-        async with database.session_factory() as session:
-            await seed_providers(session)
-    except OperationalError as exc:
-        await database.dispose()
-        raise RuntimeError(
-            "the database has no schema yet — run `uv run alembic upgrade head`"
-        ) from exc
-    try:
+        try:
+            async with database.session_factory() as session:
+                await seed_providers(session)
+        except OperationalError as exc:
+            raise RuntimeError(
+                "the database has no schema yet — run `uv run alembic upgrade head`"
+            ) from exc
         yield
     finally:
+        # Also on a failed start: whatever went wrong, the pool it opened is ours
+        # to close.
         await database.dispose()
 
 

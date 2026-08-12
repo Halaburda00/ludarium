@@ -9,6 +9,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from ludarium.config import get_settings
+from ludarium.db import ensure_sqlite_directory
 from ludarium.models import Base
 from ludarium.models.types import UtcDateTime
 
@@ -67,8 +68,10 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
+    url = get_url()
+    ensure_sqlite_directory(url)
     section = config.get_section(config.config_ini_section, {})
-    section["sqlalchemy.url"] = get_url()
+    section["sqlalchemy.url"] = url
     connectable = async_engine_from_config(section, prefix="sqlalchemy.", poolclass=pool.NullPool)
 
     async with connectable.connect() as connection:
