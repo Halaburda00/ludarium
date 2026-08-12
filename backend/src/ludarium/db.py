@@ -18,9 +18,7 @@ class Database:
     """Owns the engine and the session factory for one application instance."""
 
     def __init__(self, url: str) -> None:
-        parsed = make_url(url)
-        if parsed.get_backend_name() == "sqlite":
-            _ensure_database_directory(parsed.database)
+        ensure_sqlite_directory(url)
 
         self.engine: AsyncEngine = create_async_engine(url)
         if self.engine.dialect.name == "sqlite":
@@ -42,7 +40,18 @@ def _set_sqlite_pragmas(connection: DBAPIConnection, _record: ConnectionPoolEntr
         cursor.close()
 
 
-def _ensure_database_directory(database: str | None) -> None:
+def ensure_sqlite_directory(url: str) -> None:
+    """Create the parent directory so SQLite can create the file on first connect.
+
+    Alembic needs this as much as the application does: `alembic upgrade head` is
+    the documented first command on a fresh checkout, where `data/` does not exist
+    yet and SQLite would only answer `unable to open database file`.
+    """
+
+    parsed = make_url(url)
+    if parsed.get_backend_name() != "sqlite":
+        return
+    database = parsed.database
     if database is None or database == ":memory:":
         return
     Path(database).parent.mkdir(parents=True, exist_ok=True)

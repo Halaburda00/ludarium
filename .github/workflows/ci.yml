@@ -37,7 +37,7 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Types
-        run: uv run mypy src
+        run: uv run mypy src alembic
 
       - name: Tests
         run: uv run pytest
