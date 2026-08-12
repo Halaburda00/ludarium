@@ -58,6 +58,14 @@ def ensure_sqlite_directory(url: str) -> None:
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
+    """One session per request. **The endpoint commits, not this.**
+
+    Deliberate, and the opposite of it is worse: code after `yield` in a
+    dependency runs once the response has gone out, so a commit here would tell
+    the client the write succeeded and only then be free to fail. Committing in
+    the endpoint turns the same failure into a 500 the caller can act on.
+    """
+
     database: Database = request.app.state.database
     async with database.session_factory() as session:
         yield session

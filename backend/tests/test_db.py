@@ -2,11 +2,15 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from conftest import sync_url
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.exc import IntegrityError
 
 from ludarium.config import Settings
-from ludarium.db import Database, ensure_sqlite_directory
+from ludarium.db import Database, SessionDep, ensure_sqlite_directory
+from ludarium.models import AppUser
 
 
 @pytest.fixture
@@ -47,6 +51,37 @@ async def test_in_memory_url_needs_no_directory() -> None:
             assert (await session.execute(text("PRAGMA foreign_keys"))).scalar_one() == 1
     finally:
         await database.dispose()
+
+
+def test_the_endpoint_commits_not_the_dependency(app: FastAPI, settings: Settings) -> None:
+    """Pins the contract in `get_session`, in both directions.
+
+    Auto-committing on teardown would be the tempting change, and it would put
+    the commit after the response has already gone out.
+    """
+
+    @app.post("/test/without-a-commit")
+    async def without_a_commit(session: SessionDep) -> None:
+        session.add(AppUser(username="dropped", password_hash="not-a-hash"))
+        await session.flush()
+
+    @app.post("/test/with-a-commit")
+    async def with_a_commit(session: SessionDep) -> None:
+        session.add(AppUser(username="kept", password_hash="not-a-hash"))
+        await session.commit()
+
+    with TestClient(app) as client:
+        client.post("/test/without-a-commit")
+        client.post("/test/with-a-commit")
+
+    engine = create_engine(sync_url(settings.database_url))
+    try:
+        with engine.connect() as connection:
+            usernames = set(connection.scalars(select(AppUser.username)))
+    finally:
+        engine.dispose()
+
+    assert usernames == {"kept"}
 
 
 def test_a_postgres_url_creates_no_directory(tmp_path: Path) -> None:

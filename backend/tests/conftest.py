@@ -7,8 +7,9 @@ from cryptography.fernet import Fernet
 # Set before anything imports ludarium.main, which builds the module-level app.
 # Assignment rather than setdefault: a developer's real backend/.env is picked up
 # from the working directory otherwise, and tests would use the real database.
+TEST_SECRET_KEY = "test-secret-key"
 TEST_ENCRYPTION_KEY = Fernet.generate_key().decode()
-os.environ["LUDARIUM_SECRET_KEY"] = "test-secret-key"
+os.environ["LUDARIUM_SECRET_KEY"] = TEST_SECRET_KEY
 os.environ["LUDARIUM_ENCRYPTION_KEY"] = TEST_ENCRYPTION_KEY
 os.environ["LUDARIUM_DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
@@ -50,7 +51,7 @@ def alembic_config(url: str) -> Config:
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(
-        secret_key=SecretStr("test-secret-key"),
+        secret_key=SecretStr(TEST_SECRET_KEY),
         encryption_key=SecretStr(TEST_ENCRYPTION_KEY),
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'ludarium.db'}",
     )

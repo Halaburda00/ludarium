@@ -4,6 +4,7 @@ import pytest
 from pydantic import SecretStr, ValidationError
 
 from ludarium.config import ConfigurationError, Settings, get_settings
+from ludarium.crypto import get_cipher
 
 
 @pytest.fixture(autouse=True)
@@ -12,6 +13,9 @@ def _isolate_from_dotenv(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     # pytest from backend/, where a real one lives.
     monkeypatch.chdir(tmp_path)
     get_settings.cache_clear()
+    # The cipher caches the key it was built from, so it would outlive the
+    # settings it came from.
+    get_cipher.cache_clear()
 
 
 def test_settings_read_the_ludarium_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
