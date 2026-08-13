@@ -728,6 +728,11 @@ edit. For each (entity, field):
    transaction — the partial unique index rejects a moment with two winners,
    which is the point of having it.
 
+A field nobody asserts is left alone: a stub's title is set at creation and has
+no provenance row behind it. A field whose sources have all withdrawn their
+value is not the same case — the column caches the decision above, so it goes
+null and no row stays effective, rather than keeping a figure nothing supports.
+
 Default strategy is `precedence`: `manual > platform_api > local_agent >
 metadata_provider`, ties inside one `SourceKind` broken by
 `provider.precedence_weight`, then by the most recent `observed_at`.

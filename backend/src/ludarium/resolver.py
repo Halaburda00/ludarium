@@ -12,6 +12,7 @@ absent: `field_pin` is not a table yet and arrives with the UI that writes it.
 from collections.abc import Callable, Mapping, Sequence
 from typing import Final
 
+from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -83,11 +84,19 @@ WRITERS: Final[Mapping[FieldStrategy, SourceKind]] = {
 }
 
 # Honest about coverage: an untested branch that silently resolves something is
-# worse than a refusal that says when it will exist.
+# worse than a refusal that says when it will exist. `record()` refuses these
+# too — a write nothing can read back is not half-working, it is broken.
 DEFERRED: Final[Mapping[FieldStrategy, str]] = {
     FieldStrategy.LATEST: "M4, where a second platform makes an aggregate mean something",
     FieldStrategy.DERIVED: "M4, with `platform_count` and the second platform",
     FieldStrategy.AGENT_ONLY: "the local agent, which the roadmap puts after M5",
+}
+
+# Registered, but not something `resolve()` can serve: these fields have no
+# competing sources to choose between.
+NOT_RESOLVED: Final[Mapping[FieldStrategy, str]] = {
+    FieldStrategy.SUM: "aggregates entitlements; call resolve_work_aggregates()",
+    FieldStrategy.USER_ONLY: "is written by the user, never recorded and resolved",
 }
 
 # Declaration order is the ladder of rule 5, highest first.
@@ -115,10 +124,14 @@ def picker_for(strategy: FieldStrategy) -> Picker:
     """The function that decides, or a refusal naming what fills the gap in."""
 
     if strategy in DEFERRED:
-        raise NotImplementedError(f"`{strategy.value}` arrives with {DEFERRED[strategy]}")
-    if strategy is FieldStrategy.SUM:
-        raise ResolutionError("`sum` aggregates entitlements; call resolve_work_aggregates()")
+        raise _deferral(strategy)
+    if strategy in NOT_RESOLVED:
+        raise ResolutionError(f"`{strategy.value}` {NOT_RESOLVED[strategy]}")
     return PICKERS[strategy]
+
+
+def _deferral(strategy: FieldStrategy) -> NotImplementedError:
+    return NotImplementedError(f"`{strategy.value}` arrives with {DEFERRED[strategy]}")
 
 
 def _first(rows: Sequence[FieldProvenance]) -> FieldProvenance | None:
@@ -148,10 +161,36 @@ def _greatest(rows: Sequence[FieldProvenance]) -> FieldProvenance | None:
     return max(numeric, key=lambda pair: pair[1])[0]
 
 
-def _none(rows: Sequence[FieldProvenance]) -> FieldProvenance | None:
-    """`user_only`: the manual row was taken before the strategy ran, so nothing is left."""
+def _check_sole_source(
+    rows: Sequence[FieldProvenance],
+    strategy: FieldStrategy,
+    entity_type: EntityType,
+    field: str,
+    source_kind: SourceKind,
+    source_ref: str,
+) -> None:
+    """`single_source` at the write path, where the offending provider is still in hand.
 
-    return None
+    Left to `resolve()` the same check is conditional on there being no manual
+    row: an override wins before any strategy runs, so a user editing the field
+    would hide a provider writing where it must not. Refusing the write cannot
+    be masked, and names who did it.
+    """
+
+    if strategy is not FieldStrategy.SINGLE_SOURCE or source_kind is SourceKind.MANUAL:
+        return
+    rival = next(
+        (
+            row
+            for row in rows
+            if row.source_kind is not SourceKind.MANUAL and row.source_ref != source_ref
+        ),
+        None,
+    )
+    if rival is not None:
+        raise ResolutionError(
+            f"{entity_type.value}.{field} is single_source; {rival.source_ref} already asserts it"
+        )
 
 
 def _quantity(value: ScalarValue | None) -> float | None:
@@ -165,7 +204,6 @@ PICKERS: Final[Mapping[FieldStrategy, Picker]] = {
     FieldStrategy.PRECEDENCE: _first,
     FieldStrategy.SINGLE_SOURCE: _only,
     FieldStrategy.MAX: _greatest,
-    FieldStrategy.USER_ONLY: _none,
 }
 
 
@@ -192,15 +230,28 @@ async def record(
         raise ResolutionError(
             f"{entity_type.value}.{field} is {strategy.value}; {source_kind.value} may not write it"
         )
+    if strategy in DEFERRED:
+        raise _deferral(strategy)
 
-    row = await session.scalar(
-        select(FieldProvenance).where(
-            FieldProvenance.entity_type == entity_type,
-            FieldProvenance.entity_id == entity_id,
-            FieldProvenance.field == field,
-            FieldProvenance.source_kind == source_kind,
-            FieldProvenance.source_ref == source_ref,
+    # Every row for the field, not just this source's: one query answers both
+    # "is there a row to update" and "is someone else already asserting this".
+    rows = list(
+        await session.scalars(
+            select(FieldProvenance).where(
+                FieldProvenance.entity_type == entity_type,
+                FieldProvenance.entity_id == entity_id,
+                FieldProvenance.field == field,
+            )
         )
+    )
+    _check_sole_source(rows, strategy, entity_type, field, source_kind, source_ref)
+    row = next(
+        (
+            candidate
+            for candidate in rows
+            if candidate.source_kind is source_kind and candidate.source_ref == source_ref
+        ),
+        None,
     )
     if row is None:
         # Check-then-act, with the unique constraint as the backstop: one run per
@@ -226,6 +277,11 @@ async def resolve(
 ) -> dict[str, ScalarValue | None]:
     """Decide each field and write the winner onto the entity. Returns what was written.
 
+    A field nobody asserts is left alone — a stub's title is set at creation and
+    has no provenance row. A field whose sources have all withdrawn their value
+    is not the same thing: the column is a cache of this decision, so it goes
+    null rather than keeping a figure no row stands behind any more.
+
     Does not commit: the caller owns the transaction, and the whole point of the
     ordering below is that it is atomic.
     """
@@ -234,30 +290,35 @@ async def resolve(
     if entity is None:
         raise ResolutionError(f"no {entity_type.value} with id {entity_id}")
 
-    written: dict[str, ScalarValue | None] = {}
-    for field in fields:
-        strategy = strategy_for(entity_type, field)
-        rows = list(
-            await session.scalars(
-                select(FieldProvenance).where(
-                    FieldProvenance.entity_type == entity_type,
-                    FieldProvenance.entity_id == entity_id,
-                    FieldProvenance.field == field,
-                )
-            )
+    strategies = {field: strategy_for(entity_type, field) for field in fields}
+    rows_by_field: dict[str, list[FieldProvenance]] = {field: [] for field in fields}
+    for row in await session.scalars(
+        select(FieldProvenance).where(
+            FieldProvenance.entity_type == entity_type,
+            FieldProvenance.entity_id == entity_id,
+            FieldProvenance.field.in_(rows_by_field),
         )
+    ):
+        rows_by_field[row.field].append(row)
+
+    # One weights query for every source in play: a resolve after a sync asks
+    # about several fields at once, and they name the same handful of providers.
+    contested = [row for rows in rows_by_field.values() if len(rows) > 1 for row in rows]
+    weights = await _weights(session, contested) if contested else {}
+
+    written: dict[str, ScalarValue | None] = {}
+    for field, rows in rows_by_field.items():
         if not rows:
             continue
 
-        ordered = await _ordered(session, rows)
+        ordered = _ordered(rows, weights)
         # The user override comes before the strategy (rule 3), so no strategy
-        # has to remember to respect it — and `user_only` has nothing else.
+        # has to remember to respect it.
         manual = [row for row in ordered if row.source_kind is SourceKind.MANUAL]
-        winner = manual[0] if manual else picker_for(strategy)(_without_manual(ordered))
-        if winner is None:
-            continue
+        winner = manual[0] if manual else picker_for(strategies[field])(_without_manual(ordered))
+        value = winner.value if winner is not None else None
 
-        setattr(entity, field, winner.value)
+        setattr(entity, field, _as_column_type(entity, field, value))
         # Column, then clear the old winner, then set the new one — in that
         # order. The partial unique index rejects a moment with two winners,
         # which is what it is for.
@@ -265,8 +326,9 @@ async def resolve(
             if row.is_effective and row is not winner:
                 row.is_effective = False
         await session.flush()
-        await _mark_effective(session, winner)
-        written[field] = winner.value
+        if winner is not None:
+            await _mark_effective(session, winner)
+        written[field] = value
     return written
 
 
@@ -309,10 +371,23 @@ def _without_manual(rows: Sequence[FieldProvenance]) -> list[FieldProvenance]:
     return [row for row in rows if row.source_kind is not SourceKind.MANUAL]
 
 
-async def _ordered(session: AsyncSession, rows: Sequence[FieldProvenance]) -> list[FieldProvenance]:
+def _as_column_type(entity: Base, field: str, value: ScalarValue | None) -> object:
+    """An enum column takes its member, so reading the entity back is not a lie.
+
+    Everything else round-trips as itself. A date arriving as an ISO string is
+    M2's problem, when IGDB becomes the first source to write one.
+    """
+
+    column = entity.__table__.columns[field]
+    if value is None or not isinstance(column.type, SqlEnum):
+        return value
+    member: object = column.type.python_type(value)
+    return member
+
+
+def _ordered(rows: Sequence[FieldProvenance], weights: Mapping[str, int]) -> list[FieldProvenance]:
     """Best first: the ladder, then the provider's weight, then the newest."""
 
-    weights = await _weights(session, rows) if len(rows) > 1 else {}
     return sorted(
         rows,
         key=lambda row: (

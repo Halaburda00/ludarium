@@ -155,6 +155,25 @@ async def test_an_interrupted_resolve_keeps_the_previous_winner(
     assert [row.source_ref for row in winners] == ["igdb"]
 
 
+async def test_an_enum_column_holds_a_member_right_away(session: AsyncSession) -> None:
+    """No commit, no refresh: whatever reads the entity next gets what a load would give.
+
+    A provenance value is a JSON scalar, so the string `"dlc"` is what wins.
+    Assigned raw it would sit on the attribute as a `str` until the next load,
+    and an API response built in the same request would serialise that instead
+    of the member.
+    """
+
+    work = await make_work(session, title="Hearts of Stone")
+    await observe(
+        session, work, source_kind=SourceKind.METADATA_PROVIDER, source_ref="igdb", value="dlc"
+    )
+
+    await resolve_work(session, work)
+
+    assert work.item_kind is ItemKind.DLC
+
+
 async def test_precedence_follows_the_ladder(session: AsyncSession) -> None:
     work = await make_work(session)
     await observe(
@@ -300,6 +319,24 @@ async def test_only_the_agent_reports_installed_state(session: AsyncSession) -> 
         )
 
 
+async def test_a_deferred_field_refuses_the_write_as_well(session: AsyncSession) -> None:
+    """A row nothing can resolve is not a head start; it is a value that reads as missing."""
+
+    account = await make_account(session)
+    entitlement = await make_entitlement(session, account)
+
+    with pytest.raises(NotImplementedError, match="local agent"):
+        await record(
+            session,
+            entity_type=EntityType.ENTITLEMENT,
+            entity_id=entitlement.id,
+            field="installed",
+            source_kind=SourceKind.LOCAL_AGENT,
+            source_ref="agent",
+            value=True,
+        )
+
+
 async def test_the_larger_playtime_wins(session: AsyncSession) -> None:
     """Within one entitlement the two sources describe the same play; the lower is stale."""
 
@@ -352,8 +389,60 @@ async def test_a_source_that_reports_no_playtime_decides_nothing(session: AsyncS
         fields=["playtime_minutes"],
     )
 
-    assert written == {}
+    assert written == {"playtime_minutes": None}
     assert entitlement.playtime_minutes is None
+
+
+async def test_withdrawn_values_take_the_column_with_them(session: AsyncSession) -> None:
+    """The column is a cache of the decision, so it may not outlive what it cached.
+
+    Both sources reported a figure and then stopped. Leaving 3600 on the entity
+    would show the user a number no row stands behind — and the flag would stay
+    on a row whose own value is now null, so the detail view would credit the
+    agent with a figure it has withdrawn.
+    """
+
+    account = await make_account(session)
+    entitlement = await make_entitlement(session, account)
+    sources = ((SourceKind.PLATFORM_API, "steam"), (SourceKind.LOCAL_AGENT, "agent"))
+    for (source_kind, source_ref), value in zip(sources, (3200, 3600), strict=True):
+        await record(
+            session,
+            entity_type=EntityType.ENTITLEMENT,
+            entity_id=entitlement.id,
+            field="playtime_minutes",
+            source_kind=source_kind,
+            source_ref=source_ref,
+            value=value,
+        )
+    await resolve(
+        session,
+        entity_type=EntityType.ENTITLEMENT,
+        entity_id=entitlement.id,
+        fields=["playtime_minutes"],
+    )
+    assert entitlement.playtime_minutes == 3600
+
+    for source_kind, source_ref in sources:
+        await record(
+            session,
+            entity_type=EntityType.ENTITLEMENT,
+            entity_id=entitlement.id,
+            field="playtime_minutes",
+            source_kind=source_kind,
+            source_ref=source_ref,
+            value=None,
+        )
+    written = await resolve(
+        session,
+        entity_type=EntityType.ENTITLEMENT,
+        entity_id=entitlement.id,
+        fields=["playtime_minutes"],
+    )
+
+    assert written == {"playtime_minutes": None}
+    assert entitlement.playtime_minutes is None
+    assert await effective(session) == []
 
 
 async def test_one_source_settles_a_single_source_field(session: AsyncSession) -> None:
@@ -412,45 +501,77 @@ async def test_a_user_edit_wins_a_field_that_has_no_ladder(session: AsyncSession
     assert written["provider_title"] == "The Witcher 3: Wild Hunt"
 
 
-async def test_a_single_source_field_with_two_sources_is_refused(session: AsyncSession) -> None:
-    """Not a tie to break: the field was classified wrongly, and guessing hides that."""
+async def test_a_second_source_for_a_single_source_field_is_refused(
+    session: AsyncSession,
+) -> None:
+    """Refused where it happens, so a manual override cannot hide it.
+
+    At resolve time the override wins before any strategy runs, and the check
+    would never fire for a field the user has edited — a provider writing where
+    it must not would stay invisible for exactly the entitlements someone looked
+    at closely enough to correct.
+    """
 
     account = await make_account(session)
     entitlement = await make_entitlement(session, account)
-    for source_kind, source_ref in (
-        (SourceKind.PLATFORM_API, "steam"),
-        (SourceKind.METADATA_PROVIDER, "igdb"),
-    ):
+    await record(
+        session,
+        entity_type=EntityType.ENTITLEMENT,
+        entity_id=entitlement.id,
+        field="provider_title",
+        source_kind=SourceKind.MANUAL,
+        source_ref="manual",
+        value="My own title",
+    )
+    await record(
+        session,
+        entity_type=EntityType.ENTITLEMENT,
+        entity_id=entitlement.id,
+        field="provider_title",
+        source_kind=SourceKind.PLATFORM_API,
+        source_ref="steam",
+        value="The Witcher 3",
+    )
+
+    with pytest.raises(ResolutionError, match="steam already asserts it"):
         await record(
             session,
             entity_type=EntityType.ENTITLEMENT,
             entity_id=entitlement.id,
             field="provider_title",
-            source_kind=source_kind,
-            source_ref=source_ref,
+            source_kind=SourceKind.METADATA_PROVIDER,
+            source_ref="igdb",
+            value="The Witcher 3: Wild Hunt",
+        )
+
+
+def test_a_strategy_still_refuses_two_sources_it_should_never_see() -> None:
+    """The backstop behind `record()`, for rows written before that guard existed."""
+
+    rows = [
+        FieldProvenance(
+            entity_type=EntityType.ENTITLEMENT,
+            entity_id=1,
+            field="provider_title",
+            source_kind=kind,
+            source_ref=ref,
             value="The Witcher 3",
         )
+        for kind, ref in (
+            (SourceKind.PLATFORM_API, "steam"),
+            (SourceKind.METADATA_PROVIDER, "igdb"),
+        )
+    ]
 
     with pytest.raises(ResolutionError, match="single_source"):
-        await resolve(
-            session,
-            entity_type=EntityType.ENTITLEMENT,
-            entity_id=entitlement.id,
-            fields=["provider_title"],
-        )
+        picker_for(FieldStrategy.SINGLE_SOURCE)(rows)
 
 
-async def test_a_provider_row_never_wins_a_user_only_field() -> None:
-    row = FieldProvenance(
-        entity_type=EntityType.WORK,
-        entity_id=1,
-        field="rating",
-        source_kind=SourceKind.PLATFORM_API,
-        source_ref="steam",
-        value=9,
-    )
+def test_a_user_only_field_is_not_resolved_at_all() -> None:
+    """Nothing sources these, so there is no decision to make — and none to fake."""
 
-    assert picker_for(FieldStrategy.USER_ONLY)([row]) is None
+    with pytest.raises(ResolutionError, match="written by the user"):
+        picker_for(FieldStrategy.USER_ONLY)
 
 
 @pytest.mark.parametrize(
