@@ -728,6 +728,11 @@ edit. For each (entity, field):
    transaction — the partial unique index rejects a moment with two winners,
    which is the point of having it.
 
+A field nobody asserts is left alone: a stub's title is set at creation and has
+no provenance row behind it. A field whose sources have all withdrawn their
+value is not the same case — the column caches the decision above, so it goes
+null and no row stays effective, rather than keeping a figure nothing supports.
+
 Default strategy is `precedence`: `manual > platform_api > local_agent >
 metadata_provider`, ties inside one `SourceKind` broken by
 `provider.precedence_weight`, then by the most recent `observed_at`.
@@ -759,8 +764,15 @@ doing its job.
 | `provider_title`, `provider_item_id` | `entitlement` | `single_source` | Owned by the account's provider by definition |
 | `play_status`, `rating`, `notes`, `is_favourite` | `user_work_state` | `user_only` | No provider ever writes these |
 
-The registry lives in code as a declarative table, mirroring the filter registry
-in M3. It is not a database table: it changes with the code, not with the data.
+The registry lives in code as a declarative table — `STRATEGIES` in
+`backend/src/ludarium/resolver.py` — mirroring the filter registry in M3. It is
+not a database table: it changes with the code, not with the data.
+
+The `user_work_state` rows are the exception in how they are computed, not in
+being registered. A provenance row addresses one `entity_id`, and that table is
+keyed by `(user_id, work_id)`, so nothing sources those fields: `sum`, `latest`
+and `derived` aggregate the work's entitlements, and `user_only` fields are
+written by the user directly. Everything else resolves from provenance rows.
 
 ### What the UI gets
 
