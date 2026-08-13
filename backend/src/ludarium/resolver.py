@@ -175,6 +175,12 @@ def _check_sole_source(
     row: an override wins before any strategy runs, so a user editing the field
     would hide a provider writing where it must not. Refusing the write cannot
     be masked, and names who did it.
+
+    Check-then-act, and rule 4 makes the contention legal: two provider runs can
+    both read the field as unclaimed and both insert. No constraint can catch
+    that pair — `single_source` is a property of the registry, not a column —
+    so `_only` refuses them at the next resolve instead. Only a raced pair on a
+    field the user has also overridden goes unreported. See issue #20.
     """
 
     if strategy is not FieldStrategy.SINGLE_SOURCE or source_kind is SourceKind.MANUAL:
@@ -254,9 +260,10 @@ async def record(
         None,
     )
     if row is None:
-        # Check-then-act, with the unique constraint as the backstop: one run per
-        # provider is in flight at a time, and a second writer would collide
-        # rather than duplicate.
+        # Check-then-act. The unique constraint backs this up for one source
+        # writing twice, which is all it can see: whether two sources may share
+        # the field is the registry's answer, not the schema's, and
+        # `_check_sole_source` says what covers that.
         row = FieldProvenance(
             entity_type=entity_type,
             entity_id=entity_id,
