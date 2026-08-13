@@ -18,14 +18,15 @@ from alembic.config import Config  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from pydantic import SecretStr  # noqa: E402
-from sqlalchemy import create_engine, make_url  # noqa: E402
+from sqlalchemy import create_engine, make_url, select  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from ludarium.config import Settings  # noqa: E402
 from ludarium.db import Database  # noqa: E402
 from ludarium.enums import ProviderKind, SourceKind  # noqa: E402
 from ludarium.main import create_app  # noqa: E402
-from ludarium.models import AppUser, Base, Provider  # noqa: E402
+from ludarium.models import Account, AppUser, Base, Entitlement, Provider, Work  # noqa: E402
+from ludarium.titles import sort_title  # noqa: E402
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -49,23 +50,63 @@ def alembic_config(url: str) -> Config:
     return config
 
 
+# Get-or-create, because a test that connects two accounts wants one user and
+# two providers, and neither key may be claimed twice.
 async def make_user(session: AsyncSession, username: str = "owner") -> AppUser:
+    existing = await session.scalar(select(AppUser).where(AppUser.username == username))
+    if existing is not None:
+        return existing
     user = AppUser(username=username, password_hash="not-a-hash")
     session.add(user)
     await session.flush()
     return user
 
 
-async def make_provider(session: AsyncSession, key: str = "steam") -> Provider:
+async def make_provider(
+    session: AsyncSession, key: str = "steam", *, precedence_weight: int = 100
+) -> Provider:
+    existing = await session.scalar(select(Provider).where(Provider.key == key))
+    if existing is not None:
+        return existing
     provider = Provider(
         key=key,
         kind=ProviderKind.PLATFORM,
         source_kind=SourceKind.PLATFORM_API,
         display_name=key.title(),
+        precedence_weight=precedence_weight,
     )
     session.add(provider)
     await session.flush()
     return provider
+
+
+async def make_account(session: AsyncSession, key: str = "steam") -> Account:
+    await make_user(session)
+    provider = await make_provider(session, key=key)
+    account = Account(provider_id=provider.id, external_account_id="765611979", label="Main")
+    session.add(account)
+    await session.flush()
+    return account
+
+
+async def make_work(session: AsyncSession, title: str = "The Witcher 3: Wild Hunt") -> Work:
+    work = Work(title=title, sort_title=sort_title(title))
+    session.add(work)
+    await session.flush()
+    return work
+
+
+async def make_entitlement(
+    session: AsyncSession, account: Account, *, provider_item_id: str | None = "292030"
+) -> Entitlement:
+    entitlement = Entitlement(
+        account_id=account.id,
+        provider_item_id=provider_item_id,
+        provider_title="The Witcher 3: Wild Hunt",
+    )
+    session.add(entitlement)
+    await session.flush()
+    return entitlement
 
 
 @pytest.fixture

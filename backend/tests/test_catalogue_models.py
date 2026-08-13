@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 import pytest
-from conftest import make_provider, make_user
+from conftest import make_account, make_entitlement, make_work
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +16,6 @@ from ludarium.enums import (
     WorkLinkRole,
 )
 from ludarium.models import (
-    Account,
     Edition,
     Entitlement,
     EntitlementWork,
@@ -25,36 +24,6 @@ from ludarium.models import (
     Work,
 )
 from ludarium.models.types import ScalarValue
-from ludarium.titles import sort_title
-
-
-async def make_account(session: AsyncSession, key: str = "steam") -> Account:
-    await make_user(session)
-    provider = await make_provider(session, key=key)
-    account = Account(provider_id=provider.id, external_account_id="765611979", label="Main")
-    session.add(account)
-    await session.flush()
-    return account
-
-
-async def make_work(session: AsyncSession, title: str = "The Witcher 3: Wild Hunt") -> Work:
-    work = Work(title=title, sort_title=sort_title(title))
-    session.add(work)
-    await session.flush()
-    return work
-
-
-async def make_entitlement(
-    session: AsyncSession, account: Account, *, provider_item_id: str | None = "292030"
-) -> Entitlement:
-    entitlement = Entitlement(
-        account_id=account.id,
-        provider_item_id=provider_item_id,
-        provider_title="The Witcher 3: Wild Hunt",
-    )
-    session.add(entitlement)
-    await session.flush()
-    return entitlement
 
 
 async def test_round_trip_with_defaults(session: AsyncSession) -> None:
