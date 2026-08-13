@@ -1,6 +1,8 @@
 import os
+import socket
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import NoReturn
 
 from cryptography.fernet import Fernet
 
@@ -107,6 +109,22 @@ async def make_entitlement(
     session.add(entitlement)
     await session.flush()
     return entitlement
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Providers are tested against recorded fixtures, and this is what proves it.
+
+    A test that reaches a platform API passes locally and then fails in CI, or
+    worse, spends someone's rate limit. Blocking the socket makes the mistake
+    impossible rather than forbidden.
+    """
+
+    def refuse(*args: object, **kwargs: object) -> NoReturn:
+        raise RuntimeError("a test tried to open a socket; recorded fixtures only")
+
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.setattr(socket.socket, "connect_ex", refuse)
 
 
 @pytest.fixture
