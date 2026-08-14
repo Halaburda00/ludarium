@@ -90,6 +90,7 @@ class SteamProvider:
         games = response.get("games", [])
         if not isinstance(games, list):
             raise MalformedResponseError("steam returned a `games` value that is not a list")
+        _check_against_count(games, response.get("game_count"))
         return games
 
     async def _request(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -141,6 +142,25 @@ def _check_status(response: httpx.Response, path: str) -> None:
         raise MalformedResponseError(f"steam answered an undocumented {status} for {path}")
 
 
+def _check_against_count(games: list[Any], count: object) -> None:
+    """Fewer games than Steam says it has is a short answer, not a small library.
+
+    An empty `games` is legitimate — that is what an empty public library looks
+    like — so the count is the only thing that separates it from a truncated
+    body. Getting this wrong is a rule 1 failure with nothing to notice it: the
+    sync would finish `success` with zero items and clear the whole Steam
+    library into the removed view.
+
+    Only the short direction is refused. More entries than the count cannot
+    cause a removal, and `include_played_free_games` is the kind of parameter
+    that makes a platform's own tally drift from the list it sends.
+    """
+
+    promised = _whole(count)
+    if promised is not None and len(games) < promised:
+        raise MalformedResponseError(f"steam said it has {promised} games and sent {len(games)}")
+
+
 def _retry_after(response: httpx.Response) -> float | None:
     """Steam's own figure, where it gave one. A date-form header is not worth parsing."""
 
@@ -152,9 +172,9 @@ def _retry_after(response: httpx.Response) -> float | None:
 
 
 def _as_item(game: dict[str, Any]) -> LibraryItem:
-    appid, name = game.get("appid"), game.get("name")
-    if not isinstance(appid, int) or not isinstance(name, str):
-        raise MalformedResponseError("a steam library entry has no appid or no name")
+    appid, name = _whole(game.get("appid")), game.get("name")
+    if appid is None or not isinstance(name, str):
+        raise MalformedResponseError("a steam library entry has no usable appid or name")
     return LibraryItem(
         provider_item_id=str(appid),
         title=name,
@@ -164,15 +184,26 @@ def _as_item(game: dict[str, Any]) -> LibraryItem:
     )
 
 
-def _minutes(value: object) -> int | None:
-    # Steam counts in minutes already. `bool` is an `int` and never a duration.
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+def _whole(value: object) -> int | None:
+    """An integer Steam actually sent.
+
+    In one place rather than at each call site: `bool` is an `int` in Python and
+    is never a number here, and a rule spelled out three times is a rule that
+    holds in two of them.
+    """
+
+    if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value
 
 
+def _minutes(value: object) -> int | None:
+    # Steam counts in minutes already.
+    minutes = _whole(value)
+    return minutes if minutes is not None and minutes >= 0 else None
+
+
 def _moment(value: object) -> datetime | None:
+    seconds = _whole(value)
     # Zero is "never played", which is not the epoch.
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        return None
-    return datetime.fromtimestamp(value, UTC)
+    return datetime.fromtimestamp(seconds, UTC) if seconds is not None and seconds > 0 else None

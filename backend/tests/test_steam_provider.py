@@ -119,6 +119,57 @@ async def test_an_empty_library_is_not_a_failure(provider: SteamProvider) -> Non
     assert await provider.fetch_library() == []
 
 
+@pytest.mark.parametrize("fixture", ["count_without_games.json", "short_library.json"])
+@respx.mock
+async def test_fewer_games_than_steam_promised_is_a_failure(
+    provider: SteamProvider, fixture: str
+) -> None:
+    """Rule 1, at the only point where it can still be defended.
+
+    An empty `games` list is what an empty public library looks like, so the
+    count is the only thing that tells it apart from a body that arrived short.
+    Read as an empty library, this would end as a `success` run with zero items
+    and clear the entire Steam library into the removed view — with nothing
+    anywhere to suggest something had gone wrong.
+    """
+
+    route = respx.get(OWNED_GAMES_URL).mock(
+        return_value=httpx.Response(200, json=recorded_json(fixture))
+    )
+
+    with pytest.raises(MalformedResponseError, match="and sent"):
+        await provider.fetch_library()
+
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_more_games_than_the_count_is_accepted(provider: SteamProvider) -> None:
+    """Only the short direction can cause a removal, so only it is refused.
+
+    `include_played_free_games` is exactly the sort of parameter that makes a
+    platform's own tally drift from the list it sends, and failing a sync over
+    a tally is not worth it when no entitlement can be lost either way.
+    """
+
+    respx.get(OWNED_GAMES_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "response": {
+                    "game_count": 1,
+                    "games": [
+                        {"appid": 620, "name": "Portal 2"},
+                        {"appid": 570, "name": "Dota 2"},
+                    ],
+                }
+            },
+        )
+    )
+
+    assert len(await provider.fetch_library()) == 2
+
+
 @respx.mock
 async def test_a_private_profile_is_its_own_failure(provider: SteamProvider) -> None:
     """Told "invalid key" the user would rotate credentials that were never wrong."""
@@ -300,11 +351,17 @@ async def test_a_playtime_that_is_not_a_duration_is_dropped(provider: SteamProvi
     assert (item.playtime_minutes, item.last_played_at) == (None, None)
 
 
+@pytest.mark.parametrize("appid", [None, "620", True])
 @respx.mock
-async def test_an_entry_without_an_appid_is_malformed(provider: SteamProvider) -> None:
+async def test_an_entry_without_a_usable_appid_is_malformed(
+    provider: SteamProvider, appid: object
+) -> None:
+    """`True` included: it is an `int` in Python, and `provider_item_id="True"` is not an id."""
+
     respx.get(OWNED_GAMES_URL).mock(
         return_value=httpx.Response(
-            200, json={"response": {"game_count": 1, "games": [{"name": "Nameless"}]}}
+            200,
+            json={"response": {"game_count": 1, "games": [{"appid": appid, "name": "Portal 2"}]}},
         )
     )
 

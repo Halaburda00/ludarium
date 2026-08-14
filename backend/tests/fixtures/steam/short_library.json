@@ -1,0 +1,13 @@
+{
+  "response": {
+    "game_count": 3,
+    "games": [
+      {
+        "appid": 292030,
+        "name": "The Witcher 3: Wild Hunt",
+        "playtime_forever": 3247,
+        "rtime_last_played": 1745000000
+      }
+    ]
+  }
+}
