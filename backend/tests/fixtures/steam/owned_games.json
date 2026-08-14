@@ -1,0 +1,31 @@
+{
+  "response": {
+    "game_count": 3,
+    "games": [
+      {
+        "appid": 292030,
+        "name": "The Witcher 3: Wild Hunt",
+        "playtime_forever": 3247,
+        "playtime_windows_forever": 3247,
+        "playtime_mac_forever": 0,
+        "playtime_linux_forever": 0,
+        "rtime_last_played": 1745000000,
+        "img_icon_url": "4d4fa5c9b1a2b9f8e4e8b0e0a7c1f0b8d9e2a3c4"
+      },
+      {
+        "appid": 620,
+        "name": "Portal 2",
+        "playtime_forever": 0,
+        "rtime_last_played": 0,
+        "img_icon_url": "9e6f9e6f9e6f9e6f9e6f9e6f9e6f9e6f9e6f9e6f"
+      },
+      {
+        "appid": 570,
+        "name": "Dota 2",
+        "playtime_forever": 118,
+        "rtime_last_played": 1600000000,
+        "img_icon_url": "0bbb630d63262dd66d2fdd0f7d37e8661a410075"
+      }
+    ]
+  }
+}
