@@ -13,6 +13,7 @@ Marking absent entitlements `removed_at` and updating the per-provider status
 are deliberately not here: they are issue #8, behind this one.
 """
 
+from dataclasses import dataclass
 from typing import Final
 
 from sqlalchemy import select
@@ -50,6 +51,20 @@ class SyncError(Exception):
     """The run could not start. Not a provider failure — those are a run status."""
 
 
+@dataclass
+class _Progress:
+    """How many items the provider handed over, kept outside the session.
+
+    A failed run rolls back, and the rollback takes the counters on the run row
+    with it — correctly for `items_added`, which after a rollback really is
+    zero, and wrongly for this one. The library did arrive; the run row is the
+    only place that can still say so, and "2000 seen, 0 added" is the difference
+    between a provider that answered and one that did not.
+    """
+
+    items_seen: int = 0
+
+
 async def sync_account(
     session: AsyncSession,
     *,
@@ -76,20 +91,29 @@ async def sync_account(
     session.add(run)
     await session.commit()
 
+    seen = _Progress()
     try:
         items = await library.fetch_library()
+        seen.items_seen = len(items)
         await _apply(session, run=run, account=account, reporter=reporter, items=items)
     except ProviderError as exc:
         # Safe to store: `ProviderError` never carries a credential, which is
         # the contract `providers.base` states rather than a hope (rule 7).
-        await _close(session, run, SyncStatus.FAILED, error=str(exc))
+        await _close(session, run, seen, SyncStatus.FAILED, error=str(exc))
         return run
-    except Exception as exc:
-        # Ours, and not covered by that contract. The type is enough to find it
-        # in the traceback, which goes to the log and not into a column.
-        await _close(session, run, SyncStatus.FAILED, error=type(exc).__name__)
+    except BaseException as exc:
+        # `BaseException`, not `Exception`, for one reason: `CancelledError` has
+        # not been an `Exception` since 3.8, so a caller putting a timeout
+        # around this — `asyncio.wait_for`, an APScheduler job deadline — would
+        # otherwise leave the row `running` forever, and "finished either way"
+        # above would be a lie in the one case nobody is watching.
+        #
+        # Cancellation is still re-raised. Swallowing it would be the worse bug,
+        # and the caller sees `TimeoutError` from `wait_for` regardless, so a
+        # loop over several accounts carries on either way (rule 4).
+        await _close(session, run, seen, SyncStatus.FAILED, error=type(exc).__name__)
         raise
-    await _close(session, run, SyncStatus.SUCCESS)
+    await _close(session, run, seen, SyncStatus.SUCCESS)
     return run
 
 
@@ -109,18 +133,27 @@ async def _reporter(session: AsyncSession, key: str) -> Provider:
 
 
 async def _close(
-    session: AsyncSession, run: SyncRun, status: SyncStatus, *, error: str | None = None
+    session: AsyncSession,
+    run: SyncRun,
+    seen: _Progress,
+    status: SyncStatus,
+    *,
+    error: str | None = None,
 ) -> None:
     """Finish the run. Anything short of success leaves the library as it was found.
 
     The rollback is the enforcement of rule 1 in its plainest form, and it comes
     before the status is written so the two can never disagree: there is no
     committed state in which a run reports `failed` over changes it kept.
+
+    `items_seen` is written after the rollback rather than surviving it, because
+    it describes the provider's answer rather than anything this run wrote.
     """
 
     if status is not SyncStatus.SUCCESS:
         await session.rollback()
         await session.refresh(run)
+    run.items_seen = seen.items_seen
     run.status = status
     run.finished_at = utcnow()
     run.error_text = error
@@ -135,8 +168,8 @@ async def _apply(
     reporter: Provider,
     items: list[LibraryItem],
 ) -> None:
-    run.items_seen = len(items)
-    # `items_removed` stays 0: nothing here marks anything removed yet (#8).
+    # `items_seen` is `_close`'s, so that a failed run keeps it. `items_removed`
+    # stays 0: nothing here marks anything removed yet (#8).
     touched: list[int] = []
     for item in items:
         entitlement, created = await _upsert(session, account=account, item=item)
@@ -158,9 +191,11 @@ async def _upsert(
     """Find or create the row for one owned item. Returns it and whether it is new.
 
     Keyed on `(account_id, provider_item_id)`, which is the unique index. Rows
-    with `origin = manual` are excluded by predicate rather than by trusting
-    that their `provider_item_id` is null (rule 2) — the guarantee should not
-    rest on a second fact happening to hold.
+    with `origin = manual` are excluded by predicate as well (rule 2). A CHECK
+    constraint now makes it impossible for such a row to carry a
+    `provider_item_id` at all, so the predicate is deliberately redundant: rule
+    2 is worth two independent guards, and this is the one that says so where
+    the query is written.
     """
 
     entitlement = await session.scalar(
@@ -270,7 +305,7 @@ async def _stub(
     another repository (M2).
     """
 
-    title = entitlement.provider_title
+    title = entitlement.provider_title.strip() or _nameless(entitlement)
     work = Work(title=title, sort_title=sort_title(title))
     session.add(work)
     await session.flush()
@@ -300,6 +335,22 @@ async def _stub(
     session.add(UserWorkState(user_id=account.user_id, work_id=work.id))
     await session.flush()
     return work
+
+
+def _nameless(entitlement: Entitlement) -> str:
+    """A stub still needs a name when the platform sent a blank one.
+
+    Steam has app ids — tools, depots, retired entries — whose `name` comes back
+    empty, and a str is all `providers.steam` promises. Left alone the grid gets
+    a card with no text and no sort key, which is unusable and unfindable.
+
+    The id is not a title, and it is not pretending to be one: it identifies the
+    row well enough to rename in M3 or to match in M2, which an empty string
+    does neither of. Refusing the entry instead would be worse — the user does
+    own it, and one blank name would fail the whole library.
+    """
+
+    return entitlement.provider_item_id or f"entitlement {entitlement.id}"
 
 
 async def _aggregate(session: AsyncSession, *, user_id: int, entitlement_ids: list[int]) -> None:

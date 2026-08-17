@@ -1,4 +1,5 @@
 import ast
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -478,34 +479,44 @@ async def test_a_manual_row_is_left_alone(session: AsyncSession, account: Accoun
     assert await count(session, FieldProvenance) == 9
 
 
-async def test_a_manual_row_is_never_the_upsert_target(
+async def test_a_manual_row_cannot_be_given_a_provider_item_id(
     session: AsyncSession, account: Account
 ) -> None:
-    """The predicate, exercised where SQL's null handling cannot stand in for it.
+    """ADR-0010's claim as a constraint, because prose does not hold a schema.
 
-    A manual row carries no `provider_item_id`, so it normally falls out of the
-    upsert lookup on its own. That is a second fact happening to hold, not the
-    guarantee — rule 2 says by predicate, not by convention. Given a manual row
-    that does carry one, sync refuses on the unique index rather than adopting
-    and overwriting it, and refusing is the correct half of that trade.
+    The ADR says a manual row carries no `provider_item_id` and therefore cannot
+    collide with the upsert key. That was a fact about rows nobody had inserted
+    yet. One that did carry one would leave sync with two bad options — adopt
+    the row and overwrite a disc copy the platform knows nothing about, or
+    refuse the whole library over a single entry — so the row is refused
+    instead, where the mistake is made rather than where it lands.
+
+    `import` is deliberately outside the constraint: a re-imported CSV upserts
+    on the same key, which is the behaviour `docs/schema.md` describes.
     """
 
     await make_user(session)
-    manual = Entitlement(
-        account_id=account.id,
-        origin=EntitlementOrigin.MANUAL,
-        provider_item_id="292030",
-        provider_title="The Witcher 3 (a key I never redeemed)",
+
+    with pytest.raises(IntegrityError, match="manual_has_no_provider_item_id"):
+        async with session.begin_nested():
+            session.add(
+                Entitlement(
+                    account_id=account.id,
+                    origin=EntitlementOrigin.MANUAL,
+                    provider_item_id="292030",
+                    provider_title="The Witcher 3 (a key I never redeemed)",
+                )
+            )
+
+    session.add(
+        Entitlement(
+            account_id=account.id,
+            origin=EntitlementOrigin.IMPORT,
+            provider_item_id="292030",
+            provider_title="The Witcher 3",
+        )
     )
-    session.add(manual)
     await session.flush()
-
-    with pytest.raises(IntegrityError):
-        await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
-
-    await session.refresh(manual)
-    assert manual.provider_title == "The Witcher 3 (a key I never redeemed)"
-    assert await count(session, FieldProvenance) == 0
 
 
 async def test_an_empty_library_is_a_successful_run(
@@ -564,6 +575,66 @@ async def test_a_failure_partway_through_leaves_the_library_as_it_was(
     assert run.error_text == "ValueError"
     assert await count(session, Entitlement) == 0
     assert await count(session, Work) == 0
+    # The rollback is right to take `items_added` — after it, nothing was added.
+    # It is wrong to take this one: the provider did hand over three items, and
+    # "3 seen, 0 added" is what tells an outage apart from a bad write.
+    assert (run.items_seen, run.items_added) == (3, 0)
+
+
+async def test_a_cancelled_run_does_not_stay_running_forever(
+    session: AsyncSession, account: Account, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`CancelledError` stopped being an `Exception` in 3.8, and the run row pays for it.
+
+    A caller putting a deadline around one account — `asyncio.wait_for`, an
+    APScheduler job timeout — would otherwise leave `running` behind with no
+    `finished_at`, which is the one failure nobody is watching for: the status
+    panel shows a sync that never ends rather than one that failed.
+
+    The cancellation itself is still re-raised; the caller sees `TimeoutError`
+    from `wait_for` either way, so a loop over further accounts carries on.
+    """
+
+    async def dawdle(*args: object, **kwargs: object) -> Work:
+        await asyncio.sleep(10)
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(sync_module, "_stub", dawdle)
+
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(
+            sync_account(session, account=account, library=FakeLibrary(THREE_GAMES)),
+            timeout=0.1,
+        )
+
+    run = await session.scalar(select(sync_module.SyncRun))
+    assert run is not None
+    assert run.status is SyncStatus.FAILED
+    assert run.finished_at is not None
+    assert run.error_text == "CancelledError"
+    assert run.items_seen == 3
+    assert await count(session, Entitlement) == 0
+
+
+async def test_a_blank_title_still_makes_a_findable_card(
+    session: AsyncSession, account: Account
+) -> None:
+    """Steam has app ids whose name comes back empty; a str is all the client promises.
+
+    A work titled "" is a card with no text and no sort key — unusable in the
+    grid and unfindable in a search. The id is not a title and does not pretend
+    to be one, but it can be renamed in M3 and matched in M2, which an empty
+    string can be neither of.
+    """
+
+    await sync_account(session, account=account, library=FakeLibrary([owned("228980", "   ")]))
+
+    work = await session.scalar(select(Work))
+    assert work is not None
+    assert (work.title, work.sort_title) == ("228980", "228980")
+    # The platform's own blank is kept where it belongs: it is what Steam said.
+    entitlement = await one_entitlement(session, "228980")
+    assert entitlement.provider_title == "   "
 
 
 @pytest.fixture
