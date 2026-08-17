@@ -82,10 +82,14 @@ async def make_provider(
     return provider
 
 
-async def make_account(session: AsyncSession, key: str = "steam") -> Account:
+async def make_account(
+    session: AsyncSession, key: str = "steam", *, external_account_id: str = "765611979"
+) -> Account:
     await make_user(session)
     provider = await make_provider(session, key=key)
-    account = Account(provider_id=provider.id, external_account_id="765611979", label="Main")
+    account = Account(
+        provider_id=provider.id, external_account_id=external_account_id, label="Main"
+    )
     session.add(account)
     await session.flush()
     return account
