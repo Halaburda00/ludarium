@@ -166,7 +166,7 @@ async def test_the_run_is_closed_with_its_counters(session: AsyncSession, accoun
     assert run.trigger is SyncTrigger.MANUAL
     assert run.finished_at is not None
     assert (run.items_seen, run.items_added, run.items_updated) == (3, 3, 0)
-    # Nothing marks anything removed yet; that is issue #8.
+    # A first run has nothing to sweep: everything it saw, it just created.
     assert run.items_removed == 0
     assert run.error_text is None
     assert run.account_id == account.id
@@ -479,6 +479,174 @@ async def test_a_manual_row_is_left_alone(session: AsyncSession, account: Accoun
     assert await count(session, FieldProvenance) == 9
 
 
+async def test_a_game_the_platform_stopped_listing_is_marked_not_deleted(
+    session: AsyncSession, account: Account
+) -> None:
+    """Rule 1. The row that survives is the only one holding data the platform never had.
+
+    Playtime, status, rating and notes are the user's, and no platform can give
+    them back. So absence marks the row and records the run that did it, and
+    everything the user built on top of the entitlement stays exactly where it
+    was.
+    """
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+    entitlement = await one_entitlement(session, "620")
+    first_seen_at = entitlement.first_seen_at
+
+    run = await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES[:1]))
+
+    assert run.status is SyncStatus.SUCCESS
+    assert run.items_removed == 2
+    await session.refresh(entitlement)
+    assert entitlement.removed_at is not None
+    assert entitlement.removed_by_run_id == run.id
+    # Never a DELETE: the row, its links and its own playtime all stay.
+    assert await count(session, Entitlement) == 3
+    assert await count(session, EntitlementWork) == 3
+    assert entitlement.first_seen_at == first_seen_at
+    # The one the platform still lists is untouched by the sweep.
+    kept = await one_entitlement(session, "292030")
+    assert (kept.removed_at, kept.removed_by_run_id) == (None, None)
+
+
+async def test_a_removal_stops_counting_towards_the_work_total(
+    session: AsyncSession, account: Account
+) -> None:
+    """ADR-0010: work-level aggregates come from non-removed entitlements only.
+
+    The entitlement keeps its own 3247 minutes — they were played — while the
+    work stops claiming them, so a restore puts the total back without having
+    stored it anywhere.
+    """
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+    entitlement = await one_entitlement(session, "292030")
+    link = await session.scalar(
+        select(EntitlementWork).where(EntitlementWork.entitlement_id == entitlement.id)
+    )
+    assert link is not None
+    state = await session.get(UserWorkState, (account.user_id, link.work_id))
+    assert state is not None
+    assert state.playtime_minutes == 3247
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES[1:]))
+
+    await session.refresh(state)
+    await session.refresh(entitlement)
+    assert state.playtime_minutes == 0
+    assert entitlement.playtime_minutes == 3247
+
+
+async def test_a_game_that_comes_back_is_restored_where_it_was(
+    session: AsyncSession, account: Account
+) -> None:
+    """What makes an outage cosmetic rather than a thousand-click repair.
+
+    A removal is precautionary, and the platform listing the item again is the
+    best evidence there is that it was. `first_seen_at` never moved, so "owned
+    since" reads the same as if nothing had happened.
+    """
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+    entitlement = await one_entitlement(session, "620")
+    first_seen_at, entitlement_id = entitlement.first_seen_at, entitlement.id
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES[:1]))
+    await session.refresh(entitlement)
+    assert entitlement.removed_at is not None
+
+    run = await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    await session.refresh(entitlement)
+    assert entitlement.id == entitlement_id
+    assert (entitlement.removed_at, entitlement.removed_by_run_id) == (None, None)
+    assert entitlement.first_seen_at == first_seen_at
+    assert (run.items_added, run.items_updated, run.items_removed) == (0, 3, 0)
+
+
+async def test_an_empty_library_sweeps_the_whole_account(
+    session: AsyncSession, account: Account
+) -> None:
+    """Deliberate: this is what a platform saying "you own nothing" looks like.
+
+    Telling it apart from a truncated response is the provider's job, not this
+    one's — `SteamProvider` refuses a body shorter than the count Steam sent
+    with it. And nothing is lost either way, which is the point of rule 1.
+    """
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    run = await sync_account(session, account=account, library=FakeLibrary([]))
+
+    assert run.items_removed == 3
+    assert await count(session, Entitlement) == 3
+    remaining = await session.scalar(
+        select(func.count()).select_from(Entitlement).where(Entitlement.removed_at.is_(None))
+    )
+    assert remaining == 0
+
+
+async def test_a_failed_run_marks_nothing_removed(
+    session: AsyncSession, account: Account, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The failure that rule 1 exists for, injected after the sweep has already run.
+
+    Failing earlier would prove only that the sweep never got its turn. Failing
+    here means the removals were written and then rolled back, which is the
+    guarantee itself: an Epic outage cannot empty the Epic library, because the
+    same transaction carries both the removals and the `success`.
+    """
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    async def collapse(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("died after the sweep")
+
+    monkeypatch.setattr(sync_module, "_aggregate", collapse)
+
+    with pytest.raises(RuntimeError):
+        await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES[:1]))
+
+    run = await session.scalar(select(sync_module.SyncRun).order_by(sync_module.SyncRun.id.desc()))
+    assert run is not None
+    assert run.status is SyncStatus.FAILED
+    assert run.items_removed == 0
+    still_here = await session.scalar(
+        select(func.count()).select_from(Entitlement).where(Entitlement.removed_at.is_(None))
+    )
+    assert still_here == 3
+
+
+async def test_a_manual_row_survives_a_sweep_that_takes_everything_else(
+    session: AsyncSession, account: Account
+) -> None:
+    """Rule 2, at the query that would otherwise be the one to break it.
+
+    A disc copy corresponds to nothing on any platform, so every sync sees it as
+    absent. Excluded by predicate rather than by trusting that its null
+    `provider_item_id` keeps it out of the comparison — that holds today, and it
+    holds because of a CHECK constraint rather than because of this query.
+    """
+
+    await make_user(session)
+    manual = Entitlement(
+        account_id=account.id,
+        origin=EntitlementOrigin.MANUAL,
+        provider_title="Baldur's Gate II (disc)",
+    )
+    session.add(manual)
+    await session.flush()
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    run = await sync_account(session, account=account, library=FakeLibrary([]))
+
+    await session.refresh(manual)
+    assert manual.removed_at is None
+    assert manual.removed_by_run_id is None
+    # Only the three synced rows were swept; the manual one was never a candidate.
+    assert run.items_removed == 3
+
+
 async def test_a_manual_row_cannot_be_given_a_provider_item_id(
     session: AsyncSession, account: Account
 ) -> None:
@@ -573,6 +741,11 @@ async def test_a_failure_partway_through_leaves_the_library_as_it_was(
     assert run is not None
     assert run.status is SyncStatus.FAILED
     assert run.error_text == "ValueError"
+    # And the same string on the provider row, for the same reason: rule 7 does
+    # not stop at the column the run happens to write.
+    steam = await make_provider(session)
+    await session.refresh(steam)
+    assert steam.last_error == "ValueError"
     assert await count(session, Entitlement) == 0
     assert await count(session, Work) == 0
     # The rollback is right to take `items_added` — after it, nothing was added.
@@ -635,6 +808,114 @@ async def test_a_blank_title_still_makes_a_findable_card(
     # The platform's own blank is kept where it belongs: it is what Steam said.
     entitlement = await one_entitlement(session, "228980")
     assert entitlement.provider_title == "   "
+
+
+async def test_a_successful_run_reports_the_provider_healthy(
+    session: AsyncSession, account: Account
+) -> None:
+    steam = await make_provider(session)
+
+    run = await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    await session.refresh(steam)
+    await session.refresh(account)
+    assert steam.status is SyncStatus.SUCCESS
+    assert steam.last_error is None
+    assert steam.last_success_at == run.finished_at
+    assert account.last_success_at == run.finished_at
+
+
+async def test_a_failure_records_itself_without_erasing_the_last_success(
+    session: AsyncSession, account: Account
+) -> None:
+    """ "Never worked" and "worked this morning" are different problems for the user."""
+
+    steam = await make_provider(session)
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+    await session.refresh(steam)
+    worked_at = steam.last_success_at
+
+    await sync_account(
+        session,
+        account=account,
+        library=FakeLibrary(error=ProviderUnavailableError("steam answered 503")),
+    )
+
+    await session.refresh(steam)
+    assert steam.status is SyncStatus.FAILED
+    assert steam.last_error == "steam answered 503"
+    assert steam.last_success_at == worked_at
+
+
+async def test_a_successful_sync_sweeps_only_its_own_account(
+    session: AsyncSession, account: Account
+) -> None:
+    """Rule 4 in the direction that destroys data rather than merely annoying.
+
+    A run's evidence covers exactly one account. Steam listing three games says
+    nothing at all about what the GOG account owns, so the sweep is scoped to
+    the account before anything else — unscoped it would mark every other
+    library removed on every sync, which is the failure rule 1 is written
+    against arriving through the door rule 4 is meant to hold shut.
+    """
+
+    gog_account = await make_account(session, key="gog")
+    # A different catalogue on purpose: with the same ids on both accounts, an
+    # unscoped sweep would find nothing to remove and the test would pass while
+    # the bug sat there.
+    gog_library = [
+        owned("1495134320", "The Witcher 3: Wild Hunt GOTY"),
+        owned("1207658930", "Baldur's Gate II"),
+        owned("1207666073", "Planescape: Torment"),
+    ]
+    await sync_account(session, account=gog_account, library=FakeLibrary(gog_library, key="gog"))
+
+    run = await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    assert run.status is SyncStatus.SUCCESS
+    assert run.items_removed == 0
+    intact = await session.scalar(
+        select(func.count())
+        .select_from(Entitlement)
+        .where(Entitlement.account_id == gog_account.id, Entitlement.removed_at.is_(None))
+    )
+    assert intact == 3
+
+
+async def test_one_platform_failing_leaves_the_other_alone(
+    session: AsyncSession, account: Account
+) -> None:
+    """Rule 4, which is why the health columns are per provider and not a global flag.
+
+    An Epic outage that greyed out the Steam library, or wiped its rows, would
+    make the whole catalogue only as reliable as its least reliable source.
+    """
+
+    gog_account = await make_account(session, key="gog")
+    gog = await make_provider(session, key="gog")
+    steam = await make_provider(session)
+    await sync_account(session, account=gog_account, library=FakeLibrary(THREE_GAMES, key="gog"))
+    await session.refresh(gog)
+    gog_worked_at = gog.last_success_at
+
+    await sync_account(
+        session,
+        account=account,
+        library=FakeLibrary(error=ProviderUnavailableError("steam answered 503")),
+    )
+
+    await session.refresh(gog)
+    await session.refresh(steam)
+    assert (steam.status, gog.status) == (SyncStatus.FAILED, SyncStatus.SUCCESS)
+    assert gog.last_error is None
+    assert gog.last_success_at == gog_worked_at
+    # And its rows: a failing Steam run swept nothing, on either account.
+    intact = await session.scalar(
+        select(func.count())
+        .select_from(Entitlement)
+        .where(Entitlement.account_id == gog_account.id, Entitlement.removed_at.is_(None))
+    )
+    assert intact == 3
 
 
 @pytest.fixture

@@ -7,13 +7,15 @@ a second transaction that commits together with `status = success`. There is no
 moment where a partial result is committed and still looks like a finished sync,
 which is what rule 1 needs from the write side.
 
-Unlike the resolver, which leaves the transaction to its caller, this owns it.
+That boundary is also the whole of "only a `success` run may mark anything
+removed". It is not a check anywhere — the sweep's updates commit with the
+status or roll back with it, so no failed run can leave a removal behind.
 
-Marking absent entitlements `removed_at` and updating the per-provider status
-are deliberately not here: they are issue #8, behind this one.
+Unlike the resolver, which leaves the transaction to its caller, this owns it.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Final
 
 from sqlalchemy import select
@@ -99,7 +101,7 @@ async def sync_account(
     except ProviderError as exc:
         # Safe to store: `ProviderError` never carries a credential, which is
         # the contract `providers.base` states rather than a hope (rule 7).
-        await _close(session, run, seen, SyncStatus.FAILED, error=str(exc))
+        await _close(session, run, reporter, account, seen, SyncStatus.FAILED, error=str(exc))
         return run
     except BaseException as exc:
         # `BaseException`, not `Exception`, for one reason: `CancelledError` has
@@ -111,9 +113,11 @@ async def sync_account(
         # Cancellation is still re-raised. Swallowing it would be the worse bug,
         # and the caller sees `TimeoutError` from `wait_for` regardless, so a
         # loop over several accounts carries on either way (rule 4).
-        await _close(session, run, seen, SyncStatus.FAILED, error=type(exc).__name__)
+        await _close(
+            session, run, reporter, account, seen, SyncStatus.FAILED, error=type(exc).__name__
+        )
         raise
-    await _close(session, run, seen, SyncStatus.SUCCESS)
+    await _close(session, run, reporter, account, seen, SyncStatus.SUCCESS)
     return run
 
 
@@ -135,29 +139,71 @@ async def _reporter(session: AsyncSession, key: str) -> Provider:
 async def _close(
     session: AsyncSession,
     run: SyncRun,
+    reporter: Provider,
+    account: Account,
     seen: _Progress,
     status: SyncStatus,
     *,
     error: str | None = None,
 ) -> None:
-    """Finish the run. Anything short of success leaves the library as it was found.
+    """Finish the run and report the provider's health. Anything short of success rolls back.
 
     The rollback is the enforcement of rule 1 in its plainest form, and it comes
     before the status is written so the two can never disagree: there is no
-    committed state in which a run reports `failed` over changes it kept.
+    committed state in which a run reports `failed` over changes it kept, and
+    none in which a failed run left a removal behind.
 
-    `items_seen` is written after the rollback rather than surviving it, because
-    it describes the provider's answer rather than anything this run wrote.
+    Which is also why the health columns are written after it rather than
+    before: they describe the run, not the library, and must survive the
+    rollback that takes everything the run did.
+
+    `items_seen` is set here for the same reason — it describes the provider's
+    answer rather than anything this run wrote.
     """
 
     if status is not SyncStatus.SUCCESS:
         await session.rollback()
-        await session.refresh(run)
+        # Expired by the rollback, and assigning to an expired column attribute
+        # would load it lazily — which is an error on an async session.
+        for instance in (run, reporter, account):
+            await session.refresh(instance)
+
+    moment = utcnow()
     run.items_seen = seen.items_seen
     run.status = status
-    run.finished_at = utcnow()
+    run.finished_at = moment
     run.error_text = error
+    _report(reporter, account, status, error, moment)
     await session.commit()
+
+
+def _report(
+    reporter: Provider,
+    account: Account,
+    status: SyncStatus,
+    error: str | None,
+    moment: datetime,
+) -> None:
+    """Rule 4: health is per provider and per account, so one outage stays one outage.
+
+    The reporter's row, not the account's provider — a Galaxy import is Galaxy's
+    health, and the Battle.net account it writes to has never been asked
+    anything itself.
+
+    `last_success_at` only ever moves forward. A failure records that it broke
+    without erasing when it last worked, which is the pair the status panel
+    needs to tell "never worked" from "worked this morning".
+
+    `last_error` takes the same string the run row got, and for the same reason
+    (rule 7): a `ProviderError` message is contractually credential-free, and
+    anything else has already been reduced to its type name by the caller.
+    """
+
+    reporter.status = status
+    reporter.last_error = error
+    if status is SyncStatus.SUCCESS:
+        reporter.last_success_at = moment
+        account.last_success_at = moment
 
 
 async def _apply(
@@ -168,8 +214,7 @@ async def _apply(
     reporter: Provider,
     items: list[LibraryItem],
 ) -> None:
-    # `items_seen` is `_close`'s, so that a failed run keeps it. `items_removed`
-    # stays 0: nothing here marks anything removed yet (#8).
+    # `items_seen` is `_close`'s, so that a failed run keeps it.
     touched: list[int] = []
     for item in items:
         entitlement, created = await _upsert(session, account=account, item=item)
@@ -182,6 +227,9 @@ async def _apply(
         else:
             run.items_updated += 1
         touched.append(entitlement.id)
+    # A removal changes its work's totals as surely as an update does, so the
+    # swept rows join the list the aggregates are recomputed from.
+    touched += await _sweep(session, run=run, account=account, items=items)
     await _aggregate(session, user_id=account.user_id, entitlement_ids=touched)
 
 
@@ -222,8 +270,62 @@ async def _upsert(
     # Touched by every run that still sees the item; `first_seen_at` is not, so
     # that "owned since" survives every later run and a removal after it.
     entitlement.last_seen_at = utcnow()
+    if entitlement.removed_at is not None:
+        # The platform listing it again is the best evidence there is that the
+        # removal was precautionary. Undoing it automatically is what makes an
+        # outage cosmetic rather than a thousand-click repair — the one-click
+        # restore in the removed view is for the cases where it was not
+        # (ADR-0010). `first_seen_at` is untouched, so "owned since" survives
+        # the round trip and reads the same as if nothing had happened.
+        entitlement.removed_at = None
+        entitlement.removed_by_run_id = None
     await session.flush()
     return entitlement, created
+
+
+async def _sweep(
+    session: AsyncSession, *, run: SyncRun, account: Account, items: list[LibraryItem]
+) -> list[int]:
+    """Mark what the provider stopped listing. Never a DELETE (rule 1).
+
+    Absence is not proof of anything. A game drops out of a response because of
+    a delisting, a region change, an expired family share — or a transient fault
+    that produces a byte-identical answer. So the row stays, keeping its
+    `first_seen_at`, its playtime and the user's own state, and the removed view
+    offers it back in one click.
+
+    "Only a `success` run may do this" is not a check here; it is the
+    transaction. These updates commit with the status or roll back with it, so
+    there is no path by which a failed run leaves a removal behind.
+
+    Rows with `origin = manual` are excluded by predicate (rule 2). Their null
+    `provider_item_id` would drop them from the comparison anyway — `NULL NOT
+    IN (...)` is never true — but a guarantee resting on SQL's null semantics is
+    a guarantee waiting to be broken by a schema change.
+
+    An empty library sweeps everything, deliberately: that is what a platform
+    saying "you own nothing" looks like, and telling it apart from a truncated
+    response belongs to the provider, which is why `SteamProvider` refuses a
+    body shorter than the count Steam sent with it.
+    """
+
+    stale = list(
+        await session.scalars(
+            select(Entitlement).where(
+                Entitlement.account_id == account.id,
+                Entitlement.origin != EntitlementOrigin.MANUAL,
+                Entitlement.removed_at.is_(None),
+                Entitlement.provider_item_id.not_in({item.provider_item_id for item in items}),
+            )
+        )
+    )
+    moment = utcnow()
+    for entitlement in stale:
+        entitlement.removed_at = moment
+        entitlement.removed_by_run_id = run.id
+    run.items_removed = len(stale)
+    await session.flush()
+    return [entitlement.id for entitlement in stale]
 
 
 def _describe(entitlement: Entitlement, item: LibraryItem) -> None:
