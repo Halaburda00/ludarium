@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from alembic import command
@@ -43,7 +44,7 @@ def split_top_level(body: str) -> list[str]:
 
 
 def normalise(sql: str) -> str:
-    """Whitespace and the order of the parts inside `CREATE TABLE (...)`.
+    """Whitespace, the quoting of the table name, and the order of the parts inside `(...)`.
 
     SQLAlchemy emits constraints in the order the constraint objects were
     constructed, which differs between the two paths by construction:
@@ -51,6 +52,15 @@ def normalise(sql: str) -> str:
     becomes a constraint when the table is assembled, and an `Enum` `CHECK`
     later still. Ordering says nothing about whether the two schemas agree, so
     the comparison does not look at it.
+
+    Nor do two artefacts of `batch_alter_table`, which SQLite forces on any
+    change to a constraint: the rebuilt table comes back as `CREATE TABLE
+    "entitlement"` where `create_all` writes it bare, and its defaults come back
+    parenthesised — `DEFAULT (CURRENT_TIMESTAMP)` for `DEFAULT
+    CURRENT_TIMESTAMP`. Both are the same schema spelled differently.
+
+    The unquoting is applied to the table name only, never the body: a CHECK
+    compares against string literals, and those are the schema.
     """
 
     flattened = " ".join(sql.split())
@@ -58,7 +68,8 @@ def normalise(sql: str) -> str:
     if not flattened.startswith("CREATE TABLE") or opening == -1:
         return flattened
     head, body = flattened[:opening], flattened[opening + 1 : flattened.rindex(")")]
-    return f"{head}({', '.join(sorted(split_top_level(body)))})"
+    parts = (re.sub(r"DEFAULT \(([^()]*)\)", r"DEFAULT \1", part) for part in split_top_level(body))
+    return f"{head.replace('"', '')}({', '.join(sorted(parts))})"
 
 
 def schema_dump(url: str) -> dict[str, str]:

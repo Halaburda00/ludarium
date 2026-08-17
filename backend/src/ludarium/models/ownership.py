@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, ForeignKey, Index, text
+from sqlalchemy import JSON, CheckConstraint, ForeignKey, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,6 +17,16 @@ class Entitlement(Base):
 
     __tablename__ = "entitlement"
     __table_args__ = (
+        # ADR-0010 states that a manual row carries no `provider_item_id` and so
+        # cannot collide with the upsert key. Left as prose that is one careless
+        # insert away from being false, and the failure is nasty: sync would
+        # either adopt the row, overwriting a disc copy the platform knows
+        # nothing about, or refuse the whole library over one row. `import` is
+        # deliberately not covered — a re-imported CSV upserts on the same key.
+        CheckConstraint(
+            f"origin != '{EntitlementOrigin.MANUAL.value}' OR provider_item_id IS NULL",
+            name="manual_has_no_provider_item_id",
+        ),
         # The sync upsert key, and what keeps manual rows out of sync's way:
         # they carry no `provider_item_id` and so match nothing (rule 2).
         Index(
