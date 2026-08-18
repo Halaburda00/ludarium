@@ -81,7 +81,9 @@ def test_the_endpoint_commits_not_the_dependency(app: FastAPI, settings: Setting
     finally:
         engine.dispose()
 
-    assert usernames == {"kept"}
+    # Not an equality check on the table: the bootstrapped account is in there too.
+    assert "kept" in usernames
+    assert "dropped" not in usernames
 
 
 def test_a_postgres_url_creates_no_directory(tmp_path: Path) -> None:

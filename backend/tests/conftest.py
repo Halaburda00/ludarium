@@ -10,8 +10,12 @@ from cryptography.fernet import Fernet
 # Assignment rather than setdefault: a developer's real backend/.env is picked up
 # from the working directory otherwise, and tests would use the real database.
 TEST_SECRET_KEY = "test-secret-key"
+TEST_USERNAME = "owner"
+TEST_PASSWORD = "correct horse battery staple"
 TEST_ENCRYPTION_KEY = Fernet.generate_key().decode()
 os.environ["LUDARIUM_SECRET_KEY"] = TEST_SECRET_KEY
+os.environ["LUDARIUM_USERNAME"] = TEST_USERNAME
+os.environ["LUDARIUM_PASSWORD"] = TEST_PASSWORD
 os.environ["LUDARIUM_ENCRYPTION_KEY"] = TEST_ENCRYPTION_KEY
 os.environ["LUDARIUM_DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
@@ -54,7 +58,7 @@ def alembic_config(url: str) -> Config:
 
 # Get-or-create, because a test that connects two accounts wants one user and
 # two providers, and neither key may be claimed twice.
-async def make_user(session: AsyncSession, username: str = "owner") -> AppUser:
+async def make_user(session: AsyncSession, username: str = TEST_USERNAME) -> AppUser:
     existing = await session.scalar(select(AppUser).where(AppUser.username == username))
     if existing is not None:
         return existing
@@ -136,6 +140,8 @@ def settings(tmp_path: Path) -> Settings:
     return Settings(
         secret_key=SecretStr(TEST_SECRET_KEY),
         encryption_key=SecretStr(TEST_ENCRYPTION_KEY),
+        username=TEST_USERNAME,
+        password=SecretStr(TEST_PASSWORD),
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'ludarium.db'}",
     )
 
