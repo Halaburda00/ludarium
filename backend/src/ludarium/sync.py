@@ -18,10 +18,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Final
 
+import httpx
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ludarium.crypto import CredentialDecryptionError, get_cipher
 from ludarium.enums import (
     EntitlementOrigin,
     EntityType,
@@ -41,6 +43,7 @@ from ludarium.models import (
 )
 from ludarium.models.types import ScalarValue, utcnow
 from ludarium.providers import LibraryItem, LibraryProvider, ProviderError
+from ludarium.providers.registry import build_library
 from ludarium.resolver import record, resolve, resolve_work_aggregates
 from ludarium.titles import sort_title
 
@@ -56,6 +59,53 @@ DEFAULT_EDITION_SLUG: Final = "standard"
 # row and closing it, and the index below would otherwise let that one orphan
 # block the account forever.
 ORPHAN_AFTER: Final = timedelta(hours=1)
+
+
+class _Unusable:
+    """A library that could not be built, presented as one that cannot answer.
+
+    Rule 4 within a single provider: several accounts on one platform are as
+    independent of each other as two platforms are. A stored credential that
+    will not decrypt is that account's problem, and raising it would end the
+    request over accounts that were about to sync fine.
+
+    As a `ProviderError` it becomes a failed run instead — recorded in the
+    history, counted in the provider's health, and visible in the status panel,
+    which is where every other failure already is.
+    """
+
+    def __init__(self, key: str, reason: str) -> None:
+        self.key = key
+        self._reason = reason
+
+    async def validate_credentials(self) -> None:
+        raise ProviderError(self._reason)
+
+    async def fetch_library(self) -> list[LibraryItem]:
+        raise ProviderError(self._reason)
+
+
+def library_for(account: Account, *, key: str, client: httpx.AsyncClient) -> LibraryProvider:
+    """The client that answers for one account, or a stand-in that reports why not.
+
+    Free of HTTP concerns on purpose: the scheduler will want exactly this
+    sequence, and a function that raised `HTTPException` would leave it to
+    duplicate the decrypt-and-build rather than reuse it.
+    """
+
+    if account.credentials_encrypted is None:
+        return _Unusable(key, "no credential is stored for this account")
+    try:
+        secret = get_cipher().decrypt(account.credentials_encrypted)
+    except CredentialDecryptionError as exc:
+        # The message names the setting, never the ciphertext (rule 7).
+        return _Unusable(key, str(exc))
+    return build_library(
+        key,
+        external_account_id=account.external_account_id or "",
+        secret=secret,
+        client=client,
+    )
 
 
 class SyncError(Exception):
