@@ -74,3 +74,38 @@ def test_startup_failure_does_not_echo_other_secrets(monkeypatch: pytest.MonkeyP
         get_settings()
 
     assert "a-real-session-secret" not in str(exc_info.value)
+
+
+def test_a_missing_password_stops_the_instance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No fallback, deliberately: the run command binds 0.0.0.0."""
+
+    monkeypatch.delenv("LUDARIUM_PASSWORD")
+
+    with pytest.raises(ConfigurationError, match="password"):
+        get_settings()
+
+
+def test_a_blank_password_is_not_a_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`LUDARIUM_PASSWORD=` in a .env is how "unset" actually arrives."""
+
+    monkeypatch.setenv("LUDARIUM_PASSWORD", "   ")
+
+    with pytest.raises(ConfigurationError, match="must not be blank"):
+        get_settings()
+
+
+def test_the_password_is_masked_in_repr() -> None:
+    settings = get_settings()
+
+    rendered = f"{settings!r} {settings.model_dump()}"
+
+    assert settings.password.get_secret_value() not in rendered
+
+
+def test_a_blank_username_is_not_a_username(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The twin of the password check, and the same `.env` mistake makes it."""
+
+    monkeypatch.setenv("LUDARIUM_USERNAME", "  ")
+
+    with pytest.raises(ConfigurationError, match="must not be blank"):
+        get_settings()

@@ -6,7 +6,8 @@ from fastapi import FastAPI
 from sqlalchemy.exc import OperationalError
 
 from ludarium import __version__
-from ludarium.api import health
+from ludarium.api import auth, health
+from ludarium.auth import bootstrap_user
 from ludarium.config import Settings, get_settings
 from ludarium.db import Database
 from ludarium.seed import seed_providers
@@ -21,6 +22,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             async with database.session_factory() as session:
                 await seed_providers(session)
+                await bootstrap_user(
+                    session,
+                    username=settings.username,
+                    password=settings.password.get_secret_value(),
+                )
         except OperationalError as exc:
             raise RuntimeError(
                 "the database has no schema yet — run `uv run alembic upgrade head`"
@@ -42,6 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Ludarium", version=__version__, lifespan=lifespan)
     app.state.settings = settings
     app.include_router(health.router, prefix="/api")
+    app.include_router(auth.router, prefix="/api")
     return app
 
 

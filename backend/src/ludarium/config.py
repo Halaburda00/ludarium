@@ -27,8 +27,28 @@ class Settings(BaseSettings):
 
     secret_key: SecretStr
     encryption_key: SecretStr
+    # The single account (ADR-0003). Required, with no fallback: a default that
+    # works when unset is a backend on 0.0.0.0 with a password everyone knows.
+    username: str = "ludarium"
+    password: SecretStr
     database_url: str = "sqlite+aiosqlite:///./data/ludarium.db"
     log_level: LogLevel = "INFO"
+
+    # `LUDARIUM_USERNAME=` and `LUDARIUM_PASSWORD=` in a .env are the way "unset"
+    # actually reaches us, and pydantic would take the empty string for an answer.
+    @field_validator("username")
+    @classmethod
+    def _reject_blank_username(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
+
+    @field_validator("password")
+    @classmethod
+    def _reject_blank_password(cls, value: SecretStr) -> SecretStr:
+        if not value.get_secret_value().strip():
+            raise ValueError("must not be blank")
+        return value
 
     @field_validator("encryption_key")
     @classmethod

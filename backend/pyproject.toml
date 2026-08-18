@@ -61,3 +61,10 @@ plugins = ["pydantic.mypy"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 addopts = "--cov=src/ludarium --cov-report=term-missing"
+
+[tool.coverage.run]
+# SQLAlchemy's async layer crosses a greenlet on every await that touches the
+# database, and the default tracer loses the frame on the way back: every line
+# after the first such await in an endpoint reads as unexecuted. Without this,
+# `api/auth.py` measures 71% while its tests exercise all of it.
+concurrency = ["thread", "greenlet"]
