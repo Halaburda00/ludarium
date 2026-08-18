@@ -88,6 +88,21 @@ class SyncRun(Base):
 
     __tablename__ = "sync_run"
     __table_args__ = (
+        # One open run per account, enforced rather than agreed: two overlapping
+        # syncs would both upsert the same items and both sweep, one marking
+        # `removed_at` on rows the other is in the middle of seeing. A partial
+        # unique index is the only expression the schema has for this, and
+        # `account_id IS NOT NULL` keeps metadata providers — which sync no
+        # account — out of the comparison entirely.
+        Index(
+            "uq_sync_run_account_id_running",
+            "account_id",
+            unique=True,
+            sqlite_where=text(f"status = '{SyncStatus.RUNNING.value}' AND account_id IS NOT NULL"),
+            postgresql_where=text(
+                f"status = '{SyncStatus.RUNNING.value}' AND account_id IS NOT NULL"
+            ),
+        ),
         Index("ix_sync_run_provider_id_started_at", "provider_id", text("started_at DESC")),
         Index(
             "ix_sync_run_account_id_status_started_at",
