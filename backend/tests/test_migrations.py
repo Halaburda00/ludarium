@@ -138,3 +138,75 @@ def test_the_migration_and_the_models_agree(settings: Settings) -> None:
     create_schema(from_models)
 
     assert schema_dump(settings.database_url) == schema_dump(from_models)
+
+
+def seed_two_open_runs(url: str) -> None:
+    """The state the one-run-per-account index cannot be created over.
+
+    Written as raw SQL rather than through the models: this is a database at an
+    older revision, and the ORM describes the newest one.
+    """
+
+    engine = create_engine(sync_url(url))
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO app_user (id, username, password_hash, locale, created_at) "
+                    "VALUES (1, 'owner', 'not-a-hash', 'en', CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO provider (id, key, kind, source_kind, licence_class, "
+                    "display_name, precedence_weight, enabled, status) VALUES "
+                    "(1, 'steam', 'platform', 'platform_api', 'redistributable', "
+                    "'Steam', 100, 1, 'pending')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO account (id, user_id, provider_id, label, is_derived, "
+                    "is_active, created_at) VALUES (1, 1, 1, 'Main', 0, 1, CURRENT_TIMESTAMP)"
+                )
+            )
+            for run_id in (1, 2):
+                connection.execute(
+                    text(
+                        "INSERT INTO sync_run (id, provider_id, account_id, trigger, status, "
+                        "started_at, items_seen, items_added, items_updated, items_removed) "
+                        f"VALUES ({run_id}, 1, 1, 'manual', 'running', CURRENT_TIMESTAMP, "
+                        "0, 0, 0, 0)"
+                    )
+                )
+    finally:
+        engine.dispose()
+
+
+def test_the_upgrade_survives_a_database_that_already_breaks_the_new_index(
+    settings: Settings,
+) -> None:
+    """An empty database is the easy case, and not the one this index exists for.
+
+    Two open runs for one account is precisely what a process killed mid-sync
+    leaves behind, twice. `CREATE UNIQUE INDEX` over that fails, and a failed
+    upgrade means the instance cannot start at all — worse than the overlap the
+    index is there to prevent.
+    """
+
+    config = alembic_config(settings.database_url)
+    command.upgrade(config, "edc68f600d75")
+    seed_two_open_runs(settings.database_url)
+
+    command.upgrade(config, "head")
+
+    engine = create_engine(sync_url(settings.database_url))
+    try:
+        with engine.connect() as connection:
+            rows = list(connection.execute(text("SELECT status, finished_at FROM sync_run")))
+    finally:
+        engine.dispose()
+
+    # `failed`, never `success`: neither may be credited with a removal (rule 1).
+    assert [status for status, _ in rows] == ["failed", "failed"]
+    assert all(finished_at is not None for _, finished_at in rows)

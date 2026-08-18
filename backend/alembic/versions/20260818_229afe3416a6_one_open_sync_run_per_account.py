@@ -25,6 +25,25 @@ PREDICATE = "status = 'running' AND account_id IS NOT NULL"
 
 
 def upgrade() -> None:
+    # The index cannot be created over rows that already violate it, and the
+    # database most likely to hold two open runs for one account is exactly the
+    # one this revision exists for: a process killed mid-sync, twice. Without
+    # this the upgrade fails outright and the instance cannot be started at all,
+    # which is a worse outcome than the overlap.
+    #
+    # Every open run is closed, not merely the surplus: a schema migration runs
+    # with the application stopped, so a row still saying `running` is one
+    # nothing is left alive to finish. `failed` rather than `success`, so none of
+    # them can be credited with a removal (rule 1). Not reversed on downgrade —
+    # which rows had been open is not recoverable, and inventing an answer would
+    # be worse than leaving them closed.
+    op.execute(
+        sa.text(
+            "UPDATE sync_run SET status = 'failed', finished_at = CURRENT_TIMESTAMP, "
+            "error_text = 'abandoned; open when the one-run-per-account index was added' "
+            "WHERE status = 'running'"
+        )
+    )
     op.create_index(
         INDEX,
         "sync_run",

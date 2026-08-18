@@ -102,29 +102,7 @@ async def sync_account(
     """
 
     reporter = await _reporter(session, library.key)
-    # Read before anything can roll back. A rollback expires the instance, and
-    # reading an expired column attribute lazy-loads — which is an error on an
-    # async session, and would replace the answer below with a `MissingGreenlet`
-    # raised from inside the handler.
-    account_id = account.id
-    await _reclaim(session, account_id=account_id)
-    run = SyncRun(
-        provider_id=reporter.id,
-        account_id=account_id,
-        trigger=trigger,
-        status=SyncStatus.RUNNING,
-    )
-    session.add(run)
-    try:
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
-        if await _open_run(session, account_id) is None:
-            # Not our index, then. Something else about this row is wrong, and
-            # answering "already running" would hide it behind a plausible
-            # story.
-            raise
-        raise SyncInProgressError(f"account {account_id} is already syncing") from exc
+    run = await _open(session, account=account, reporter=reporter, trigger=trigger)
 
     seen = _Progress()
     try:
@@ -154,6 +132,57 @@ async def sync_account(
     return run
 
 
+async def _open(
+    session: AsyncSession, *, account: Account, reporter: Provider, trigger: SyncTrigger
+) -> SyncRun:
+    """Claim the account by inserting the run. The index decides, not a check beforehand.
+
+    A collision is only reported as `SyncInProgressError` once an open run has
+    actually been found, so a violation of some other constraint on the row is
+    not relabelled into a concurrency answer and looked for in the wrong place.
+
+    And when the lookup finds nothing, the blocker finished in the window
+    between the collision and the question. Nothing is in the way any more, so
+    the honest answer is the sync the caller asked for rather than an error
+    about a run that no longer exists — the second attempt either succeeds or
+    fails for a reason that is not this one.
+
+    Everything past the collision is written in ids rather than instances,
+    because the rollback expires every instance in the session and reading an
+    expired column attribute lazy-loads, which is an error on an async session.
+    The refresh below is the other half of the same rule: the caller goes on to
+    use both of these.
+    """
+
+    provider_id, account_id = reporter.id, account.id
+    await _reclaim(session, account_id=account_id)
+    try:
+        return await _insert(
+            session, provider_id=provider_id, account_id=account_id, trigger=trigger
+        )
+    except IntegrityError as exc:
+        await session.rollback()
+        for instance in (account, reporter):
+            await session.refresh(instance)
+        if await _open_run(session, account_id) is not None:
+            raise SyncInProgressError(f"account {account_id} is already syncing") from exc
+    return await _insert(session, provider_id=provider_id, account_id=account_id, trigger=trigger)
+
+
+async def _insert(
+    session: AsyncSession, *, provider_id: int, account_id: int, trigger: SyncTrigger
+) -> SyncRun:
+    run = SyncRun(
+        provider_id=provider_id,
+        account_id=account_id,
+        trigger=trigger,
+        status=SyncStatus.RUNNING,
+    )
+    session.add(run)
+    await session.commit()
+    return run
+
+
 async def _open_run(session: AsyncSession, account_id: int) -> SyncRun | None:
     run: SyncRun | None = await session.scalar(
         select(SyncRun).where(
@@ -176,6 +205,10 @@ async def _reclaim(session: AsyncSession, *, account_id: int) -> None:
     going after `ORPHAN_AFTER` would be reclaimed out from under itself and
     could then race the run that replaced it. That is what makes the number
     generous rather than tight.
+
+    Flushed, not committed. The update rides on the insert that follows it, so a
+    sync costs one transaction rather than two — and the reclaim survives
+    exactly when the run it made room for does.
     """
 
     await session.execute(
@@ -191,7 +224,7 @@ async def _reclaim(session: AsyncSession, *, account_id: int) -> None:
             error_text="abandoned; no process was left to finish it",
         )
     )
-    await session.commit()
+    await session.flush()
 
 
 async def _reporter(session: AsyncSession, key: str) -> Provider:

@@ -10,7 +10,7 @@ import httpx
 import pytest
 import respx
 from conftest import make_account, make_provider, make_user
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1172,3 +1172,80 @@ async def test_an_integrity_error_it_cannot_confirm_is_not_relabelled(
 
     with pytest.raises(IntegrityError, match="UNIQUE constraint failed"):
         await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+
+async def test_a_blocker_that_finishes_first_gets_out_of_the_way(
+    session: AsyncSession, account: Account, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The window between the collision and the question that confirms it.
+
+    The rival run finished in it, so by the time anyone looks there is nothing
+    in the way. Refusing over a run that no longer exists would be a 409 about
+    a fact that stopped being true, so the second attempt just goes ahead.
+    """
+
+    blocker = sync_module.SyncRun(
+        provider_id=account.provider_id,
+        account_id=account.id,
+        trigger=SyncTrigger.MANUAL,
+        status=SyncStatus.RUNNING,
+    )
+    session.add(blocker)
+    await session.commit()
+
+    # Read now, not inside the replacement: by then the rollback has expired the
+    # instance, and the lazy load is the very trap this module keeps stepping in.
+    blocker_id = blocker.id
+
+    async def finishes_first(inner: AsyncSession, account_id: int) -> None:
+        await inner.execute(
+            update(sync_module.SyncRun)
+            .where(sync_module.SyncRun.id == blocker_id)
+            .values(status=SyncStatus.SUCCESS, finished_at=utcnow())
+        )
+        await inner.commit()
+
+    monkeypatch.setattr(sync_module, "_open_run", finishes_first)
+
+    run = await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    assert run.status is SyncStatus.SUCCESS
+    assert await count(session, Entitlement) == 3
+
+
+async def test_the_reclaim_rides_on_the_run_it_makes_room_for(
+    session: AsyncSession, account: Account
+) -> None:
+    """One transaction, not two: the update commits with the insert or not at all.
+
+    A separate commit here would be a second fsync on every sync of every
+    account, to close a row that is almost never there.
+    """
+
+    session.add(
+        sync_module.SyncRun(
+            provider_id=account.provider_id,
+            account_id=account.id,
+            trigger=SyncTrigger.MANUAL,
+            status=SyncStatus.RUNNING,
+            started_at=utcnow() - sync_module.ORPHAN_AFTER - timedelta(minutes=1),
+        )
+    )
+    await session.commit()
+    commits = 0
+    original = AsyncSession.commit
+
+    async def counted(inner: AsyncSession) -> None:
+        nonlocal commits
+        commits += 1
+        await original(inner)
+
+    monkeypatch_target = AsyncSession
+    monkeypatch_target.commit = counted
+    try:
+        await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+    finally:
+        monkeypatch_target.commit = original
+
+    # One to open the run, one to close it. The reclaim adds none.
+    assert commits == 2
