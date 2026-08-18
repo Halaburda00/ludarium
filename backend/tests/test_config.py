@@ -100,3 +100,12 @@ def test_the_password_is_masked_in_repr() -> None:
     rendered = f"{settings!r} {settings.model_dump()}"
 
     assert settings.password.get_secret_value() not in rendered
+
+
+def test_a_blank_username_is_not_a_username(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The twin of the password check, and the same `.env` mistake makes it."""
+
+    monkeypatch.setenv("LUDARIUM_USERNAME", "  ")
+
+    with pytest.raises(ConfigurationError, match="must not be blank"):
+        get_settings()

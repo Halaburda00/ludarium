@@ -1,7 +1,10 @@
 import hashlib
 import re
+import threading
+from collections.abc import Callable
 from datetime import timedelta
 
+import httpx
 import pytest
 from conftest import TEST_PASSWORD, TEST_USERNAME
 from fastapi import FastAPI
@@ -9,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ludarium import auth as auth_module
 from ludarium.auth import (
     COOKIE_NAME,
     authenticate,
@@ -28,8 +32,15 @@ PUBLIC = {
 }
 
 
-def sign_in(client: TestClient, *, username: str = TEST_USERNAME, password: str = TEST_PASSWORD):  # type: ignore[no-untyped-def]
-    return client.post("/api/auth/login", json={"username": username, "password": password})
+def sign_in(
+    client: TestClient, *, username: str = TEST_USERNAME, password: str = TEST_PASSWORD
+) -> httpx.Response:
+    # Annotated through a local: starlette's TestClient is untyped, so the call
+    # itself is `Any` and `mypy --strict` would flag the bare return.
+    response: httpx.Response = client.post(
+        "/api/auth/login", json={"username": username, "password": password}
+    )
+    return response
 
 
 async def sessions(session: AsyncSession) -> int:
@@ -272,3 +283,51 @@ async def test_a_database_with_no_account_refuses_every_login(session: AsyncSess
     """Unreachable through the app, since the bootstrap runs first. Not unreachable."""
 
     assert await authenticate(session, username=TEST_USERNAME, password=TEST_PASSWORD) is None
+
+
+async def test_argon2_never_runs_on_the_event_loop(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """50-60 ms of C per call, measured, and the loop is the whole process.
+
+    Left where it was, every concurrent request and every APScheduler job in the
+    same process waits behind each login attempt — and behind each wrong one,
+    which is the half an unauthenticated caller controls. The call releases the
+    GIL, so a worker thread really does hand the loop back.
+    """
+
+    threads: list[str] = []
+
+    def watch[**P, T](original: Callable[P, T]) -> Callable[P, T]:
+        def recorded(*args: P.args, **kwargs: P.kwargs) -> T:
+            threads.append(threading.current_thread().name)
+            return original(*args, **kwargs)
+
+        return recorded
+
+    monkeypatch.setattr(auth_module, "hash_password", watch(hash_password))
+    monkeypatch.setattr(auth_module, "verify_password", watch(verify_password))
+
+    # Both bootstrap branches: the first call hashes a new account, the second
+    # verifies and re-hashes a changed one.
+    await bootstrap_user(session, username=TEST_USERNAME, password=TEST_PASSWORD)
+    await bootstrap_user(session, username=TEST_USERNAME, password="a different one")
+    await authenticate(session, username=TEST_USERNAME, password="a different one")
+
+    assert threads
+    assert all(name.startswith("argon2") for name in threads), threads
+
+
+def test_a_password_nobody_could_type_is_refused_before_argon2_sees_it(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bound is on the way in, not after a hash of a multi-megabyte string."""
+
+    def never(*args: object, **kwargs: object) -> bool:
+        raise AssertionError("argon2 was reached")
+
+    monkeypatch.setattr(auth_module, "verify_password", never)
+
+    response = sign_in(client, password="a" * 1025)
+
+    assert response.status_code == 422

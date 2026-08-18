@@ -11,9 +11,13 @@ Single-tenant is ADR-0003: one row in `app_user`, no user management, and the
 environment as the only place a credential comes from (rule 7).
 """
 
+import asyncio
 import hashlib
 import secrets
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from functools import partial
 from typing import Annotated, Final
 
 from argon2 import PasswordHasher
@@ -37,6 +41,22 @@ TOKEN_BYTES: Final = 32
 # and they are revised by people who follow the parameter guidance, which we do
 # not. `check_needs_rehash` below is what makes a later revision arrive.
 _hasher = PasswordHasher()
+
+# argon2 is expensive on purpose, and measured here it is 50-60ms of C that
+# would otherwise run on the event loop — every concurrent request and every
+# APScheduler job stalls behind each login attempt. The call releases the GIL,
+# so a worker thread genuinely gets the loop back.
+#
+# Its own small pool rather than the default executor, because argon2 is
+# expensive in memory as much as in time: each concurrent hash holds
+# `memory_cost`, 64 MiB by default, so the ceiling on parallel hashing is the
+# ceiling on what an unauthenticated endpoint can make us allocate. Two is
+# generous for one account, and the rest wait.
+_POOL: Final = ThreadPoolExecutor(max_workers=2, thread_name_prefix="argon2")
+
+
+async def _off_the_loop[T](call: Callable[[], T]) -> T:
+    return await asyncio.get_running_loop().run_in_executor(_POOL, call)
 
 
 def hash_password(password: str) -> str:
@@ -89,14 +109,15 @@ async def bootstrap_user(session: AsyncSession, *, username: str, password: str)
 
     user = await session.scalar(select(AppUser).order_by(AppUser.id).limit(1))
     if user is None:
-        user = AppUser(username=username, password_hash=hash_password(password))
+        digest = await _off_the_loop(partial(hash_password, password))
+        user = AppUser(username=username, password_hash=digest)
         session.add(user)
         await session.commit()
         return user
 
-    changed = not verify_password(user.password_hash, password)
+    changed = not await _off_the_loop(partial(verify_password, user.password_hash, password))
     if changed or _hasher.check_needs_rehash(user.password_hash):
-        user.password_hash = hash_password(password)
+        user.password_hash = await _off_the_loop(partial(hash_password, password))
     if changed:
         await session.execute(delete(UserSession).where(UserSession.user_id == user.id))
     user.username = username
@@ -116,7 +137,7 @@ async def authenticate(session: AsyncSession, *, username: str, password: str) -
     user = await session.scalar(select(AppUser).order_by(AppUser.id).limit(1))
     if user is None:
         return None
-    correct = verify_password(user.password_hash, password)
+    correct = await _off_the_loop(partial(verify_password, user.password_hash, password))
     if not correct or user.username != username:
         return None
     return user

@@ -34,11 +34,18 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./data/ludarium.db"
     log_level: LogLevel = "INFO"
 
+    # `LUDARIUM_USERNAME=` and `LUDARIUM_PASSWORD=` in a .env are the way "unset"
+    # actually reaches us, and pydantic would take the empty string for an answer.
+    @field_validator("username")
+    @classmethod
+    def _reject_blank_username(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
+
     @field_validator("password")
     @classmethod
     def _reject_blank_password(cls, value: SecretStr) -> SecretStr:
-        # `LUDARIUM_PASSWORD=` in a .env is the way "unset" actually reaches us,
-        # and pydantic would take the empty string for an answer.
         if not value.get_secret_value().strip():
             raise ValueError("must not be blank")
         return value
