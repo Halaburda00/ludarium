@@ -13,14 +13,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ludarium.api.common import provider_or_404
 from ludarium.auth import CurrentSession
-from ludarium.crypto import CredentialDecryptionError, get_cipher
 from ludarium.db import SessionDep
 from ludarium.enums import SyncStatus, SyncTrigger
 from ludarium.models import Account, Provider, SyncRun
-from ludarium.providers import LibraryProvider
-from ludarium.providers.registry import build_library, supports
-from ludarium.sync import SyncInProgressError, sync_account
+from ludarium.providers.registry import supports
+from ludarium.sync import SyncInProgressError, library_for, sync_account
 
 RECENT_RUNS = 50
 
@@ -82,9 +81,7 @@ def _describe(run: SyncRun, provider_key: str) -> SyncRunResponse:
 async def _syncable(
     session: AsyncSession, key: str, user_id: int
 ) -> tuple[Provider, list[Account]]:
-    provider = await session.scalar(select(Provider).where(Provider.key == key))
-    if provider is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"no provider named `{key}`")
+    provider = await provider_or_404(session, key)
     if not supports(provider.key):
         # Before the accounts and before any credential: `manual` owns
         # entitlements and has nothing to ask, which is a fact about the
@@ -119,40 +116,23 @@ async def run(
     turns a provider failure into a run status precisely so this loop does not
     have to catch anything to keep rule 4.
 
-    `SyncInProgressError` is the exception, and it is the caller's answer rather
-    than a run's: the double-click that produced it wants 409, not a second run.
+    `SyncInProgressError` is the only exception, and it is the caller's answer
+    rather than a run's: the double-click that produced it wants 409, not a
+    second run. Everything else — including a credential that will not decrypt —
+    reaches `library_for` and comes back as a failed run, so one broken account
+    cannot end a request that the others were about to complete.
     """
 
     reporter, accounts = await _syncable(session, provider, record.user_id)
     client: httpx.AsyncClient = request.app.state.http
     runs: list[SyncRun] = []
     for account in accounts:
-        library = _library_for(account, reporter.key, client)
+        library = library_for(account, key=reporter.key, client=client)
         try:
             runs.append(await sync_account(session, account=account, library=library))
         except SyncInProgressError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     return [_describe(finished, reporter.key) for finished in runs]
-
-
-def _library_for(account: Account, key: str, client: httpx.AsyncClient) -> LibraryProvider:
-    if account.credentials_encrypted is None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, f"account {account.id} has no stored credentials"
-        )
-    try:
-        secret = get_cipher().decrypt(account.credentials_encrypted)
-    except CredentialDecryptionError as exc:
-        # The message names the key, never the ciphertext (rule 7).
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)) from exc
-    # `_syncable` has already refused a provider with no client, so this cannot
-    # raise `UnsupportedProviderError` here.
-    return build_library(
-        key,
-        external_account_id=account.external_account_id or "",
-        secret=secret,
-        client=client,
-    )
 
 
 @router.get("/runs")

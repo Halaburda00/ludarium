@@ -19,6 +19,16 @@ from ludarium.seed import seed_providers
 # that unsticks it waits an hour (`sync.ORPHAN_AFTER`).
 HTTP_TIMEOUT = httpx.Timeout(20.0, connect=5.0)
 
+# httpx logs every request at INFO with the full URL, and Steam's Web API key
+# travels in the query string — so the stock configuration writes the user's own
+# credential into the container log on every sync (rule 7).
+#
+# Silenced at these loggers rather than by raising the root level, so that
+# turning `LUDARIUM_LOG_LEVEL` up to DEBUG to investigate a failing sync does not
+# start leaking the key. That is precisely when someone would turn it up, and
+# precisely when they would not be watching for this.
+SILENCED = ("httpx", "httpcore")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -56,6 +66,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # the module-level app below installs one at import time, and every later
     # create_app would silently ignore LUDARIUM_LOG_LEVEL.
     logging.basicConfig(level=settings.log_level, force=True)
+    for name in SILENCED:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
     app = FastAPI(title="Ludarium", version=__version__, lifespan=lifespan)
     app.state.settings = settings

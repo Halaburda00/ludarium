@@ -13,8 +13,8 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field, SecretStr
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from ludarium.api.common import provider_or_404
 from ludarium.auth import CurrentSession
 from ludarium.crypto import get_cipher
 from ludarium.db import SessionDep
@@ -76,13 +76,6 @@ def _describe(account: Account, provider_key: str) -> AccountResponse:
     )
 
 
-async def _provider(session: AsyncSession, key: str) -> Provider:
-    provider = await session.scalar(select(Provider).where(Provider.key == key))
-    if provider is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"no provider named `{key}`")
-    return provider
-
-
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def connect(
     payload: ConnectRequest, request: Request, session: SessionDep, record: CurrentSession
@@ -95,7 +88,7 @@ async def connect(
     bad credential — told that, someone rotates a key that was working.
     """
 
-    provider = await _provider(session, payload.provider)
+    provider = await provider_or_404(session, payload.provider)
     client: httpx.AsyncClient = request.app.state.http
     secret = payload.credentials.get_secret_value()
     try:
@@ -111,7 +104,11 @@ async def connect(
     except (InvalidCredentialsError, LibraryNotVisibleError) as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except RateLimitedError as exc:
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(exc)) from exc
+        # Steam's own figure, passed straight through. Without it the frontend
+        # has nothing to base a retry on but a guess, and a guessed retry into a
+        # rate limit is how it becomes a ban.
+        headers = {"Retry-After": str(int(exc.retry_after))} if exc.retry_after else None
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(exc), headers=headers) from exc
     except ProviderError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 

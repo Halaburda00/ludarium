@@ -243,3 +243,25 @@ async def test_the_listing_shows_only_the_signed_in_users_accounts(
     body = signed_in.get("/api/accounts").json()
 
     assert [account["label"] for account in body] == []
+
+
+@respx.mock
+def test_the_platforms_own_backoff_reaches_the_caller(signed_in: TestClient) -> None:
+    """`Retry-After` passed through rather than dropped at the provider boundary.
+
+    Without it the frontend has nothing to base a retry on but a guess, and a
+    guessed retry into a rate limit is how a rate limit becomes a ban.
+    """
+
+    respx.get(OWNED_GAMES_URL).mock(
+        return_value=httpx.Response(
+            429,
+            headers={"Retry-After": "42"},
+            text=(FIXTURES / "rate_limited.html").read_text(),
+        )
+    )
+
+    response = connect(signed_in)
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "42"
