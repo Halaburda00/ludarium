@@ -24,7 +24,13 @@ FORBIDDEN = {
 
 # Response schemas we know exist, so a walk that quietly finds nothing cannot
 # pass by finding nothing.
-EXPECTED = {"AccountResponse", "SessionResponse", "SyncRunResponse"}
+EXPECTED = {
+    "AccountResponse",
+    "EntitlementSummary",
+    "SessionResponse",
+    "SyncRunResponse",
+    "WorkSummary",
+}
 
 
 def referenced(node: Any) -> set[str]:

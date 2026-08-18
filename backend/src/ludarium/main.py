@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI
 from sqlalchemy.exc import OperationalError
 
 from ludarium import __version__
-from ludarium.api import accounts, auth, health
+from ludarium.api import accounts, auth, health, works
 from ludarium.api import sync as sync_api
 from ludarium.auth import bootstrap_user, current_session
 from ludarium.config import Settings, get_settings
@@ -81,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     guarded = [Depends(current_session)]
     app.include_router(accounts.router, prefix="/api", dependencies=guarded)
     app.include_router(sync_api.router, prefix="/api", dependencies=guarded)
+    app.include_router(works.router, prefix="/api", dependencies=guarded)
     return app
 
 
