@@ -15,10 +15,11 @@ Unlike the resolver, which leaves the transaction to its caller, this owns it.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Final
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.enums import (
@@ -49,8 +50,25 @@ DEFAULT_EDITION_NAME: Final = "Standard"
 DEFAULT_EDITION_SLUG: Final = "standard"
 
 
+# A run measures in seconds — 27 for a 2000-game library (#23) — and the fetch
+# is bounded by the client's timeout and three tenacity attempts. An hour is
+# therefore not a slow sync; it is a process that was killed between opening the
+# row and closing it, and the index below would otherwise let that one orphan
+# block the account forever.
+ORPHAN_AFTER: Final = timedelta(hours=1)
+
+
 class SyncError(Exception):
     """The run could not start. Not a provider failure — those are a run status."""
+
+
+class SyncInProgressError(SyncError):
+    """This account already has an open run, and one at a time is the rule.
+
+    Raised rather than queued: the caller is a user who double-clicked, or a
+    scheduler firing over a sync that has not finished, and both want to be told
+    rather than to wait.
+    """
 
 
 @dataclass
@@ -84,14 +102,29 @@ async def sync_account(
     """
 
     reporter = await _reporter(session, library.key)
+    # Read before anything can roll back. A rollback expires the instance, and
+    # reading an expired column attribute lazy-loads — which is an error on an
+    # async session, and would replace the answer below with a `MissingGreenlet`
+    # raised from inside the handler.
+    account_id = account.id
+    await _reclaim(session, account_id=account_id)
     run = SyncRun(
         provider_id=reporter.id,
-        account_id=account.id,
+        account_id=account_id,
         trigger=trigger,
         status=SyncStatus.RUNNING,
     )
     session.add(run)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        if await _open_run(session, account_id) is None:
+            # Not our index, then. Something else about this row is wrong, and
+            # answering "already running" would hide it behind a plausible
+            # story.
+            raise
+        raise SyncInProgressError(f"account {account_id} is already syncing") from exc
 
     seen = _Progress()
     try:
@@ -119,6 +152,46 @@ async def sync_account(
         raise
     await _close(session, run, reporter, account, seen, SyncStatus.SUCCESS)
     return run
+
+
+async def _open_run(session: AsyncSession, account_id: int) -> SyncRun | None:
+    run: SyncRun | None = await session.scalar(
+        select(SyncRun).where(
+            SyncRun.account_id == account_id, SyncRun.status == SyncStatus.RUNNING
+        )
+    )
+    return run
+
+
+async def _reclaim(session: AsyncSession, *, account_id: int) -> None:
+    """Close an orphan so one killed process does not lock the account out for good.
+
+    `_close` covers cancellation and every exception, so what is left is a hard
+    kill between the first commit and the second — the row says `running` and
+    nothing is left alive to finish it. Marked `failed`, never `success`, so it
+    stays incapable of owning a removal (rule 1); whatever it had written was
+    lost with its transaction anyway.
+
+    The threshold is the residual risk in one number: a run still genuinely
+    going after `ORPHAN_AFTER` would be reclaimed out from under itself and
+    could then race the run that replaced it. That is what makes the number
+    generous rather than tight.
+    """
+
+    await session.execute(
+        update(SyncRun)
+        .where(
+            SyncRun.account_id == account_id,
+            SyncRun.status == SyncStatus.RUNNING,
+            SyncRun.started_at < utcnow() - ORPHAN_AFTER,
+        )
+        .values(
+            status=SyncStatus.FAILED,
+            finished_at=utcnow(),
+            error_text="abandoned; no process was left to finish it",
+        )
+    )
+    await session.commit()
 
 
 async def _reporter(session: AsyncSession, key: str) -> Provider:

@@ -2,7 +2,7 @@ import ast
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +34,7 @@ from ludarium.models import (
     UserWorkState,
     Work,
 )
-from ludarium.models.types import ScalarValue
+from ludarium.models.types import ScalarValue, utcnow
 from ludarium.providers import (
     LibraryItem,
     ProviderUnavailableError,
@@ -1010,3 +1010,165 @@ async def test_a_recorded_steam_library_lands_end_to_end(
     assert entitlement.playtime_minutes == 3247
     assert entitlement.raw_payload is not None
     assert entitlement.raw_payload["appid"] == 292030
+
+
+async def test_a_second_run_of_one_account_is_refused(
+    session: AsyncSession, account: Account
+) -> None:
+    """Not a check-then-act — the index is the guard, and this is its answer.
+
+    Two overlapping runs would both upsert the same items and both sweep, one
+    marking `removed_at` on rows the other is in the middle of seeing. The user
+    who double-clicks and the scheduler firing over an unfinished run are the
+    two ways it happens.
+    """
+
+    session.add(
+        sync_module.SyncRun(
+            provider_id=account.provider_id,
+            account_id=account.id,
+            trigger=SyncTrigger.MANUAL,
+            status=SyncStatus.RUNNING,
+        )
+    )
+    await session.commit()
+
+    with pytest.raises(sync_module.SyncInProgressError, match="already syncing"):
+        await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    assert await count(session, Entitlement) == 0
+
+
+async def test_a_finished_run_blocks_nothing(session: AsyncSession, account: Account) -> None:
+    """The index is partial for this reason: yesterday's runs must not pile up against it."""
+
+    for _ in range(3):
+        await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    assert await count(session, sync_module.SyncRun) == 3
+
+
+async def test_one_account_syncing_does_not_block_another(session: AsyncSession) -> None:
+    """Rule 4, at the one place a shared constraint could quietly break it."""
+
+    steam = await make_account(session, "steam")
+    gog = await make_account(session, "gog", external_account_id="gog-42")
+    session.add(
+        sync_module.SyncRun(
+            provider_id=steam.provider_id,
+            account_id=steam.id,
+            trigger=SyncTrigger.MANUAL,
+            status=SyncStatus.RUNNING,
+        )
+    )
+    await session.commit()
+
+    run = await sync_account(session, account=gog, library=FakeLibrary(THREE_GAMES, key="gog"))
+
+    assert run.status is SyncStatus.SUCCESS
+
+
+async def test_metadata_runs_carry_no_account_and_never_collide(session: AsyncSession) -> None:
+    """IGDB and RAWG sync no account, so several of their runs are open by design.
+
+    The `account_id IS NOT NULL` half of the index predicate cannot be tested
+    apart from this: both SQLite and PostgreSQL already treat nulls in a unique
+    index as distinct, so dropping it changes nothing either dialect does. It is
+    written anyway, because "metadata providers are outside this rule" should be
+    readable in the predicate rather than deduced from two dialects agreeing.
+    """
+
+    provider = await make_provider(session, key="igdb")
+    for _ in range(2):
+        session.add(
+            sync_module.SyncRun(
+                provider_id=provider.id,
+                account_id=None,
+                trigger=SyncTrigger.SCHEDULED,
+                status=SyncStatus.RUNNING,
+            )
+        )
+    await session.commit()
+
+    assert await count(session, sync_module.SyncRun) == 2
+
+
+async def test_an_abandoned_run_stops_blocking_the_account(
+    session: AsyncSession, account: Account
+) -> None:
+    """One killed process must not lock the account out for good.
+
+    `_close` covers cancellation and every exception, so what reaches this is a
+    hard kill between the first commit and the second: the row says `running`
+    and nothing is left alive to finish it.
+    """
+
+    orphan = sync_module.SyncRun(
+        provider_id=account.provider_id,
+        account_id=account.id,
+        trigger=SyncTrigger.MANUAL,
+        status=SyncStatus.RUNNING,
+        started_at=utcnow() - sync_module.ORPHAN_AFTER - timedelta(minutes=1),
+    )
+    session.add(orphan)
+    await session.commit()
+
+    run = await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    assert run.status is SyncStatus.SUCCESS
+    await session.refresh(orphan)
+    # `failed`, never `success`: a run nobody finished must stay incapable of
+    # owning a removal (rule 1).
+    assert orphan.status is SyncStatus.FAILED
+    assert orphan.finished_at is not None
+    assert orphan.error_text == "abandoned; no process was left to finish it"
+
+
+async def test_a_run_that_only_started_a_minute_ago_still_blocks(
+    session: AsyncSession, account: Account
+) -> None:
+    """The threshold is generous on purpose; it must not be so generous it is absent."""
+
+    session.add(
+        sync_module.SyncRun(
+            provider_id=account.provider_id,
+            account_id=account.id,
+            trigger=SyncTrigger.MANUAL,
+            status=SyncStatus.RUNNING,
+            started_at=utcnow() - timedelta(minutes=1),
+        )
+    )
+    await session.commit()
+
+    with pytest.raises(sync_module.SyncInProgressError):
+        await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+
+async def test_an_integrity_error_it_cannot_confirm_is_not_relabelled(
+    session: AsyncSession, account: Account, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ "Already syncing" is a claim about one index, so it is only made when true.
+
+    A real collision, with the confirming lookup finding nothing — which is what
+    a violation of some *other* constraint on the row looks like from here. A
+    broken foreign key reported as a concurrency answer would be looked for in
+    entirely the wrong place.
+    """
+
+    session.add(
+        sync_module.SyncRun(
+            provider_id=account.provider_id,
+            account_id=account.id,
+            trigger=SyncTrigger.MANUAL,
+            status=SyncStatus.RUNNING,
+        )
+    )
+    await session.commit()
+
+    async def blind(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(sync_module, "_open_run", blind)
+
+    with pytest.raises(IntegrityError, match="UNIQUE constraint failed"):
+        await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
