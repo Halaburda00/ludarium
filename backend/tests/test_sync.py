@@ -623,9 +623,9 @@ async def test_a_manual_row_survives_a_sweep_that_takes_everything_else(
     """Rule 2, at the query that would otherwise be the one to break it.
 
     A disc copy corresponds to nothing on any platform, so every sync sees it as
-    absent. Excluded by predicate rather than by trusting that its null
-    `provider_item_id` keeps it out of the comparison — that holds today, and it
-    holds because of a CHECK constraint rather than because of this query.
+    absent. Two predicates keep it: `origin != manual`, and the null guard that
+    covers every nameless row. The second is what this test actually pins, since
+    a CHECK constraint means a manual row can never reach the first one.
     """
 
     await make_user(session)
@@ -645,6 +645,69 @@ async def test_a_manual_row_survives_a_sweep_that_takes_everything_else(
     assert manual.removed_by_run_id is None
     # Only the three synced rows were swept; the manual one was never a candidate.
     assert run.items_removed == 3
+
+
+async def test_an_imported_row_the_platform_cannot_name_survives_a_sweep(
+    session: AsyncSession, account: Account
+) -> None:
+    """Absence is only evidence about rows the provider was asked about.
+
+    A CSV import writes entitlements with no `provider_item_id` — the row says
+    what the user owns, not what Steam calls it. Such a row is absent from every
+    library response because it can never be present in one, so a sweep that
+    went by absence alone would remove it on the first run and on every run
+    after, and the restore in the removed view would not survive the next sync.
+    """
+
+    await make_user(session)
+    imported = Entitlement(
+        account_id=account.id,
+        origin=EntitlementOrigin.IMPORT,
+        provider_title="Beyond Good & Evil (from a Galaxy export)",
+    )
+    session.add(imported)
+    await session.flush()
+
+    run = await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    await session.refresh(imported)
+    assert imported.removed_at is None
+    assert run.items_removed == 0
+
+
+async def test_a_library_larger_than_sqlite_can_bind_still_sweeps(
+    session: AsyncSession, account: Account
+) -> None:
+    """A set difference in Python, not one bind parameter per owned item.
+
+    Steam accounts past SQLite's ceiling of 32766 variables are rare and they
+    exist, and `NOT IN (...)` over one does not merely run slowly: it raises
+    inside the run's own transaction, so the run rolls back, reports `failed`,
+    and does so identically on every retry until the library shrinks. The
+    account is stuck rather than slow, which is why the size is a test and not a
+    note in the perf issue.
+
+    Driven straight at `_sweep`: a full sync of this many items would add
+    minutes to the suite to exercise the upsert loop, which is issue #23's
+    problem and not this query's.
+    """
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+    run = sync_module.SyncRun(
+        provider_id=account.provider_id,
+        account_id=account.id,
+        trigger=SyncTrigger.MANUAL,
+        status=SyncStatus.RUNNING,
+    )
+    session.add(run)
+    await session.flush()
+    huge = THREE_GAMES[:2] + [owned(f"filler-{index}", f"Game {index}") for index in range(32767)]
+
+    stale = await sync_module._sweep(session, run=run, account=account, items=huge)
+
+    dota = await one_entitlement(session, "570")
+    assert stale == [dota.id]
+    assert run.items_removed == 1
 
 
 async def test_a_manual_row_cannot_be_given_a_provider_item_id(

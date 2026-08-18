@@ -184,11 +184,20 @@ def _report(
     error: str | None,
     moment: datetime,
 ) -> None:
-    """Rule 4: health is per provider and per account, so one outage stays one outage.
+    """Rule 4: one provider's outage stays one provider's outage.
 
     The reporter's row, not the account's provider — a Galaxy import is Galaxy's
     health, and the Battle.net account it writes to has never been asked
     anything itself.
+
+    `status` and `last_error` say what the provider's *last run* did, across all
+    of its accounts, because that is the only thing the columns can say: they
+    sit on the provider row and there is no per-account equivalent. Two Steam
+    accounts therefore overwrite each other here, and the later run wins whether
+    it failed or succeeded. That is a summary going stale, not a fact being
+    lost — `sync_run` keeps every attempt with its `account_id`, and
+    `account.last_success_at` below is per account and never moves backwards.
+    Per-account health columns arrive with the multi-account UI in M4.
 
     `last_success_at` only ever moves forward. A failure records that it broke
     without erasing when it last worked, which is the pair the status panel
@@ -298,27 +307,40 @@ async def _sweep(
     transaction. These updates commit with the status or roll back with it, so
     there is no path by which a failed run leaves a removal behind.
 
-    Rows with `origin = manual` are excluded by predicate (rule 2). Their null
-    `provider_item_id` would drop them from the comparison anyway — `NULL NOT
-    IN (...)` is never true — but a guarantee resting on SQL's null semantics is
-    a guarantee waiting to be broken by a schema change.
+    A row the provider cannot name is excluded: a null `provider_item_id` is not
+    an item the platform stopped listing, it is a row the platform was never
+    asked about. An import writes those, and so does a manual entry.
+
+    Which makes the `origin = manual` predicate redundant twice over — the CHECK
+    constraint keeps such a row nameless and the null guard then drops it — and
+    no test can distinguish it. It stays because rule 2 should be legible at the
+    query that would break it, rather than inferred from two facts stated
+    elsewhere.
 
     An empty library sweeps everything, deliberately: that is what a platform
     saying "you own nothing" looks like, and telling it apart from a truncated
     response belongs to the provider, which is why `SteamProvider` refuses a
     body shorter than the count Steam sent with it.
+
+    The set difference is taken in Python rather than as `NOT IN (...)`, which
+    binds one parameter per owned item and fails outright past SQLite's ceiling
+    of 32766. A library that large is rare, but the failure would not be: the
+    sweep raises inside the run's own transaction, so every run of that account
+    rolls back and reports `failed` until the library shrinks. The rows are
+    already paid for — the account's live entitlements are what the upsert loop
+    just put in the identity map.
     """
 
-    stale = list(
-        await session.scalars(
-            select(Entitlement).where(
-                Entitlement.account_id == account.id,
-                Entitlement.origin != EntitlementOrigin.MANUAL,
-                Entitlement.removed_at.is_(None),
-                Entitlement.provider_item_id.not_in({item.provider_item_id for item in items}),
-            )
+    owned = {item.provider_item_id for item in items}
+    live = await session.scalars(
+        select(Entitlement).where(
+            Entitlement.account_id == account.id,
+            Entitlement.origin != EntitlementOrigin.MANUAL,
+            Entitlement.removed_at.is_(None),
+            Entitlement.provider_item_id.is_not(None),
         )
     )
+    stale = [entitlement for entitlement in live if entitlement.provider_item_id not in owned]
     moment = utcnow()
     for entitlement in stale:
         entitlement.removed_at = moment
