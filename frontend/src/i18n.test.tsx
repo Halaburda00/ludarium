@@ -1,0 +1,76 @@
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+
+import ts from 'typescript'
+
+import { screen } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
+
+import { Router } from '@/App'
+import { missingKeys } from '@/i18n'
+import { renderApp, stubFetch } from '@/test/render'
+
+const SOURCE = join(process.cwd(), 'src')
+
+/** Everything under `src`, minus the generated primitives and the tests. */
+function sources(directory = SOURCE): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name)
+    if (entry.isDirectory()) {
+      return entry.name === 'ui' || entry.name === 'test' || entry.name === 'assets'
+        ? []
+        : sources(path)
+    }
+    return entry.name.endsWith('.tsx') && !entry.name.includes('.test.') ? [path] : []
+  })
+}
+
+/**
+ * Text a browser would show, taken from the parse tree rather than guessed at.
+ *
+ * `JsxText` is exactly the node this rule is about — a sentence typed between
+ * two tags. A regex cannot do it: `=>` and `length > 0` both look like a tag
+ * closing onto text, and the first version of this test reported both.
+ */
+function literalText(source: string): string[] {
+  const file = ts.createSourceFile('screen.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const found: string[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxText(node) && /[A-Za-z]{3}/.test(node.text)) {
+      found.push(node.text.trim())
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+  return found
+}
+
+describe('i18n', () => {
+  it('has a resource for every key the screens ask for', async () => {
+    stubFetch({
+      'GET /api/accounts': { body: [{ id: 1, provider: 'steam', label: 'Main' }] },
+      'GET /api/works': { body: { works: [], next_cursor: null } },
+    })
+    renderApp(<Router />, { route: '/library' })
+    await screen.findByRole('heading', { name: 'Library' })
+
+    // A typo'd key renders as the key itself, which looks like a design choice
+    // in a screenshot and like nothing at all in a review.
+    expect(missingKeys).toEqual([])
+  })
+
+  it('has no hardcoded user-visible string in any screen', () => {
+    const offenders = sources()
+      .map((path) => [path, literalText(readFileSync(path, 'utf8'))] as const)
+      .filter(([, text]) => text.length > 0)
+
+    expect(offenders).toEqual([])
+  })
+
+  it('would notice one', () => {
+    // The guard above passes on an empty set as readily as on a correct one,
+    // so here is a screen with the mistake in it.
+    expect(literalText('<p>Sign in</p>')).toEqual(['Sign in'])
+    expect(literalText('<p>{t("login.submit")}</p>')).toEqual([])
+  })
+})

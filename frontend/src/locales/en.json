@@ -1,0 +1,48 @@
+{
+  "app": {
+    "name": "Ludarium",
+    "tagline": "One library, every platform."
+  },
+  "common": {
+    "loading": "Loading…",
+    "retry": "Try again",
+    "signOut": "Sign out"
+  },
+  "login": {
+    "title": "Sign in",
+    "username": "Username",
+    "password": "Password",
+    "submit": "Sign in",
+    "working": "Signing in…",
+    "failed": "Wrong username or password."
+  },
+  "onboarding": {
+    "title": "Connect Steam",
+    "intro": "Ludarium reads your library with your own Steam Web API key. The key is stored encrypted and never leaves this server.",
+    "apiKey": "Steam Web API key",
+    "apiKeyHint": "Get one at steamcommunity.com/dev/apikey",
+    "steamId": "SteamID64",
+    "steamIdHint": "The 17-digit number, not your profile name",
+    "label": "Name for this account",
+    "submit": "Connect",
+    "working": "Checking with Steam…",
+    "connected": "Connected. Your library is syncing.",
+    "privateProfile": "Steam accepted the key, but this profile's game details are private. Change it in Steam privacy settings and try again."
+  },
+  "library": {
+    "title": "Library",
+    "empty": "Nothing here yet. Run a sync to pull your library in.",
+    "sync": "Sync now",
+    "syncing": "Syncing…",
+    "synced_one": "Synced {{count}} game.",
+    "synced_other": "Synced {{count}} games.",
+    "runFailed": "The last sync failed: {{reason}}",
+    "alreadyRunning": "A sync is already running for this account.",
+    "count_one": "{{count}} game",
+    "count_other": "{{count}} games"
+  },
+  "error": {
+    "offline": "Could not reach the server.",
+    "unexpected": "Something went wrong."
+  }
+}
