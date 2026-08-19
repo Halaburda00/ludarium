@@ -1,4 +1,5 @@
 import json
+from base64 import urlsafe_b64encode
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ludarium.api import works as works_module
 from ludarium.enums import EntitlementOrigin, WorkLinkRole
 from ludarium.models import (
     Account,
@@ -182,12 +184,10 @@ async def test_a_removed_copy_is_not_listed_beside_a_live_one(
     )
     session.add(gone)
     await session.flush()
+    portal_id = await session.scalar(select(Work.id).where(Work.title == "Portal 2"))
+    assert portal_id is not None
     session.add(
-        __import__("ludarium.models", fromlist=["EntitlementWork"]).EntitlementWork(
-            entitlement_id=gone.id,
-            work_id=(await session.scalar(select(Work.id).where(Work.title == "Portal 2"))),
-            role="granted",
-        )
+        EntitlementWork(entitlement_id=gone.id, work_id=portal_id, role=WorkLinkRole.GRANTED)
     )
     await session.commit()
 
@@ -273,10 +273,12 @@ async def test_another_users_library_is_not_in_the_list(
     session.add(EntitlementWork(entitlement_id=theirs.id, work_id=theirs_work.id))
     session.add(UserWorkState(user_id=stranger.id, work_id=theirs_work.id))
     # And a second copy of one of mine, so the per-work query is scoped too.
+    shared_id = await session.scalar(select(Work.id).where(Work.title == "Portal 2"))
+    assert shared_id is not None
     session.add(
         EntitlementWork(
             entitlement_id=theirs.id,
-            work_id=(await session.scalar(select(Work.id).where(Work.title == "Portal 2"))) or 0,
+            work_id=shared_id,
             role=WorkLinkRole.GRANTED,
         )
     )
@@ -422,3 +424,116 @@ async def _add_work(session: AsyncSession, *, title: str, sort_title: str) -> Wo
     session.add(UserWorkState(user_id=1, work_id=work.id))
     await session.commit()
     return work
+
+
+async def test_a_work_whose_state_row_is_missing_is_still_listed(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    """The convention `sync._stub` keeps, and that no constraint enforces.
+
+    An inner join would make a future write path that forgets the row — a
+    manual entry, the M2 matcher — delete games from the library with no error
+    anywhere. Shown with its defaults instead: recoverable, and visible.
+    """
+
+    portal_id = await session.scalar(select(Work.id).where(Work.title == "Portal 2"))
+    assert portal_id is not None
+    state = await session.get(UserWorkState, (1, portal_id))
+    assert state is not None
+    await session.delete(state)
+    await session.commit()
+
+    body = synced.get("/api/works").json()
+
+    portal = next(work for work in body["works"] if work["title"] == "Portal 2")
+    assert portal["play_status"] == "not_started"
+    assert portal["playtime_minutes"] == 0
+    assert portal["is_hidden"] is False
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        b'["Portal 2", 3.7]',
+        b'["Portal 2", true]',
+        b'[3, "Portal 2"]',
+        b'["Portal 2"]',
+        b'{"sort_title": "Portal 2", "id": 2}',
+        b'"Portal 2"',
+    ],
+)
+def test_a_cursor_of_the_wrong_shape_is_refused(synced: TestClient, cursor: bytes) -> None:
+    """Checked rather than coerced.
+
+    `str()` and `int()` accept almost anything, and `int(3.7)` becomes 3 without
+    a word — so a made-up cursor would page from a position nobody chose, which
+    is worse than being turned away.
+    """
+
+    response = synced.get("/api/works", params={"cursor": urlsafe_b64encode(cursor).decode()})
+
+    assert response.status_code == 400
+
+
+def test_a_cursor_longer_than_any_we_issue_is_refused(synced: TestClient) -> None:
+    response = synced.get("/api/works", params={"cursor": "A" * 1000})
+
+    assert response.status_code == 422
+
+
+def test_a_work_whose_copies_vanished_between_the_two_queries_is_dropped(
+    synced: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The page and its entitlements are two queries and not one snapshot.
+
+    pysqlite opens no transaction for a `SELECT`, so a sync committing a removal
+    between them can leave a work in the page whose last live copy has just
+    gone. Shown, it would be a row contradicting the endpoint's own rule — in
+    the list because something live points at it, with nothing listed.
+
+    The race is forced here rather than waited for: what the second query
+    returns is the whole of the difference.
+    """
+
+    real = works_module._entitlements
+
+    async def loses_portal(
+        session: AsyncSession, work_ids: list[int], user_id: int
+    ) -> dict[int, list[object]]:
+        found = await real(session, work_ids, user_id)
+        for work_id, copies in list(found.items()):
+            if any(copy.provider_item_id == "620" for copy in copies):
+                del found[work_id]
+        return found
+
+    monkeypatch.setattr(works_module, "_entitlements", loses_portal)
+
+    first = synced.get("/api/works", params={"limit": 2}).json()
+
+    assert titles(first) == ["Dota 2"]
+    # The cursor is a position in the ordering, taken from the last row *read*.
+    # Issued from the last row kept, the next page would start before Portal 2
+    # and hand it back again — the row just established as having nothing live.
+    second = synced.get("/api/works", params={"cursor": first["next_cursor"]}).json()
+    assert titles(second) == ["The Witcher 3: Wild Hunt"]
+
+
+def test_a_page_that_loses_everything_still_hands_back_a_cursor(
+    synced: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Otherwise the listing stops and the rest of the library is never asked for.
+
+    The cursor is a position, not a row: taken from the last row *kept* there
+    would be none to take it from here, and a client doing the obvious thing —
+    stop when the cursor is null — would silently see a truncated library.
+    """
+
+    async def loses_everything(*args: object, **kwargs: object) -> dict[int, list[object]]:
+        return {}
+
+    monkeypatch.setattr(works_module, "_entitlements", loses_everything)
+
+    body = synced.get("/api/works", params={"limit": 1}).json()
+
+    assert body["works"] == []
+    assert body["next_cursor"] is not None
