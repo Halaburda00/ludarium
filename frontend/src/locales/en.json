@@ -41,7 +41,15 @@
     "count_one": "{{count}} game",
     "count_other": "{{count}} games",
     "partial_one": "Synced {{count}} game, but the platform did not hand over all of it.",
-    "partial_other": "Synced {{count}} games, but the platform did not hand over all of it."
+    "partial_other": "Synced {{count}} games, but the platform did not hand over all of it.",
+    "tableCaption": "Your games and the platforms you own them on",
+    "columnTitle": "Title",
+    "columnPlatform": "Platform",
+    "storeLink": "{{title}} on {{provider}}",
+    "connectAnother": "Connect another account",
+    "loadMore": "Load more",
+    "countSoFar_one": "{{count}} game so far",
+    "countSoFar_other": "{{count}} games so far"
   },
   "error": {
     "offline": "Could not reach the server.",

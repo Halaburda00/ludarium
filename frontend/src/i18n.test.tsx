@@ -49,12 +49,45 @@ function literalText(source: string): string[] {
 
 describe('i18n', () => {
   it('has a resource for every key the screens ask for', async () => {
+    // A page with a row on it and a cursor after it, so the table's own keys —
+    // its columns, its caption, the link label and the button that asks for the
+    // next page — are rendered rather than skipped by an empty library.
     stubFetch({
       'GET /api/accounts': { body: [{ id: 1, provider: 'steam', label: 'Main' }] },
-      'GET /api/works': { body: { works: [], next_cursor: null } },
+      'GET /api/works': {
+        body: {
+          works: [
+            {
+              id: 1,
+              title: 'Dota 2',
+              sort_title: 'Dota 2',
+              is_matched: false,
+              item_kind: 'game',
+              release_year: null,
+              play_status: 'not_started',
+              is_favourite: false,
+              is_hidden: false,
+              playtime_minutes: 0,
+              last_played_at: null,
+              entitlements: [
+                {
+                  id: 1,
+                  provider: 'steam',
+                  provider_name: 'Steam',
+                  provider_item_id: '570',
+                  provider_title: 'Dota 2',
+                  playtime_minutes: 0,
+                  store_url: 'https://store.steampowered.com/app/570',
+                },
+              ],
+            },
+          ],
+          next_cursor: 'more',
+        },
+      },
     })
     renderApp(<Router />, { route: '/library' })
-    await screen.findByRole('heading', { name: 'Library' })
+    await screen.findByRole('button', { name: 'Load more' })
 
     // A typo'd key renders as the key itself, which looks like a design choice
     // in a screenshot and like nothing at all in a review.

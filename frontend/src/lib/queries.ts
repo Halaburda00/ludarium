@@ -1,4 +1,12 @@
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+  type UseInfiniteQueryResult,
+  type UseQueryResult,
+} from '@tanstack/react-query'
 
 import { api, ApiError } from '@/lib/api'
 
@@ -25,8 +33,34 @@ export type SyncRun = {
   error_text: string | null
 }
 
+/** One copy the user owns. The platform column of the table is a list of these. */
+export type EntitlementSummary = {
+  id: number
+  provider: string
+  provider_name: string
+  provider_item_id: string | null
+  provider_title: string
+  playtime_minutes: number | null
+  store_url: string | null
+}
+
+export type WorkSummary = {
+  id: number
+  title: string
+  sort_title: string
+  is_matched: boolean
+  item_kind: string
+  release_year: number | null
+  play_status: string
+  is_favourite: boolean
+  is_hidden: boolean
+  playtime_minutes: number
+  last_played_at: string | null
+  entitlements: EntitlementSummary[]
+}
+
 export type WorksPage = {
-  works: { id: number; title: string; is_matched: boolean }[]
+  works: WorkSummary[]
   next_cursor: string | null
 }
 
@@ -97,10 +131,33 @@ export function useSync() {
   })
 }
 
-export function useWorks(): UseQueryResult<WorksPage, ApiError> {
-  return useQuery<WorksPage, ApiError>({
+/**
+ * The library, a page at a time, following the cursor the API hands back.
+ *
+ * `useInfiniteQuery` rather than a page number held in state: the backend keys
+ * its pages on `(sort_title, id)` and there is no arithmetic that turns "page
+ * 3" into that key. Every loaded page stays in one cache entry, so a sync
+ * invalidating `worksKey` refetches what the user is actually looking at rather
+ * than dropping them back to the top.
+ */
+export function useWorks(): UseInfiniteQueryResult<InfiniteData<WorksPage>, ApiError> {
+  return useInfiniteQuery<WorksPage, ApiError, InfiniteData<WorksPage>, typeof worksKey, Cursor>({
     queryKey: worksKey,
-    queryFn: () => api<WorksPage>('/api/works'),
+    queryFn: ({ pageParam, signal }) => api<WorksPage>(pageUrl(pageParam), { signal }),
+    initialPageParam: null,
+    // Null on the last page, which is how TanStack learns there is no more to
+    // ask for; returning `undefined` is the same signal and the API never sends
+    // it, so the two cases stay one.
+    getNextPageParam: (page) => page.next_cursor,
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
   })
+}
+
+type Cursor = string | null
+
+function pageUrl(cursor: Cursor): string {
+  // Through `URLSearchParams` rather than by concatenation: the cursor is
+  // base64url today and opaque by design, so nothing here should depend on it
+  // staying safe to paste into a query string.
+  return cursor === null ? '/api/works' : `/api/works?${new URLSearchParams({ cursor })}`
 }
