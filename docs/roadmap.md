@@ -56,18 +56,18 @@ allowed to look bad.
 The original estimate of ~4 days assumed the provenance layer was free; it is
 not, and the resolver has to exist before the sync service rather than after it.
 
-- [ ] SQLAlchemy models + first Alembic migration
-- [ ] Settings via pydantic-settings, Fernet encryption for the API key
-- [ ] `LibraryProvider` protocol + `SteamProvider`
+- [x] SQLAlchemy models + first Alembic migration
+- [x] Settings via pydantic-settings, Fernet encryption for the API key
+- [x] `LibraryProvider` protocol + `SteamProvider`
       (`GetOwnedGames`, playtime stored even though it is not displayed yet)
-- [ ] Sync service: upsert, `first_seen_at`, `removed_at`, per-provider status,
+- [x] Sync service: upsert, `first_seen_at`, `removed_at`, per-provider status,
       and a work stub per new entitlement (ADR-0015) so the grid is
       work-centric from the first run
-- [ ] `GET /api/works`, `POST /api/sync/{provider}`, `GET /api/health`
-- [ ] Login (single account, argon2), session cookie
-- [ ] Onboarding: paste the Steam key + SteamID, validate immediately, show a count
-- [ ] Frontend: a plain table of titles with the platform column
-- [ ] Tests with respx fixtures
+- [x] `GET /api/works`, `POST /api/sync/{provider}`, `GET /api/health`
+- [x] Login (single account, argon2), session cookie
+- [x] Onboarding: paste the Steam key + SteamID, validate immediately, show a count
+- [x] Frontend: a plain table of titles with the platform column
+- [x] Tests with respx fixtures
 
 **Done when:** `docker compose up` is not needed — running the backend and the
 frontend locally shows your real Steam library in the browser.
