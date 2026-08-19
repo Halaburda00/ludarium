@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
+import { WorksTable } from '@/components/WorksTable'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/field'
 import { useLogout, useSync, useWorks } from '@/lib/queries'
@@ -19,6 +20,18 @@ export default function Library() {
   // the user everything arrived when it did not.
   const partial = runs.find((run) => run.status === 'partial')
   const landed = runs.reduce((total, run) => total + run.items_seen, 0)
+
+  // Flattened here rather than in the hook: the pages are a transport detail and
+  // nothing below this line has a reason to know the library arrived in three
+  // requests.
+  const loaded = works.data?.pages.flatMap((page) => page.works) ?? []
+  // Nothing loaded is not the same question as nothing to load. `works.py`
+  // deliberately answers `{works: [], next_cursor: "..."}` when a torn read
+  // drops every row of a page, and takes the cursor from the last row *read*
+  // precisely so the client can keep going. Reading that as an empty library
+  // strands the user on "connect an account" with the rest of it unread and no
+  // control on the screen that would fetch it.
+  const exhausted = works.isSuccess && !works.hasNextPage
 
   return (
     <main className="mx-auto grid max-w-4xl gap-6 px-6 py-10">
@@ -62,24 +75,59 @@ export default function Library() {
       ) : null}
 
       {works.isPending ? <p className="text-sm text-muted-foreground">{t('common.loading')}</p> : null}
-      {works.data && works.data.works.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('library.empty')}</p>
+
+      {/* The library failed to load, which is not the same as it being empty —
+          and the difference matters, because one of them is worth retrying. */}
+      {works.isError ? (
+        <State>
+          <Notice>{works.error.detail || t('error.offline')}</Notice>
+          <Button variant="outline" onClick={() => void works.refetch()}>
+            {t('common.retry')}
+          </Button>
+        </State>
       ) : null}
-      {works.data && works.data.works.length > 0 ? (
+
+      {exhausted && loaded.length === 0 ? (
+        <State>
+          <p className="text-sm text-muted-foreground">{t('library.empty')}</p>
+          {/* An account is connected — the route guard sends anyone without one
+              to onboarding — so the way out of an empty library is a sync, or a
+              second account if the first one was the wrong one. */}
+          <Link to="/onboarding" className="text-sm text-primary underline-offset-4 hover:underline">
+            {t('library.connectAnother')}
+          </Link>
+        </State>
+      ) : null}
+
+      {works.isSuccess && !(exhausted && loaded.length === 0) ? (
         <>
           <p className="text-sm text-muted-foreground">
-            {t('library.count', { count: works.data.works.length })}
+            {/* Counted honestly: with a page still unfetched this is what has
+                been loaded, not what the library holds, and saying "40 games"
+                over the first page of four hundred is simply wrong. */}
+            {t('library.count', {
+              count: loaded.length,
+              context: works.hasNextPage ? 'partial' : undefined,
+            })}
           </p>
-          {/* The table itself is #13; this is the shell it lands in. */}
-          <ul className="grid gap-1">
-            {works.data.works.map((work) => (
-              <li key={work.id} className="rounded-lg border border-border px-3 py-2 text-sm">
-                {work.title}
-              </li>
-            ))}
-          </ul>
+          <WorksTable works={loaded} />
+          {works.hasNextPage ? (
+            <Button
+              variant="outline"
+              className="justify-self-start"
+              onClick={() => void works.fetchNextPage()}
+              disabled={works.isFetchingNextPage}
+            >
+              {works.isFetchingNextPage ? t('common.loading') : t('library.loadMore')}
+            </Button>
+          ) : null}
         </>
       ) : null}
     </main>
   )
+}
+
+/** A message with the control that answers it, which is the shape of both. */
+function State({ children }: { children: React.ReactNode }) {
+  return <div className="grid justify-items-start gap-3">{children}</div>
 }
