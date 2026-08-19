@@ -29,6 +29,7 @@ from ludarium.models import (
     Work,
 )
 from ludarium.models.types import ScalarValue, utcnow
+from ludarium.queries import owned_by
 
 
 class ResolutionError(Exception):
@@ -359,11 +360,7 @@ async def resolve_work_aggregates(
     state.playtime_minutes = await session.scalar(
         select(func.coalesce(func.sum(Entitlement.playtime_minutes), 0))
         .join(EntitlementWork, EntitlementWork.entitlement_id == Entitlement.id)
-        .where(
-            EntitlementWork.work_id == work_id,
-            Entitlement.user_id == user_id,
-            Entitlement.removed_at.is_(None),
-        )
+        .where(EntitlementWork.work_id == work_id, *owned_by(user_id))
     )
     await session.flush()
     return state

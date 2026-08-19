@@ -31,9 +31,11 @@ from ludarium.models import (
     UserWorkState,
     Work,
 )
+from ludarium.queries import owned_by
 
 DEFAULT_LIMIT: Final = 100
 MAX_LIMIT: Final = 500
+MAX_CURSOR: Final = 256
 
 router = APIRouter(prefix="/works", tags=["works"])
 
@@ -84,8 +86,15 @@ def _cursor(work: Work) -> str:
 
 def _after(cursor: str) -> tuple[str, int]:
     try:
-        sort_title, work_id = json.loads(urlsafe_b64decode(cursor.encode()))
-        return str(sort_title), int(work_id)
+        decoded = json.loads(urlsafe_b64decode(cursor.encode()))
+        match decoded:
+            # Types checked rather than coerced. `str()` and `int()` accept
+            # almost anything, and `int(3.7)` silently becomes 3 — a made-up
+            # cursor would then page from somewhere nobody chose, which is worse
+            # than being refused. `bool` is an `int` and is excluded by name.
+            case [str() as sort_title, int() as work_id] if not isinstance(work_id, bool):
+                return sort_title, work_id
+        raise ValueError("a cursor is a title and an id")
     except (ValueError, TypeError, binascii.Error) as exc:
         # No detail about what was wrong with it: a cursor is ours, and a client
         # that made one up has nothing to learn from the answer.
@@ -124,7 +133,9 @@ async def listing(
     session: SessionDep,
     record: CurrentSession,
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
-    cursor: Annotated[str | None, Query()] = None,
+    # Bounded like every other input a caller controls: the cursor is decoded
+    # before it is judged, and there is no reason to decode a megabyte first.
+    cursor: Annotated[str | None, Query(max_length=MAX_CURSOR)] = None,
 ) -> WorksPage:
     """One page, keyed on `(sort_title, id)` rather than an offset.
 
@@ -139,15 +150,17 @@ async def listing(
     owned = (
         select(EntitlementWork.work_id)
         .join(Entitlement, Entitlement.id == EntitlementWork.entitlement_id)
-        .where(
-            EntitlementWork.work_id == Work.id,
-            Entitlement.user_id == user_id,
-            Entitlement.removed_at.is_(None),
-        )
+        .where(EntitlementWork.work_id == Work.id, *owned_by(user_id))
     )
     page = (
         select(Work, UserWorkState)
-        .join(
+        # Outer, because "every work reachable by a live entitlement has a
+        # `user_work_state` row" is a convention `sync._stub` keeps and no
+        # constraint enforces. An inner join makes a future write path that
+        # forgets it — a manual entry, the M2 matcher — drop games from the
+        # library with no error anywhere. A missing row shows the work with its
+        # defaults instead, which is both recoverable and visible.
+        .outerjoin(
             UserWorkState,
             (UserWorkState.work_id == Work.id) & (UserWorkState.user_id == user_id),
         )
@@ -166,28 +179,46 @@ async def listing(
     rows = list(await session.execute(page))
     has_more = len(rows) > limit
     rows = rows[:limit]
-    works = [work for work, _ in rows]
 
-    owned_by_work = await _entitlements(session, [work.id for work in works], user_id)
+    copies = await _entitlements(session, [work.id for work in (work for work, _ in rows)], user_id)
+    # A work with nothing live pointing at it is dropped rather than shown
+    # empty-handed. The two queries are not one snapshot — pysqlite opens no
+    # transaction for a `SELECT` — so a sync committing a removal between them
+    # can leave a work here whose last copy has just gone. Shortening the page
+    # is the honest answer; a row that contradicts the endpoint's own rule is
+    # not (see #32).
+    works = [(work, state) for work, state in rows if copies.get(work.id)]
     return WorksPage(
-        works=[
-            WorkSummary(
-                id=work.id,
-                title=work.title,
-                sort_title=work.sort_title,
-                is_matched=work.is_matched,
-                item_kind=work.item_kind,
-                release_year=work.release_year,
-                play_status=state.play_status,
-                is_favourite=state.is_favourite,
-                is_hidden=state.is_hidden,
-                playtime_minutes=state.playtime_minutes,
-                last_played_at=state.last_played_at,
-                entitlements=owned_by_work.get(work.id, []),
-            )
-            for work, state in rows
-        ],
-        next_cursor=_cursor(works[-1]) if has_more and works else None,
+        works=[_describe(work, state, copies[work.id]) for work, state in works],
+        # From the last row read, not the last row kept, so the listing always
+        # advances. Taken from the last kept row it would re-read whatever was
+        # dropped — harmless — but a page where *everything* was dropped would
+        # have no last kept row and no cursor, and the client would stop with
+        # the rest of the library unread. A row skipped at a page boundary shows
+        # up again on the next refresh; a truncated library does not.
+        next_cursor=_cursor(rows[-1][0]) if has_more else None,
+    )
+
+
+def _describe(
+    work: Work, state: UserWorkState | None, copies: list[EntitlementSummary]
+) -> WorkSummary:
+    return WorkSummary(
+        id=work.id,
+        title=work.title,
+        sort_title=work.sort_title,
+        is_matched=work.is_matched,
+        item_kind=work.item_kind,
+        release_year=work.release_year,
+        # The defaults the missing row would have carried. Spelled out because a
+        # transient `UserWorkState()` would not have them: SQLAlchemy applies
+        # column defaults on flush, not on construction.
+        play_status=state.play_status if state else PlayStatus.NOT_STARTED,
+        is_favourite=state.is_favourite if state else False,
+        is_hidden=state.is_hidden if state else False,
+        playtime_minutes=state.playtime_minutes if state else 0,
+        last_played_at=state.last_played_at if state else None,
+        entitlements=copies,
     )
 
 
@@ -207,11 +238,7 @@ async def _entitlements(
         .join(Entitlement, Entitlement.id == EntitlementWork.entitlement_id)
         .join(Account, Account.id == Entitlement.account_id)
         .join(Provider, Provider.id == Account.provider_id)
-        .where(
-            EntitlementWork.work_id.in_(work_ids),
-            Entitlement.user_id == user_id,
-            Entitlement.removed_at.is_(None),
-        )
+        .where(EntitlementWork.work_id.in_(work_ids), *owned_by(user_id))
         .order_by(Provider.key, Entitlement.id)
     )
     grouped: dict[int, list[EntitlementSummary]] = {}
