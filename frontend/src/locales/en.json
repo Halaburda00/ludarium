@@ -48,8 +48,8 @@
     "storeLink": "{{title}} on {{provider}}",
     "connectAnother": "Connect another account",
     "loadMore": "Load more",
-    "countSoFar_one": "{{count}} game so far",
-    "countSoFar_other": "{{count}} games so far"
+    "count_partial_one": "{{count}} game so far",
+    "count_partial_other": "{{count}} games so far"
   },
   "error": {
     "offline": "Could not reach the server.",

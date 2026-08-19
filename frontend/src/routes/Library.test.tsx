@@ -282,3 +282,72 @@ describe('a library that would not load', () => {
     expect(await screen.findByRole('rowheader', { name: 'Dota 2' })).toBeInTheDocument()
   })
 })
+
+describe('a page that came back empty with a cursor after it', () => {
+  it('offers the next page rather than declaring the library empty', async () => {
+    stubFetch({
+      // Exactly what `works.py` answers when a torn read drops every row of a
+      // page: no works, and a cursor saying the library continues. It takes the
+      // cursor from the last row read rather than the last row kept for this
+      // case specifically, so a client that stops here truncates the library.
+      'GET /api/works': { body: { works: [], next_cursor: 'page-2' } },
+      'GET /api/works?cursor=page-2': { body: { works: [work(1, 'Dota 2')], next_cursor: null } },
+    })
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Load more' }))
+
+    expect(await screen.findByRole('rowheader', { name: 'Dota 2' })).toBeInTheDocument()
+    // "Nothing here yet. Run a sync" over a library that is merely a page
+    // further on sends the user to connect an account they already have.
+    expect(screen.queryByText(/Nothing here yet/)).not.toBeInTheDocument()
+  })
+
+  it('still calls a library with nothing in it empty', async () => {
+    stubFetch({ 'GET /api/works': { body: EMPTY } })
+    renderApp(<Library />)
+
+    // The fix above must not turn the empty state off altogether: no cursor is
+    // the end of the library, and there the message is the right one.
+    expect(await screen.findByText(/Nothing here yet/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
+  })
+})
+
+describe('the sync button', () => {
+  it('is freed by the sync finishing, not by the refetch that follows it', async () => {
+    const seen: string[] = []
+    let syncing = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input)
+        seen.push(path)
+        if (path.startsWith('/api/sync')) {
+          syncing = true
+          return new Response(JSON.stringify([run()]), { status: 200 })
+        }
+        const cursor = new URL(path, 'http://x').searchParams.get('cursor')
+        const page = cursor === null ? 1 : Number(cursor)
+        // The refetch that follows a sync replays every loaded page, and it
+        // never resolves here — so anything still disabled at that point is
+        // disabled by the refetch rather than by the sync.
+        if (syncing) return new Promise<Response>(() => {})
+        return new Response(
+          JSON.stringify({
+            works: [work(page, `Game ${page}`)],
+            next_cursor: page < 2 ? String(page + 1) : null,
+          }),
+          { status: 200 },
+        )
+      }),
+    )
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Load more' }))
+    await screen.findByText('2 games')
+    await userEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sync now' })).toBeEnabled())
+  })
+})

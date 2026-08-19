@@ -124,9 +124,14 @@ export function useSync() {
   const client = useQueryClient()
   return useMutation<SyncRun[], ApiError, string>({
     mutationFn: (provider) => api<SyncRun[]>(`/api/sync/${provider}`, { method: 'POST' }),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: worksKey })
-      await client.invalidateQueries({ queryKey: accountsKey })
+    // Not awaited. `invalidateQueries` resolves only once the refetch is done,
+    // and refetching an infinite query replays every loaded page in sequence —
+    // each page param comes out of the page before it, so five loaded pages are
+    // five round-trips. Awaited, all five sit inside the mutation's `isPending`
+    // and the sync button stays disabled long after the sync itself finished.
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: worksKey })
+      void client.invalidateQueries({ queryKey: accountsKey })
     },
   })
 }
@@ -141,10 +146,14 @@ export function useSync() {
  * than dropping them back to the top.
  */
 export function useWorks(): UseInfiniteQueryResult<InfiniteData<WorksPage>, ApiError> {
-  return useInfiniteQuery<WorksPage, ApiError, InfiniteData<WorksPage>, typeof worksKey, Cursor>({
+  return useInfiniteQuery({
     queryKey: worksKey,
     queryFn: ({ pageParam, signal }) => api<WorksPage>(pageUrl(pageParam), { signal }),
-    initialPageParam: null,
+    // Annotated, and the rest inferred. A bare `null` makes TypeScript infer the
+    // page param as the type `null`, which then contradicts a
+    // `getNextPageParam` returning a string; the five explicit generics this
+    // replaces were all working around that one ambiguity.
+    initialPageParam: null as Cursor,
     // Null on the last page, which is how TanStack learns there is no more to
     // ask for; returning `undefined` is the same signal and the API never sends
     // it, so the two cases stay one.
