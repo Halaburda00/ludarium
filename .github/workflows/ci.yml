@@ -64,8 +64,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Build only. `pnpm run lint` is not run here yet: eslint's
-      # react-refresh/only-export-components rule fails on the generated
-      # shadcn components, which needs an ignore before CI can enforce it.
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Test
+        run: pnpm run test
+
       - name: Build
         run: pnpm run build
