@@ -14,6 +14,10 @@ export default function Library() {
 
   const runs = sync.data ?? []
   const failed = runs.find((run) => run.status === 'failed')
+  // Its own answer, not a shade of success: a partial run means part of the
+  // library did not come through, and reporting "Synced 40 games" over it tells
+  // the user everything arrived when it did not.
+  const partial = runs.find((run) => run.status === 'partial')
   const landed = runs.reduce((total, run) => total + run.items_seen, 0)
 
   return (
@@ -50,7 +54,10 @@ export default function Library() {
       {failed ? (
         <Notice>{t('library.runFailed', { reason: failed.error_text ?? t('error.unexpected') })}</Notice>
       ) : null}
-      {runs.length > 0 && !failed ? (
+      {partial && !failed ? (
+        <Notice tone="warn">{t('library.partial', { count: landed })}</Notice>
+      ) : null}
+      {runs.length > 0 && !failed && !partial ? (
         <Notice tone="ok">{t('library.synced', { count: landed })}</Notice>
       ) : null}
 

@@ -37,15 +37,23 @@ export function Field({
 }
 
 /** An error the user has to read before anything else on the screen means much. */
-export function Notice({ children, tone = 'error' }: { children: React.ReactNode; tone?: 'error' | 'ok' }) {
+export function Notice({
+  children,
+  tone = 'error',
+}: {
+  children: React.ReactNode
+  tone?: 'error' | 'warn' | 'ok'
+}) {
   return (
     <p
-      role={tone === 'error' ? 'alert' : 'status'}
+      // `alert` for anything the user has to act on, which a partial run is:
+      // part of the library is missing until something is done about it.
+      role={tone === 'ok' ? 'status' : 'alert'}
       className={cn(
         'rounded-lg border px-3 py-2 text-sm',
-        tone === 'error'
-          ? 'border-destructive/40 bg-destructive/10 text-destructive'
-          : 'border-border bg-muted text-foreground',
+        tone === 'error' && 'border-destructive/40 bg-destructive/10 text-destructive',
+        tone === 'warn' && 'border-chart-4/50 bg-chart-4/10 text-foreground',
+        tone === 'ok' && 'border-border bg-muted text-foreground',
       )}
     >
       {children}

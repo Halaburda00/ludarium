@@ -39,7 +39,9 @@
     "runFailed": "The last sync failed: {{reason}}",
     "alreadyRunning": "A sync is already running for this account.",
     "count_one": "{{count}} game",
-    "count_other": "{{count}} games"
+    "count_other": "{{count}} games",
+    "partial_one": "Synced {{count}} game, but the platform did not hand over all of it.",
+    "partial_other": "Synced {{count}} games, but the platform did not hand over all of it."
   },
   "error": {
     "offline": "Could not reach the server.",

@@ -55,6 +55,8 @@ export function useLogin() {
   return useMutation<unknown, ApiError, { username: string; password: string }>({
     mutationFn: (credentials) =>
       api('/api/auth/login', { method: 'POST', body: credentials }),
+    // Everything, unlike its neighbours: before a login every query is sitting
+    // on a 401, so there is no key worth sparing.
     onSuccess: () => client.invalidateQueries(),
   })
 }

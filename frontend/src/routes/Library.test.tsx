@@ -110,3 +110,21 @@ describe('library', () => {
     )
   })
 })
+
+describe('a partial run', () => {
+  it('is not reported as a success', async () => {
+    stubFetch({
+      'GET /api/works': { body: THREE },
+      'POST /api/sync/steam': { body: [run({ status: 'partial', items_seen: 2 })] },
+    })
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+
+    // "Synced 2 games" over a partial run tells the user everything arrived.
+    // Some of their library is missing and only the next run may fix it.
+    const notice = await screen.findByRole('alert')
+    expect(notice).toHaveTextContent('did not hand over all of it')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+})

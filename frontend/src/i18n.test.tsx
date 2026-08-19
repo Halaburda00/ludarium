@@ -36,7 +36,9 @@ function literalText(source: string): string[] {
   const file = ts.createSourceFile('screen.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const found: string[] = []
   const visit = (node: ts.Node): void => {
-    if (ts.isJsxText(node) && /[A-Za-z]{3}/.test(node.text)) {
+    // Any letter at all: `OK`, `Hi` and `Go` are strings someone has to
+    // translate as surely as a sentence is.
+    if (ts.isJsxText(node) && /[A-Za-z]/.test(node.text)) {
       found.push(node.text.trim())
     }
     ts.forEachChild(node, visit)
@@ -71,6 +73,8 @@ describe('i18n', () => {
     // The guard above passes on an empty set as readily as on a correct one,
     // so here is a screen with the mistake in it.
     expect(literalText('<p>Sign in</p>')).toEqual(['Sign in'])
+    // Short ones too: `OK` and `Go` need translating as surely as a sentence.
+    expect(literalText('<button>OK</button>')).toEqual(['OK'])
     expect(literalText('<p>{t("login.submit")}</p>')).toEqual([])
   })
 })
