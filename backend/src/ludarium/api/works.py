@@ -182,11 +182,14 @@ async def listing(
 
     copies = await _entitlements(session, [work.id for work in (work for work, _ in rows)], user_id)
     # A work with nothing live pointing at it is dropped rather than shown
-    # empty-handed. The two queries are not one snapshot — pysqlite opens no
-    # transaction for a `SELECT` — so a sync committing a removal between them
-    # can leave a work here whose last copy has just gone. Shortening the page
-    # is the honest answer; a row that contradicts the endpoint's own rule is
-    # not (see #32).
+    # empty-handed: a row that contradicts the endpoint's own rule — in the list
+    # because something live points at it, with nothing listed — is worse than a
+    # page one short.
+    #
+    # Unreachable on SQLite since ADR-0016 made the two queries one snapshot,
+    # and not on PostgreSQL, whose default READ COMMITTED gives each statement
+    # its own. ADR-0004 keeps PostgreSQL a supported target, so the defence
+    # stays and its test forces the race rather than waiting for it.
     works = [(work, state) for work, state in rows if copies.get(work.id)]
     return WorksPage(
         works=[_describe(work, state, copies[work.id]) for work, state in works],

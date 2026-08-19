@@ -226,6 +226,8 @@ __marimo__/
 data/
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 *.sqlite3
 *.bak
 
