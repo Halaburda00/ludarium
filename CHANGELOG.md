@@ -7,6 +7,27 @@ Versions below 1.0.0 make no compatibility promise; the database is migrated by
 Alembic on every start, so an upgrade is expected to work even when the API
 shape moves.
 
+## [Unreleased]
+
+### Fixed
+
+- Read endpoints run their queries in a transaction. pysqlite opens none for a
+  `SELECT`, so an endpoint answering with two queries had no snapshot between
+  them and a concurrent write landed in the gap. SQLAlchemy now emits `BEGIN`
+  itself, the journal is WAL, and the mode follows the HTTP method — safe
+  methods get `BEGIN DEFERRED`, everything else `BEGIN IMMEDIATE`, which is what
+  stops two read-then-write transactions deadlocking. A deferred request
+  transaction is held to reading by `PRAGMA query_only`, so a handler that
+  writes is refused by the database rather than deadlocking with the next
+  request. See ADR-0016.
+- Start-up no longer answers every `OperationalError` with "run alembic upgrade
+  head". A locked database says so instead.
+
+### Note for anyone backing up the database
+
+The database is now three files: `ludarium.db` plus `-wal` and `-shm`. Copying
+only the first can lose committed transactions.
+
 ## [0.1.0] — 2026-08-19
 
 **M1 — Steam to database to an ugly list.** One platform, no metadata, no

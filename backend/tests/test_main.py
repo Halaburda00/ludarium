@@ -1,7 +1,10 @@
+from pathlib import Path
+
 import pytest
-from conftest import sync_url
+from conftest import create_schema, sync_url
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.config import Settings
@@ -57,3 +60,30 @@ def test_a_failed_start_closes_the_pool(
         pass  # pragma: no cover
 
     assert disposed
+
+
+async def test_a_locked_database_is_not_reported_as_a_missing_schema(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """`BEGIN IMMEDIATE` can fail at startup for a reason a migration will not fix.
+
+    A second instance on the same file, or a writer that has not let go, gives
+    `database is locked` here — and answering that with "run alembic upgrade
+    head" sends whoever is debugging it in the wrong direction.
+    """
+
+    create_schema(settings.database_url)
+    holder = Database(settings.database_url)
+    try:
+        async with holder.writing_session_factory() as session:
+            # Hold the write lock for the length of the start-up attempt.
+            await session.execute(text("UPDATE provider SET display_name = display_name"))
+
+            with (
+                pytest.raises(OperationalError, match="database is locked"),
+                TestClient(create_app(settings)),
+            ):
+                pass  # pragma: no cover
+            await session.rollback()
+    finally:
+        await holder.dispose()

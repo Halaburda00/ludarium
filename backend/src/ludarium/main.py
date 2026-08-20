@@ -41,7 +41,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.http = httpx.AsyncClient(timeout=HTTP_TIMEOUT)
     try:
         try:
-            async with database.session_factory() as session:
+            # Writing, so it announces itself: startup is not concurrent today,
+            # and a second instance pointed at the same file would be.
+            async with database.writing_session_factory() as session:
                 await seed_providers(session)
                 await bootstrap_user(
                     session,
@@ -49,6 +51,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     password=settings.password.get_secret_value(),
                 )
         except OperationalError as exc:
+            # Only the one it can actually diagnose. `BEGIN IMMEDIATE` can also
+            # fail here with `database is locked` — a second instance on the
+            # same file, or a stale writer — and telling that operator to run a
+            # migration sends them away from the real cause.
+            if "no such table" not in str(exc.orig):
+                raise
             raise RuntimeError(
                 "the database has no schema yet — run `uv run alembic upgrade head`"
             ) from exc
