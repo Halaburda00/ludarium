@@ -64,6 +64,21 @@ front and the two serialise instead — both commit.
 So a request whose method is safe (`GET`, `HEAD`, `OPTIONS`) gets
 `BEGIN DEFERRED`; anything else gets `BEGIN IMMEDIATE`.
 
+**A deferred request transaction is held to reading by `PRAGMA query_only`.**
+The upgrade happens at the write statement, not at the commit, so a handler that
+writes and never commits deadlocks exactly the same way — confirmed, with two
+concurrent handlers doing a bare `UPDATE` and nothing else. Reading the source
+for `commit` cannot catch that, and reading it for every shape a write can take
+catches only what is written in the handler rather than in a helper below it.
+Letting SQLite refuse the statement turns a fault that needs two simultaneous
+requests to appear into an error the first one raises on its own.
+
+It applies to the two factories a request gets, not to the plain one. A general
+session is deferred and writable, because tests and tooling hold one open across
+other work: read-only would break everything that builds its data through it,
+and `IMMEDIATE` would take the write lock for the session's whole lifetime and
+block any request made beside it.
+
 Alternatives considered:
 
 - **`BEGIN IMMEDIATE` for everything.** No way to get it wrong, and no
@@ -88,9 +103,14 @@ Alternatives considered:
   keeps PostgreSQL a supported target. Raising PostgreSQL to `REPEATABLE READ`
   is a separate decision: it turns the problem into serialisation failures,
   which need a retry policy that does not exist yet.
-- A safe method must not write. This is a convention the transaction mode now
-  depends on, so it is checked: `tests/test_read_endpoints.py` fails on a `GET`
-  handler that commits. It reads the handler, not the helpers below it.
+- A safe method must not write. SQLite enforces it; `tests/test_read_endpoints.py`
+  is the second half, catching a `GET` handler that writes before it is ever
+  exercised — a handler with no test of its own would otherwise reach production
+  before the database refused it. It reads the handler, not the helpers below it.
+- Start-up distinguishes its own failures. `BEGIN IMMEDIATE` can fail there with
+  `database is locked` — a second instance on the same file — and the schema
+  check now matches on `no such table` rather than answering every
+  `OperationalError` with "run alembic upgrade head".
 - The database is three files. `ludarium.db-wal` and `ludarium.db-shm` sit
   beside it, and a backup that copies only the first can lose committed
   transactions. Anything backing the database up must checkpoint first or copy

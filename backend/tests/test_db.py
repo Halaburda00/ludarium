@@ -6,7 +6,7 @@ import pytest
 from conftest import sync_url
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, select, text
+from sqlalchemy import create_engine, event, select, text, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from ludarium.config import Settings
@@ -231,3 +231,49 @@ def test_the_method_chooses_the_transaction_mode(app: FastAPI) -> None:
             event.remove(engine, "before_cursor_execute", record)
 
     assert begins == [f"BEGIN {DEFERRED}", f"BEGIN {IMMEDIATE}"]
+
+
+def test_a_get_that_writes_is_refused_by_the_database(app: FastAPI) -> None:
+    """The write itself, not a commit that may never come.
+
+    The lock upgrade happens at the UPDATE. A handler that writes and never
+    commits deadlocks exactly the same way, and neither `commit` nor `flush`
+    appears anywhere in it — reading the source cannot be the only defence.
+    """
+
+    @app.get("/test/writing-get")
+    async def writing_get(session: SessionDep) -> None:
+        await session.execute(update(AppUser).values(username="changed"))
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/test/writing-get")
+
+    assert response.status_code == 500
+
+
+def test_a_post_may_still_write(app: FastAPI) -> None:
+    """The guard above is worthless if it also refuses the write path."""
+
+    @app.post("/test/writing-post")
+    async def writing_post(session: SessionDep) -> None:
+        await session.execute(update(AppUser).values(username="changed"))
+        await session.commit()
+
+    with TestClient(app) as client:
+        assert client.post("/test/writing-post").status_code == 200
+
+
+async def test_the_general_factory_is_neither(database: Database) -> None:
+    """Deferred and writable: what a fixture or a script wants.
+
+    Read-only would break every test that builds its data through it, and
+    `IMMEDIATE` would take the write lock for as long as the session is held —
+    which, across a request the test also makes, is a deadlock of its own.
+    """
+
+    async with database.session_factory() as session:
+        await session.execute(text("CREATE TABLE t (id INTEGER PRIMARY KEY)"))
+        await session.execute(text("INSERT INTO t (id) VALUES (1)"))
+        await session.commit()
+
+        assert (await session.execute(text("SELECT COUNT(*) FROM t"))).scalar_one() == 1

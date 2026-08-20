@@ -21,6 +21,11 @@ readers:
   answers `database is locked` immediately, without consulting `busy_timeout`,
   because waiting could not resolve it. Announcing the write up front with
   `BEGIN IMMEDIATE` serialises them instead, and both commit.
+
+A deferred transaction is therefore held to reading by `PRAGMA query_only`. The
+upgrade happens at the write statement and not at the commit, so a handler that
+writes and never commits deadlocks just as well; nothing short of the database
+refusing the statement catches that reliably.
 """
 
 from collections.abc import AsyncIterator
@@ -38,8 +43,11 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import ConnectionPoolEntry
 
-# The option the `begin` listener reads. Deferred unless a caller says otherwise.
+# The options the `begin` listener reads. A transaction is deferred and allowed
+# to write unless a caller says otherwise, which keeps the plain factory usable
+# for tooling and tests.
 BEGIN_MODE: Final = "sqlite_begin"
+READ_ONLY: Final = "sqlite_read_only"
 DEFERRED: Final = "DEFERRED"
 IMMEDIATE: Final = "IMMEDIATE"
 
@@ -65,8 +73,16 @@ class Database:
             event.listen(self.engine.sync_engine, "connect", _set_sqlite_pragmas)
             event.listen(self.engine.sync_engine, "begin", _begin)
 
+        # General purpose: deferred, and allowed to write. Tests and tooling hold
+        # a session open across other work, and one that took the write lock for
+        # its lifetime would block every request beside it.
         self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
-        # The same engine and the same pool; only the announcement differs.
+        # The two a request gets. Same engine, same pool; only the announcement
+        # differs.
+        self.reading_session_factory = async_sessionmaker(
+            self.engine.execution_options(**{READ_ONLY: True}),
+            expire_on_commit=False,
+        )
         self.writing_session_factory = async_sessionmaker(
             self.engine.execution_options(**{BEGIN_MODE: IMMEDIATE}),
             expire_on_commit=False,
@@ -93,8 +109,24 @@ def _set_sqlite_pragmas(connection: DBAPIConnection, _record: ConnectionPoolEntr
 
 
 def _begin(connection: Connection) -> None:
-    mode = connection.get_execution_options().get(BEGIN_MODE, DEFERRED)
-    connection.exec_driver_sql(f"BEGIN {mode}")
+    """Announce what the transaction may do, and then hold SQLite to it.
+
+    `query_only` is the enforcement rather than a second opinion: a deferred
+    transaction that writes has to upgrade a lock it already holds, and that is
+    the one contention SQLite refuses outright instead of waiting out. Refusing
+    the write here turns a deadlock that needs two concurrent requests to appear
+    into an error the first request raises on its own — and it catches the write
+    itself, which is where the upgrade happens, rather than a commit that may
+    never come.
+
+    Set outside the transaction, where it can still take effect, and set on both
+    branches because connections are pooled: one left read-only would refuse the
+    next request's writes.
+    """
+
+    options = connection.get_execution_options()
+    connection.exec_driver_sql(f"PRAGMA query_only = {'ON' if options.get(READ_ONLY) else 'OFF'}")
+    connection.exec_driver_sql(f"BEGIN {options.get(BEGIN_MODE, DEFERRED)}")
 
 
 def ensure_sqlite_directory(url: str) -> None:
@@ -130,7 +162,7 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
 
     database: Database = request.app.state.database
     factory = (
-        database.session_factory
+        database.reading_session_factory
         if request.method in SAFE_METHODS
         else database.writing_session_factory
     )
