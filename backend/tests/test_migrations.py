@@ -210,3 +210,80 @@ def test_the_upgrade_survives_a_database_that_already_breaks_the_new_index(
     # `failed`, never `success`: neither may be credited with a removal (rule 1).
     assert [status for status, _ in rows] == ["failed", "failed"]
     assert all(finished_at is not None for _, finished_at in rows)
+
+
+def seed_provenance_before_the_flag(url: str) -> None:
+    """A work whose title one source asserts, and a work where two already do.
+
+    Raw SQL for the same reason as above: this is the database one revision
+    back, where `sole_source` does not exist yet.
+    """
+
+    rows = (
+        ("work", 1, "title", "metadata_provider", "igdb"),
+        ("work", 1, "title", "manual", "manual"),
+        ("work", 2, "title", "metadata_provider", "igdb"),
+        ("work", 2, "title", "platform_api", "steam"),
+        ("work", 3, "title", "manual", "manual"),
+        ("work", 1, "item_kind", "metadata_provider", "igdb"),
+        ("entitlement", 5, "provider_title", "platform_api", "steam"),
+    )
+    engine = create_engine(sync_url(url))
+    try:
+        with engine.begin() as connection:
+            for entity_type, entity_id, field, source_kind, source_ref in rows:
+                connection.execute(
+                    text(
+                        "INSERT INTO field_provenance (entity_type, entity_id, field, "
+                        "source_kind, source_ref, value, is_effective, observed_at) VALUES "
+                        f"('{entity_type}', {entity_id}, '{field}', '{source_kind}', "
+                        f"'{source_ref}', '\"x\"', 0, CURRENT_TIMESTAMP)"
+                    )
+                )
+    finally:
+        engine.dispose()
+
+
+def test_the_backfill_flags_what_the_registry_would_have(settings: Settings) -> None:
+    """Including the group it must leave alone, which is the one it could get wrong.
+
+    Work 2 is already asserted by two sources — the state the index exists to
+    prevent, and one it cannot be created over. Flagging one of the two would
+    have the migration silently pick a winner between them; leaving the group
+    unflagged keeps `_only` refusing it at every resolve and still stops a third
+    source joining. Neither manual row is flagged: rule 3 puts a user override
+    above the strategy, so it has to be able to sit beside a source — and work
+    3, where the user got there first and no provider has spoken yet, is the
+    one that would otherwise take the slot and refuse the provider later.
+    """
+
+    config = alembic_config(settings.database_url)
+    command.upgrade(config, "229afe3416a6")
+    seed_provenance_before_the_flag(settings.database_url)
+
+    command.upgrade(config, "head")
+
+    engine = create_engine(sync_url(settings.database_url))
+    try:
+        with engine.connect() as connection:
+            flags = {
+                row[:-1]: row[-1]
+                for row in connection.execute(
+                    text(
+                        "SELECT entity_type, entity_id, field, source_ref, sole_source "
+                        "FROM field_provenance"
+                    )
+                )
+            }
+    finally:
+        engine.dispose()
+
+    assert flags == {
+        ("work", 1, "title", "igdb"): 1,
+        ("work", 1, "title", "manual"): 0,
+        ("work", 2, "title", "igdb"): 0,
+        ("work", 2, "title", "steam"): 0,
+        ("work", 3, "title", "manual"): 0,
+        ("work", 1, "item_kind", "igdb"): 0,
+        ("entitlement", 5, "provider_title", "steam"): 1,
+    }

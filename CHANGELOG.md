@@ -22,6 +22,11 @@ shape moves.
   request. See ADR-0016.
 - Start-up no longer answers every `OperationalError` with "run alembic upgrade
   head". A locked database says so instead.
+- A field the registry marks `single_source` can no longer end up asserted by
+  two providers at once. The rule was enforced in code alone, so two syncs
+  running side by side could both read the field as unclaimed; it is now a
+  partial unique index, written from the registry rather than named in the
+  migration. See ADR-0017.
 
 ### Note for anyone backing up the database
 

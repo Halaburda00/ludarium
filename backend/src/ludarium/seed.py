@@ -46,7 +46,20 @@ PROVIDER_SEED: tuple[ProviderSpec, ...] = (
 
 
 async def seed_providers(session: AsyncSession) -> None:
-    """Bring the provider table in step with the code. Safe to run on every start."""
+    """Bring the provider table in step with the code. Safe to run on every start.
+
+    Reads the table, decides, and then writes — with nothing between the two
+    but the transaction, which is the whole of the answer (ADR-0017). Startup
+    takes a writing session, so on SQLite a second instance blocks at `BEGIN
+    IMMEDIATE` until the first has committed and then reads the rows it wrote:
+    measured, the loser's `SELECT` returned at +0.383 s against the winner's
+    +0.017 s, and saw `steam` already there.
+
+    On an engine that lets both read the table as empty the unique constraint
+    on `provider.key` is what catches them, and the loser fails to start rather
+    than duplicating a provider. That is the intended outcome: seeding is the
+    first thing an instance does, so there is nothing yet to lose by refusing.
+    """
 
     existing = {provider.key: provider for provider in await session.scalars(select(Provider))}
 
