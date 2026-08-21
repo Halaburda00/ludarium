@@ -1,7 +1,8 @@
 """Rule 9 with teeth: a provider writes provenance, only this writes columns.
 
-`record()` is the write path every provider uses; `resolve()` decides which of
-the recorded assertions wins and puts it on the entity. Keeping the two apart is
+`record()` and its batch form `record_many()` are the write path every provider
+uses; `resolve()` decides which of the recorded assertions wins and puts it on
+the entity. Keeping the two apart is
 what turns rules 3 and 5 into a mechanism rather than a convention — the worst a
 sync that goes wrong can do is add a row that loses.
 
@@ -29,7 +30,7 @@ from ludarium.models import (
     Work,
 )
 from ludarium.models.types import ScalarValue, utcnow
-from ludarium.queries import owned_by
+from ludarium.queries import in_batches, owned_by
 
 
 class ResolutionError(Exception):
@@ -229,6 +230,88 @@ PICKERS: Final[Mapping[FieldStrategy, Picker]] = {
 }
 
 
+async def record_many(
+    session: AsyncSession,
+    *,
+    entity_type: EntityType,
+    entity_id: int,
+    source_kind: SourceKind,
+    source_ref: str,
+    values: Mapping[str, ScalarValue | None],
+    run_id: int | None = None,
+) -> dict[str, list[FieldProvenance]]:
+    """Everything one source asserts about one entity, in one read and one flush.
+
+    A provider states several fields about the same entitlement in the same
+    breath, and the single-field form asked the same question once per field —
+    same entity, same table, only `field` different. Three round-trips where the
+    answer to all three arrives in one (#23).
+
+    Returns every row for each field, rivals included, which is exactly what
+    `resolve()` would otherwise read back a statement later.
+    """
+
+    strategies = {field: strategy_for(entity_type, field) for field in values}
+    for field, strategy in strategies.items():
+        writer = WRITERS.get(strategy)
+        if writer is not None and source_kind is not writer:
+            raise ResolutionError(
+                f"{entity_type.value}.{field} is {strategy.value}; "
+                f"{source_kind.value} may not write it"
+            )
+        if strategy in DEFERRED:
+            raise _deferral(strategy)
+
+    # Every row for every field, not just this source's: one query answers both
+    # "is there a row to update" and "is someone else already asserting this".
+    rows_by_field: dict[str, list[FieldProvenance]] = {field: [] for field in values}
+    for existing in await session.scalars(
+        select(FieldProvenance).where(
+            FieldProvenance.entity_type == entity_type,
+            FieldProvenance.entity_id == entity_id,
+            FieldProvenance.field.in_(rows_by_field),
+        )
+    ):
+        rows_by_field[existing.field].append(existing)
+
+    # One timestamp for the batch: these fields did arrive in one answer, and
+    # `_ordered` breaks a tie by it — so giving them separate moments would let
+    # the order the caller happened to pass them in decide something.
+    moment = utcnow()
+    for field, value in values.items():
+        rows = rows_by_field[field]
+        _check_sole_source(rows, strategies[field], entity_type, field, source_kind, source_ref)
+        row = next(
+            (
+                candidate
+                for candidate in rows
+                if candidate.source_kind is source_kind and candidate.source_ref == source_ref
+            ),
+            None,
+        )
+        if row is None:
+            # The 5-tuple constraint covers one source writing twice; the
+            # `sole_source` flag is what covers two sources sharing a field the
+            # registry says only one may assert. Written from `STRATEGIES`
+            # rather than named in the migration, so the two cannot drift
+            # (ADR-0017).
+            row = FieldProvenance(
+                entity_type=entity_type,
+                entity_id=entity_id,
+                field=field,
+                source_kind=source_kind,
+                source_ref=source_ref,
+                sole_source=_claims_sole_source(strategies[field], source_kind),
+            )
+            session.add(row)
+            rows.append(row)
+        row.value = value
+        row.observed_at = moment
+        row.run_id = run_id
+    await session.flush()
+    return rows_by_field
+
+
 async def record(
     session: AsyncSession,
     *,
@@ -246,58 +329,29 @@ async def record(
     sync cannot reach a `manual` value (rule 3): it writes somewhere else.
     """
 
-    strategy = strategy_for(entity_type, field)
-    writer = WRITERS.get(strategy)
-    if writer is not None and source_kind is not writer:
-        raise ResolutionError(
-            f"{entity_type.value}.{field} is {strategy.value}; {source_kind.value} may not write it"
-        )
-    if strategy in DEFERRED:
-        raise _deferral(strategy)
-
-    # Every row for the field, not just this source's: one query answers both
-    # "is there a row to update" and "is someone else already asserting this".
-    rows = list(
-        await session.scalars(
-            select(FieldProvenance).where(
-                FieldProvenance.entity_type == entity_type,
-                FieldProvenance.entity_id == entity_id,
-                FieldProvenance.field == field,
-            )
-        )
+    rows = await record_many(
+        session,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        source_kind=source_kind,
+        source_ref=source_ref,
+        values={field: value},
+        run_id=run_id,
     )
-    _check_sole_source(rows, strategy, entity_type, field, source_kind, source_ref)
-    row = next(
-        (
-            candidate
-            for candidate in rows
-            if candidate.source_kind is source_kind and candidate.source_ref == source_ref
-        ),
-        None,
+    return next(
+        row
+        for row in rows[field]
+        if row.source_kind is source_kind and row.source_ref == source_ref
     )
-    if row is None:
-        # The 5-tuple constraint covers one source writing twice; the
-        # `sole_source` flag is what covers two sources sharing a field the
-        # registry says only one may assert. Written from `STRATEGIES` rather
-        # than named in the migration, so the two cannot drift (ADR-0017).
-        row = FieldProvenance(
-            entity_type=entity_type,
-            entity_id=entity_id,
-            field=field,
-            source_kind=source_kind,
-            source_ref=source_ref,
-            sole_source=_claims_sole_source(strategy, source_kind),
-        )
-        session.add(row)
-    row.value = value
-    row.observed_at = utcnow()
-    row.run_id = run_id
-    await session.flush()
-    return row
 
 
 async def resolve(
-    session: AsyncSession, *, entity_type: EntityType, entity_id: int, fields: Sequence[str]
+    session: AsyncSession,
+    *,
+    entity_type: EntityType,
+    entity_id: int,
+    fields: Sequence[str],
+    recorded: Mapping[str, Sequence[FieldProvenance]] | None = None,
 ) -> dict[str, ScalarValue | None]:
     """Decide each field and write the winner onto the entity. Returns what was written.
 
@@ -306,24 +360,39 @@ async def resolve(
     is not the same thing: the column is a cache of this decision, so it goes
     null rather than keeping a figure no row stands behind any more.
 
+    `recorded` is what `record_many()` just read and wrote, offered so the same
+    rows are not read a second statement later (#23). It must be every row for
+    every named field, rivals included: resolving on a subset would decide by
+    the ladder over half the sources, which is rule 6's false positive with no
+    review queue to catch it.
+
+    Naming a different set of fields than it resolves is refused below, which is
+    the half of that contract a caller can get wrong by accident — subsetting
+    what `record_many()` returned, or reusing a map from an earlier call.
+    Nothing here can tell a complete field's rows from a pruned one's without
+    the query the parameter exists to avoid, so the rule stays: only the write
+    path that just built the map may pass it.
+
     Does not commit: the caller owns the transaction, and the whole point of the
     ordering below is that it is atomic.
     """
+
+    if recorded is not None and set(recorded) != set(fields):
+        raise ResolutionError(
+            "`recorded` must name the fields being resolved and no others; "
+            f"got {sorted(recorded)} for {sorted(fields)}"
+        )
 
     entity = await session.get(ENTITIES[entity_type], entity_id)
     if entity is None:
         raise ResolutionError(f"no {entity_type.value} with id {entity_id}")
 
     strategies = {field: strategy_for(entity_type, field) for field in fields}
-    rows_by_field: dict[str, list[FieldProvenance]] = {field: [] for field in fields}
-    for row in await session.scalars(
-        select(FieldProvenance).where(
-            FieldProvenance.entity_type == entity_type,
-            FieldProvenance.entity_id == entity_id,
-            FieldProvenance.field.in_(rows_by_field),
-        )
-    ):
-        rows_by_field[row.field].append(row)
+    rows_by_field = (
+        {field: list(recorded[field]) for field in fields}
+        if recorded is not None
+        else await _rows_for(session, entity_type, entity_id, fields)
+    )
 
     # One weights query for every source in play: a resolve after a sync asks
     # about several fields at once, and they name the same handful of providers.
@@ -331,6 +400,7 @@ async def resolve(
     weights = await _weights(session, contested) if contested else {}
 
     written: dict[str, ScalarValue | None] = {}
+    winners: list[FieldProvenance] = []
     for field, rows in rows_by_field.items():
         if not rows:
             continue
@@ -343,47 +413,108 @@ async def resolve(
         value = winner.value if winner is not None else None
 
         setattr(entity, field, _as_column_type(entity, field, value))
-        # Column, then clear the old winner, then set the new one — in that
-        # order. The partial unique index rejects a moment with two winners,
-        # which is what it is for.
         for row in rows:
             if row.is_effective and row is not winner:
                 row.is_effective = False
-        await session.flush()
         if winner is not None:
-            await _mark_effective(session, winner)
+            winners.append(winner)
         written[field] = value
+
+    # Columns and every cleared winner, then every new one — in that order, and
+    # for all the fields at once rather than a pair of statements each. The
+    # partial unique index rejects a moment with two winners for one field,
+    # which is what it is for; a single flush could not be told to write the
+    # clear before the set, but two flushes can. Fields do not interfere here —
+    # the index is per field, so what has to be ordered is each field against
+    # itself.
+    await session.flush()
+    await _mark_effective(session, winners)
     return written
 
 
-async def resolve_work_aggregates(
-    session: AsyncSession, *, work_id: int, user_id: int
-) -> UserWorkState:
-    """`sum`: playtime across the entitlements of one work, which is the M1 aggregate.
+async def _rows_for(
+    session: AsyncSession, entity_type: EntityType, entity_id: int, fields: Sequence[str]
+) -> dict[str, list[FieldProvenance]]:
+    rows_by_field: dict[str, list[FieldProvenance]] = {field: [] for field in fields}
+    for row in await session.scalars(
+        select(FieldProvenance).where(
+            FieldProvenance.entity_type == entity_type,
+            FieldProvenance.entity_id == entity_id,
+            FieldProvenance.field.in_(rows_by_field),
+        )
+    ):
+        rows_by_field[row.field].append(row)
+    return rows_by_field
 
-    Two accounts are two stretches of play, not two reports of one (rule 5), and
-    a removed entitlement stops counting until it is restored (rule 1).
+
+async def resolve_work_aggregates_many(
+    session: AsyncSession, *, work_ids: Sequence[int], user_id: int
+) -> list[UserWorkState]:
+    """`sum` across the entitlements of every work at once (rule 5).
+
+    Two accounts are two stretches of play, not two reports of one, and a
+    removed entitlement stops counting until it is restored (rule 1).
+
+    Two queries for the whole list rather than two per work: a first sync
+    touches one work per game, and asking about each of them separately was two
+    round-trips per item of the library (#23).
 
     The other two aggregates in the registry stay unimplemented on purpose:
     `latest` and `derived` are both constants while there is one Steam account,
     and a strategy tested against a constant proves nothing.
     """
 
-    state = await session.get(UserWorkState, (user_id, work_id))
-    if state is None:
-        raise ResolutionError(f"no user_work_state for user {user_id} and work {work_id}")
+    wanted = list(dict.fromkeys(work_ids))
+    if not wanted:
+        return []
 
-    state.playtime_minutes = await session.scalar(
-        select(func.coalesce(func.sum(Entitlement.playtime_minutes), 0))
-        .join(EntitlementWork, EntitlementWork.entitlement_id == Entitlement.id)
-        .where(EntitlementWork.work_id == work_id, *owned_by(user_id))
-    )
+    states: dict[int, UserWorkState] = {}
+    for batch in in_batches(wanted):
+        for state in await session.scalars(
+            select(UserWorkState).where(
+                UserWorkState.user_id == user_id, UserWorkState.work_id.in_(batch)
+            )
+        ):
+            states[state.work_id] = state
+    missing = next((work_id for work_id in wanted if work_id not in states), None)
+    if missing is not None:
+        raise ResolutionError(f"no user_work_state for user {user_id} and work {missing}")
+
+    totals: dict[int, int] = {}
+    for batch in in_batches(wanted):
+        for work_id, total in await session.execute(
+            select(
+                EntitlementWork.work_id,
+                func.coalesce(func.sum(Entitlement.playtime_minutes), 0),
+            )
+            .join(Entitlement, Entitlement.id == EntitlementWork.entitlement_id)
+            .where(EntitlementWork.work_id.in_(batch), *owned_by(user_id))
+            .group_by(EntitlementWork.work_id)
+        ):
+            totals[work_id] = total
+
+    for work_id in wanted:
+        # A work whose every copy has been removed produces no group at all,
+        # which is zero rather than "leave the old total alone" — the singular
+        # form got the same answer from `coalesce` over an empty sum (rule 1).
+        states[work_id].playtime_minutes = totals.get(work_id, 0)
     await session.flush()
-    return state
+    return [states[work_id] for work_id in wanted]
 
 
-async def _mark_effective(session: AsyncSession, row: FieldProvenance) -> None:
-    row.is_effective = True
+async def resolve_work_aggregates(
+    session: AsyncSession, *, work_id: int, user_id: int
+) -> UserWorkState:
+    """One work, which is what a caller holding a single id wants to write."""
+
+    return (await resolve_work_aggregates_many(session, work_ids=[work_id], user_id=user_id))[0]
+
+
+async def _mark_effective(session: AsyncSession, rows: Sequence[FieldProvenance]) -> None:
+    """The second of the two statements `resolve()` is careful to keep apart."""
+
+    for row in rows:
+        row.is_effective = True
     await session.flush()
 
 

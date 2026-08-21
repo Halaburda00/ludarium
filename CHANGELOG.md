@@ -19,6 +19,27 @@ shape moves.
   document is what the command prints, and the committed types are what the
   document generates.
 
+### Changed
+
+- A sync no longer costs a fixed set of round-trips per game. The account's
+  existing rows are read once instead of once per item, a provider states all
+  of an entitlement's fields in one statement instead of three, the resolver
+  decides every field before it flushes instead of flushing twice per field,
+  and the work totals are recomputed for the whole library in two queries
+  instead of two per work. A 2000-game library measures 25.7 s → 9.1 s on a
+  first run and 15.0 s → 3.1 s on a second, with the statements per game
+  falling from 22 to 9 and from 12 to 2. What is left per game is the inserts
+  SQLite will not batch. A test pins the slope, so the next per-item query
+  fails there rather than on somebody's NAS.
+- A provider that lists one item twice with two different titles now names the
+  work stub by the title the entitlement ends the run with, rather than by the
+  one the first mention happened to seed. The stub is a copy of the resolved
+  `provider_title`, and it used to be a copy of a value that had since moved.
+- Lists of ids are named to the database a bind-limit at a time. Past the
+  driver's ceiling an `IN (...)` does not run slowly, it raises inside the run's
+  own transaction — so the sync rolls back and reports `failed` identically on
+  every retry until the library shrinks.
+
 ### Fixed
 
 - Read endpoints run their queries in a transaction. pysqlite opens none for a

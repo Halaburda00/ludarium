@@ -10,11 +10,13 @@ import httpx
 import pytest
 import respx
 from conftest import make_account, make_provider, make_user
-from sqlalchemy import func, select, update
+from sqlalchemy import event, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ludarium import queries
 from ludarium import sync as sync_module
+from ludarium.db import Database
 from ludarium.enums import (
     EntitlementOrigin,
     EntityType,
@@ -688,8 +690,8 @@ async def test_a_library_larger_than_sqlite_can_bind_still_sweeps(
     note in the perf issue.
 
     Driven straight at `_sweep`: a full sync of this many items would add
-    minutes to the suite to exercise the upsert loop, which is issue #23's
-    problem and not this query's.
+    minutes to the suite for the sake of a set difference that never touches the
+    database.
     """
 
     await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
@@ -703,7 +705,8 @@ async def test_a_library_larger_than_sqlite_can_bind_still_sweeps(
     await session.flush()
     huge = THREE_GAMES[:2] + [owned(f"filler-{index}", f"Game {index}") for index in range(32767)]
 
-    stale = await sync_module._sweep(session, run=run, account=account, items=huge)
+    known = await sync_module._known(session, account=account)
+    stale = sync_module._sweep(run=run, known=known, items=huge)
 
     dota = await one_entitlement(session, "570")
     assert stale == [dota.id]
@@ -1249,3 +1252,161 @@ async def test_the_reclaim_rides_on_the_run_it_makes_room_for(
 
     # One to open the run, one to close it. The reclaim adds none.
     assert commits == 2
+
+
+# Measured at 9.05, and the floor is nine of those: an ORM insert whose
+# generated id is needed back cannot be batched — the driver reports one
+# `lastrowid` per execution — and a first run inserts five such rows per game
+# (the entitlement, its three provenance rows, the work and its edition), on top
+# of the provenance read, the entitlement update and the winners update.
+#
+# Ten rather than nine so the number is not pinned to a SQLAlchemy patch
+# release, and not eleven: the slack is under one statement, so anything that
+# reintroduces a per-item query fails here.
+PER_ITEM_CEILING = 10
+
+
+async def statements_for(
+    database: Database, session: AsyncSession, account: Account, items: list[LibraryItem]
+) -> list[str]:
+    """Every statement one run sends, in order."""
+
+    seen: list[str] = []
+
+    def tally(_conn: object, _cursor: object, statement: str, *_rest: object) -> None:
+        seen.append(statement)
+
+    event.listen(database.engine.sync_engine, "before_cursor_execute", tally)
+    try:
+        await sync_account(session, account=account, library=FakeLibrary(items))
+    finally:
+        event.remove(database.engine.sync_engine, "before_cursor_execute", tally)
+    return seen
+
+
+def library(size: int, offset: int = 0) -> list[LibraryItem]:
+    return [owned(str(offset + index), f"Game {offset + index}") for index in range(size)]
+
+
+async def test_a_run_costs_a_fixed_number_of_statements_per_game(
+    db: Database, session: AsyncSession, account: Account
+) -> None:
+    """#23, pinned as a slope so the next per-item query fails here rather than on a NAS.
+
+    Everything that can be asked once for the whole library is: the account's
+    existing rows, the sweep's set difference, the works to re-total and their
+    state rows. What is left per game is writes SQLite will not batch.
+
+    A slope rather than a total, because opening and closing a run costs the
+    same whether it syncs four games or four hundred, and that fixed part is not
+    what the issue is about.
+    """
+
+    second = await make_account(session, external_account_id="765611980")
+
+    small = await statements_for(db, session, account, library(4))
+    large = await statements_for(db, session, second, library(44, offset=1000))
+
+    growth = (len(large) - len(small)) / 40
+    assert growth <= PER_ITEM_CEILING, f"{growth:.2f} statements per game"
+
+
+async def test_a_run_reads_no_more_than_one_row_per_game(
+    db: Database, session: AsyncSession, account: Account
+) -> None:
+    """Reads are the half a network makes expensive, so they get their own ceiling.
+
+    One per game is the provenance read, which is the last per-item query left.
+    Every other question — which rows this account already has, which works to
+    re-total, what their state rows say — is asked once for the whole library.
+    """
+
+    second = await make_account(session, external_account_id="765611980")
+
+    def reads(statements: list[str]) -> int:
+        return sum(statement.lstrip().upper().startswith("SELECT") for statement in statements)
+
+    small = reads(await statements_for(db, session, account, library(4)))
+    large = reads(await statements_for(db, session, second, library(44, offset=1000)))
+
+    assert (large - small) / 40 <= 1
+
+
+async def test_an_item_the_provider_lists_twice_is_still_one_row(
+    session: AsyncSession, account: Account
+) -> None:
+    """A repeated entry is the provider repeating itself, not a second copy owned.
+
+    The run reads the account's rows once now rather than once per item, so the
+    row made for the first mention has to go back into that map. Without it the
+    second mention inserts a duplicate, the unique index refuses it, and a
+    harmless quirk in a response becomes a failed run.
+
+    The two mentions carry different titles on purpose: with the same title the
+    ordering below could change and nothing would say so.
+    """
+
+    twice = [
+        owned("570", "Dota 2"),
+        owned("570", "Dota 2: Battle Pass Edition", playtime_minutes=12),
+    ]
+
+    run = await sync_account(session, account=account, library=FakeLibrary(twice))
+
+    assert run.status is SyncStatus.SUCCESS
+    assert await count(session, Entitlement) == 1
+    assert (run.items_added, run.items_updated) == (1, 1)
+    # The second mention is the same source changing its mind, written to the
+    # same provenance row.
+    assert (await one_entitlement(session, "570")).playtime_minutes == 12
+
+
+async def test_a_stub_is_named_by_what_the_field_finally_resolved_to(
+    session: AsyncSession, account: Account
+) -> None:
+    """The last word, not the first, when one response says two things about one id.
+
+    Stubs are made after every field of every item is resolved now, rather than
+    between one item and the next — so the title a stub copies is the one the
+    entitlement ends the run with. It used to be the one the first mention
+    happened to seed, which left `work.title` standing on a value
+    `provider_title` no longer held.
+
+    Which mention is right is not something this can know. That the two agree is.
+    """
+
+    twice = [
+        owned("570", "Dota 2"),
+        owned("570", "Dota 2: Battle Pass Edition", playtime_minutes=12),
+    ]
+
+    await sync_account(session, account=account, library=FakeLibrary(twice))
+
+    titles = list(await session.scalars(select(Work.title)))
+    assert titles == ["Dota 2: Battle Pass Edition"]
+    assert (await one_entitlement(session, "570")).provider_title == titles[0]
+
+
+async def test_more_works_than_one_in_clause_holds_still_get_their_totals(
+    session: AsyncSession, account: Account, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The aggregate names its ids a batch at a time, and the batches have to add up.
+
+    The limit is lowered rather than the library raised: a real one would need a
+    thousand games to reach the second batch, and what is under test is that
+    there is a second batch at all, not how long it takes to build one.
+    """
+
+    monkeypatch.setattr(queries, "BIND_LIMIT", 2)
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    totals = {
+        title: minutes
+        for title, minutes in await session.execute(
+            select(Work.title, UserWorkState.playtime_minutes).join(
+                UserWorkState, UserWorkState.work_id == Work.id
+            )
+        )
+    }
+    assert totals == {"The Witcher 3: Wild Hunt": 3247, "Portal 2": 0, "Dota 2": 12}
