@@ -778,3 +778,37 @@ async def test_two_runs_racing_one_single_source_field_end_in_one_row(db: Databa
     assert len(refusals) == 1
     assert len(rows) == 1
     assert f"{rows[0].source_ref} already asserts it" in refusals[0]
+
+
+@pytest.mark.parametrize("strategy", list(FieldStrategy))
+@pytest.mark.parametrize("source_kind", list(SourceKind))
+def test_the_refusal_and_the_flag_are_one_answer(
+    strategy: FieldStrategy, source_kind: SourceKind
+) -> None:
+    """The two ends of `single_source`, which must never be given different rules.
+
+    `record()` refuses a second source at runtime and flags the first one for
+    the partial unique index. Were the exclusion list to grow a second
+    `SourceKind` in one of the two places only, the database would go on
+    enforcing a rule the code had stopped holding — and the disagreement would
+    surface as an `IntegrityError` on a write the guard had just allowed.
+    """
+
+    rival = FieldProvenance(
+        entity_type=EntityType.WORK,
+        entity_id=1,
+        field="title",
+        source_kind=SourceKind.METADATA_PROVIDER,
+        source_ref="igdb",
+        value="Prey",
+    )
+
+    try:
+        resolver._check_sole_source(
+            [rival], strategy, EntityType.WORK, "title", source_kind, "rawg"
+        )
+        refused = False
+    except ResolutionError:
+        refused = True
+
+    assert refused is resolver._claims_sole_source(strategy, source_kind)

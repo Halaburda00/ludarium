@@ -162,6 +162,22 @@ def _greatest(rows: Sequence[FieldProvenance]) -> FieldProvenance | None:
     return max(numeric, key=lambda pair: pair[1])[0]
 
 
+def _claims_sole_source(strategy: FieldStrategy, source_kind: SourceKind) -> bool:
+    """Whether this write is the one the `single_source` rule allows exactly one of.
+
+    Two things depend on the answer and must never give different ones: the
+    refusal below, and the flag `record()` writes for the partial unique index
+    (ADR-0017). A runtime guard that excluded a source the flag still claimed
+    for would leave the database enforcing a rule the code no longer holds.
+
+    Manual is outside the rule rather than an exception to it — rule 3 puts a
+    user override above the strategy, so it has to be able to sit beside the
+    source it overrides.
+    """
+
+    return strategy is FieldStrategy.SINGLE_SOURCE and source_kind is not SourceKind.MANUAL
+
+
 def _check_sole_source(
     rows: Sequence[FieldProvenance],
     strategy: FieldStrategy,
@@ -183,7 +199,7 @@ def _check_sole_source(
     enough, the `sole_source` index the insert below writes for (ADR-0017).
     """
 
-    if strategy is not FieldStrategy.SINGLE_SOURCE or source_kind is SourceKind.MANUAL:
+    if not _claims_sole_source(strategy, source_kind):
         return
     rival = next(
         (
@@ -270,9 +286,7 @@ async def record(
             field=field,
             source_kind=source_kind,
             source_ref=source_ref,
-            sole_source=(
-                strategy is FieldStrategy.SINGLE_SOURCE and source_kind is not SourceKind.MANUAL
-            ),
+            sole_source=_claims_sole_source(strategy, source_kind),
         )
         session.add(row)
     row.value = value

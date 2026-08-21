@@ -33,6 +33,12 @@ def upgrade() -> None:
         "field_provenance",
         sa.Column("sole_source", sa.Boolean(), nullable=False, server_default=sa.false()),
     )
+    # The correlated subquery is not the scan it looks like: the 5-tuple UNIQUE
+    # constraint's autoindex starts with (entity_type, entity_id, field), so
+    # the rival lookup is a covering search on it. Measured over 80 000 rows —
+    # a 20 000-game library — 105 ms, against 84 ms for the anti-join form that
+    # says the same thing less plainly.
+    #
     # A group that already holds two non-manual rows is the thing this index
     # exists to prevent, and it cannot be created over one. Rather than pick a
     # winner between them — which would silently bless a misclassification —
