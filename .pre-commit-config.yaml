@@ -22,6 +22,21 @@ repos:
         types: [python]
         pass_filenames: false
 
+      # The two commands from CLAUDE.md, run rather than remembered. A response
+      # model and the types generated from it live on opposite sides of the
+      # tree, and CI's two jobs are independent — so a half-done regeneration
+      # was caught by the backend job after a push and by nothing before it.
+      # Regenerates rather than checks: pre-commit fails a run whose hook
+      # touched a file, so the diff is on disk and ready to stage.
+      - id: openapi
+        name: openapi document and the types built from it
+        entry: bash -c 'cd backend && uv run ludarium-openapi > ../docs/openapi.json && cd ../frontend && pnpm run api:types'
+        language: system
+        # One line, not a folded scalar: YAML joins folded lines with a space,
+        # and a space inside an alternation branch is part of the pattern.
+        files: '^(backend/(src/ludarium/(api/|__init__\.py)|pyproject\.toml)|docs/openapi\.json|frontend/src/lib/api-types\.ts)'
+        pass_filenames: false
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:

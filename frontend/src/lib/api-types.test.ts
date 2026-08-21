@@ -7,6 +7,9 @@ import { describe, expect, it } from 'vitest'
 const DOCUMENT = join(process.cwd(), '..', 'docs', 'openapi.json')
 const GENERATED = join(process.cwd(), 'src', 'lib', 'api-types.ts')
 
+// Where the generator's output starts, under the banner it writes above it.
+const FIRST_DECLARATION = 'export interface paths'
+
 const REGENERATE = [
   'the committed API types are not the ones `docs/openapi.json` describes — regenerate them:',
   '  cd frontend && pnpm run api:types',
@@ -30,8 +33,13 @@ describe('the generated API types', () => {
     // From the first declaration: the CLI writes a "do not edit" banner that
     // the Node API does not, and pinning the banner's wording here would make
     // this fail on an openapi-typescript upgrade that changed nothing else.
-    const body = committed.slice(committed.indexOf('export interface paths'))
+    //
+    // Found before it is used, because `indexOf` answers a missing sentinel
+    // with -1 and `slice(-1)` is the file's last character — a diff of one
+    // newline against the whole document, which says nothing about why.
+    const start = committed.indexOf(FIRST_DECLARATION)
+    expect(start, `${GENERATED} has no \`${FIRST_DECLARATION}\` in it`).toBeGreaterThanOrEqual(0)
 
-    expect(body, REGENERATE).toBe(astToString(ast))
+    expect(committed.slice(start), REGENERATE).toBe(astToString(ast))
   })
 })

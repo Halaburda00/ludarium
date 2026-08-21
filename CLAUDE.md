@@ -219,7 +219,8 @@ cd backend && uv run alembic upgrade head
 cd frontend && pnpm dev
 cd frontend && pnpm run build
 
-# api contract, after changing a request or response model
+# api contract, after changing a request or response model. The `openapi`
+# pre-commit hook runs both, so this is the manual form rather than the gate
 cd backend && uv run ludarium-openapi > ../docs/openapi.json
 cd frontend && pnpm run api:types
 
