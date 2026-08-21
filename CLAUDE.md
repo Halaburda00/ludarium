@@ -53,7 +53,7 @@ ludarium/
 │   ├── tests/
 │   └── pyproject.toml
 ├── frontend/             # React + TypeScript
-├── docs/                 # mkdocs-material, ADRs, schema, roadmap
+├── docs/                 # mkdocs-material, ADRs, schema, roadmap, openapi.json
 ├── docker/               # Dockerfile, compose
 ├── data/                 # local SQLite database (gitignored)
 ├── .github/workflows/    # CI
@@ -218,6 +218,10 @@ cd backend && uv run alembic upgrade head
 # frontend
 cd frontend && pnpm dev
 cd frontend && pnpm run build
+
+# api contract, after changing a request or response model
+cd backend && uv run ludarium-openapi > ../docs/openapi.json
+cd frontend && pnpm run api:types
 
 # quality
 pre-commit run --all-files

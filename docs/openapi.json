@@ -1,0 +1,1039 @@
+{
+  "components": {
+    "schemas": {
+      "AccountResponse": {
+        "description": "What the frontend may know about a connected account.\n\n`credentials` is the mask and nothing else. There is no field here that\ncould carry the ciphertext either: an encrypted secret in a response is\nstill the secret, one key away.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "credentials": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credentials"
+          },
+          "external_account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Account Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "external_account_id",
+          "label",
+          "is_active",
+          "created_at",
+          "last_success_at",
+          "credentials"
+        ],
+        "title": "AccountResponse",
+        "type": "object"
+      },
+      "ConnectRequest": {
+        "properties": {
+          "credentials": {
+            "format": "password",
+            "maxLength": 1024,
+            "title": "Credentials",
+            "type": "string",
+            "writeOnly": true
+          },
+          "external_account_id": {
+            "maxLength": 256,
+            "title": "External Account Id",
+            "type": "string"
+          },
+          "label": {
+            "default": "Main",
+            "maxLength": 256,
+            "title": "Label",
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 64,
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "external_account_id",
+          "credentials"
+        ],
+        "title": "ConnectRequest",
+        "type": "object"
+      },
+      "EntitlementSummary": {
+        "description": "One copy the user owns, and where it came from. The platform column of the table.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "playtime_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playtime Minutes"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_item_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Item Id"
+          },
+          "provider_name": {
+            "title": "Provider Name",
+            "type": "string"
+          },
+          "provider_title": {
+            "title": "Provider Title",
+            "type": "string"
+          },
+          "store_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Url"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "provider_name",
+          "provider_item_id",
+          "provider_title",
+          "playtime_minutes",
+          "store_url"
+        ],
+        "title": "EntitlementSummary",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "database": {
+            "title": "Database",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "degraded"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "database"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "ItemKind": {
+        "enum": [
+          "game",
+          "dlc",
+          "demo",
+          "soundtrack",
+          "video",
+          "tool",
+          "mod"
+        ],
+        "title": "ItemKind",
+        "type": "string"
+      },
+      "LoginRequest": {
+        "description": "Bounded, because this is the one endpoint that answers before authenticating.\n\nNot because argon2's cost scales with the input \u2014 measured, a 10 MB password\ncosts 62 ms against 49 ms for a short one, since the memory-hard phase is\nfixed. The reason is upstream of that: an unbounded string is buffered whole\nand carried through validation before anything gets to decide it is wrong.",
+        "properties": {
+          "password": {
+            "format": "password",
+            "maxLength": 1024,
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          },
+          "username": {
+            "maxLength": 256,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "PlayStatus": {
+        "enum": [
+          "not_started",
+          "playing",
+          "completed",
+          "mastered",
+          "dropped",
+          "on_hold",
+          "wishlist"
+        ],
+        "title": "PlayStatus",
+        "type": "string"
+      },
+      "ProviderStatusResponse": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SyncStatus"
+          }
+        },
+        "required": [
+          "key",
+          "display_name",
+          "enabled",
+          "status",
+          "last_success_at",
+          "last_error"
+        ],
+        "title": "ProviderStatusResponse",
+        "type": "object"
+      },
+      "SessionResponse": {
+        "description": "What the frontend needs to render a signed-in shell. The token is in the cookie.",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "expires_at"
+        ],
+        "title": "SessionResponse",
+        "type": "object"
+      },
+      "SyncOverviewResponse": {
+        "description": "Both halves in one call, because the panel shows them together.\n\nA provider's health without its runs cannot say *what* failed, and the runs\nwithout the provider row cannot say whether it has ever worked.",
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderStatusResponse"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/SyncRunResponse"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers",
+          "runs"
+        ],
+        "title": "SyncOverviewResponse",
+        "type": "object"
+      },
+      "SyncRunResponse": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "error_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Text"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "items_added": {
+            "title": "Items Added",
+            "type": "integer"
+          },
+          "items_removed": {
+            "title": "Items Removed",
+            "type": "integer"
+          },
+          "items_seen": {
+            "title": "Items Seen",
+            "type": "integer"
+          },
+          "items_updated": {
+            "title": "Items Updated",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SyncStatus"
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/SyncTrigger"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "account_id",
+          "trigger",
+          "status",
+          "started_at",
+          "finished_at",
+          "items_seen",
+          "items_added",
+          "items_updated",
+          "items_removed",
+          "error_text"
+        ],
+        "title": "SyncRunResponse",
+        "type": "object"
+      },
+      "SyncStatus": {
+        "enum": [
+          "pending",
+          "running",
+          "success",
+          "partial",
+          "failed"
+        ],
+        "title": "SyncStatus",
+        "type": "string"
+      },
+      "SyncTrigger": {
+        "enum": [
+          "manual",
+          "scheduled",
+          "ingest",
+          "import"
+        ],
+        "title": "SyncTrigger",
+        "type": "string"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WorkSummary": {
+        "properties": {
+          "entitlements": {
+            "items": {
+              "$ref": "#/components/schemas/EntitlementSummary"
+            },
+            "title": "Entitlements",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_favourite": {
+            "title": "Is Favourite",
+            "type": "boolean"
+          },
+          "is_hidden": {
+            "title": "Is Hidden",
+            "type": "boolean"
+          },
+          "is_matched": {
+            "title": "Is Matched",
+            "type": "boolean"
+          },
+          "item_kind": {
+            "$ref": "#/components/schemas/ItemKind"
+          },
+          "last_played_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Played At"
+          },
+          "play_status": {
+            "$ref": "#/components/schemas/PlayStatus"
+          },
+          "playtime_minutes": {
+            "title": "Playtime Minutes",
+            "type": "integer"
+          },
+          "release_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Year"
+          },
+          "sort_title": {
+            "title": "Sort Title",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "sort_title",
+          "is_matched",
+          "item_kind",
+          "release_year",
+          "play_status",
+          "is_favourite",
+          "is_hidden",
+          "playtime_minutes",
+          "last_played_at",
+          "entitlements"
+        ],
+        "title": "WorkSummary",
+        "type": "object"
+      },
+      "WorksPage": {
+        "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "works": {
+            "items": {
+              "$ref": "#/components/schemas/WorkSummary"
+            },
+            "title": "Works",
+            "type": "array"
+          }
+        },
+        "required": [
+          "works",
+          "next_cursor"
+        ],
+        "title": "WorksPage",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Ludarium",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/accounts": {
+      "get": {
+        "operationId": "connected_api_accounts_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccountResponse"
+                  },
+                  "title": "Response Connected Api Accounts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connected",
+        "tags": [
+          "accounts"
+        ]
+      },
+      "post": {
+        "description": "Validate first, then store. A rejected key leaves nothing behind.\n\nThe four provider errors are three different answers, because they are three\ndifferent jobs: a wrong key and a private profile are the user's to fix and\nsay so now, while an outage is nobody's fault and must not be reported as a\nbad credential \u2014 told that, someone rotates a key that was working.",
+        "operationId": "connect_api_accounts_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connect",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "operationId": "login_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "description": "Deleted, not flagged.\n\nRule 1 is about the catalogue \u2014 a game that disappears is evidence, and a\nrevoked session is a liability. There is nothing to audit here that\n`last_login_at` does not already say.",
+        "operationId": "logout_api_auth_logout_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/sync/runs": {
+      "get": {
+        "operationId": "overview_api_sync_runs_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Overview",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/sync/{provider}": {
+      "post": {
+        "description": "Sync every account of one provider and report each run.\n\nA list rather than one run because a platform may have several accounts\n(M4), and one of them failing is not the others' problem \u2014 `sync_account`\nturns a provider failure into a run status precisely so this loop does not\nhave to catch anything to keep rule 4.\n\n`SyncInProgressError` is the only exception, and it is the caller's answer\nrather than a run's: the double-click that produced it wants 409, not a\nsecond run. Everything else \u2014 including a credential that will not decrypt \u2014\nreaches `library_for` and comes back as a failed run, so one broken account\ncannot end a request that the others were about to complete.",
+        "operationId": "run_api_sync__provider__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SyncRunResponse"
+                  },
+                  "title": "Response Run Api Sync  Provider  Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/works": {
+      "get": {
+        "description": "One page, keyed on `(sort_title, id)` rather than an offset.\n\nAn offset re-reads and discards every row before the page, so the last page\nof a large library costs the most; and a sync landing a new title mid-scroll\nshifts every later page by one, which shows up as a duplicated or skipped\nrow. A keyset does neither: `ix_work_sort_title_id` seeks straight to the\nposition and the page is defined by content rather than by count.",
+        "operationId": "listing_api_works_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorksPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Listing",
+        "tags": [
+          "works"
+        ]
+      }
+    }
+  }
+}
