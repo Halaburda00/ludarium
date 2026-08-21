@@ -9,6 +9,16 @@ shape moves.
 
 ## [Unreleased]
 
+### Added
+
+- `docs/openapi.json`, the API contract as the app publishes it, printed by
+  `uv run ludarium-openapi`. The frontend's request and response types are
+  generated from that file rather than transcribed from it, so a renamed or
+  dropped field is a compile error at every place that reads it instead of an
+  empty column in the browser. Two tests keep the chain honest: the committed
+  document is what the command prints, and the committed types are what the
+  document generates.
+
 ### Fixed
 
 - Read endpoints run their queries in a transaction. pysqlite opens none for a

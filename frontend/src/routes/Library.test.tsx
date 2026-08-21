@@ -2,12 +2,15 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
+import type { EntitlementSummary, SyncRun, WorkSummary, WorksPage } from '@/lib/queries'
 import Library from '@/routes/Library'
 import { renderApp, stubFetch } from '@/test/render'
 
-const EMPTY = { works: [], next_cursor: null }
+// Typed, so that a field the backend renames is a compile error here rather
+// than a fixture and a type quietly drifting together (#35).
+const EMPTY: WorksPage = { works: [], next_cursor: null }
 
-function copy(overrides: Record<string, unknown> = {}) {
+function copy(overrides: Partial<EntitlementSummary> = {}): EntitlementSummary {
   return {
     id: 1,
     provider: 'steam',
@@ -20,7 +23,11 @@ function copy(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function work(id: number, title: string, entitlements = [copy({ id, provider_title: title })]) {
+function work(
+  id: number,
+  title: string,
+  entitlements: EntitlementSummary[] = [copy({ id, provider_title: title })],
+): WorkSummary {
   return {
     id,
     title,
@@ -37,7 +44,7 @@ function work(id: number, title: string, entitlements = [copy({ id, provider_tit
   }
 }
 
-const THREE = {
+const THREE: WorksPage = {
   works: [
     work(1, 'Dota 2'),
     work(2, 'Portal 2'),
@@ -46,12 +53,15 @@ const THREE = {
   next_cursor: null,
 }
 
-function run(overrides: Record<string, unknown> = {}) {
+function run(overrides: Partial<SyncRun> = {}): SyncRun {
   return {
     id: 1,
     provider: 'steam',
     account_id: 1,
+    trigger: 'manual',
     status: 'success',
+    started_at: '2026-08-21T10:00:00Z',
+    finished_at: '2026-08-21T10:00:04Z',
     items_seen: 3,
     items_added: 3,
     items_updated: 0,
@@ -188,7 +198,7 @@ describe('the table', () => {
   })
 
   it('names a platform it cannot link rather than dropping it', async () => {
-    const unlinkable = {
+    const unlinkable: WorksPage = {
       works: [work(1, 'Disc Copy', [copy({ store_url: null, provider_name: 'GOG' })])],
       next_cursor: null,
     }
@@ -202,7 +212,7 @@ describe('the table', () => {
   })
 
   it('shows every copy of a work owned twice', async () => {
-    const both = {
+    const both: WorksPage = {
       works: [
         work(1, 'Portal 2', [
           copy({ id: 10, provider_name: 'Steam' }),
@@ -224,8 +234,8 @@ describe('the table', () => {
 
 describe('paging', () => {
   it('follows the cursor the API handed back', async () => {
-    const first = { works: [work(1, 'Dota 2')], next_cursor: 'page-2==' }
-    const second = { works: [work(2, 'Portal 2')], next_cursor: null }
+    const first: WorksPage = { works: [work(1, 'Dota 2')], next_cursor: 'page-2==' }
+    const second: WorksPage = { works: [work(2, 'Portal 2')], next_cursor: null }
     const calls = stubFetch({
       'GET /api/works': { body: first },
       // Percent-encoded, because the cursor is base64url and its padding is not
@@ -290,8 +300,10 @@ describe('a page that came back empty with a cursor after it', () => {
       // page: no works, and a cursor saying the library continues. It takes the
       // cursor from the last row read rather than the last row kept for this
       // case specifically, so a client that stops here truncates the library.
-      'GET /api/works': { body: { works: [], next_cursor: 'page-2' } },
-      'GET /api/works?cursor=page-2': { body: { works: [work(1, 'Dota 2')], next_cursor: null } },
+      'GET /api/works': { body: { works: [], next_cursor: 'page-2' } satisfies WorksPage },
+      'GET /api/works?cursor=page-2': {
+        body: { works: [work(1, 'Dota 2')], next_cursor: null } satisfies WorksPage,
+      },
     })
     renderApp(<Library />)
 
@@ -337,7 +349,7 @@ describe('the sync button', () => {
           JSON.stringify({
             works: [work(page, `Game ${page}`)],
             next_cursor: page < 2 ? String(page + 1) : null,
-          }),
+          } satisfies WorksPage),
           { status: 200 },
         )
       }),

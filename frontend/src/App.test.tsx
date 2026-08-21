@@ -3,9 +3,22 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { Router } from '@/App'
+import type { Account, WorksPage } from '@/lib/queries'
 import { renderApp, stubFetch } from '@/test/render'
 
-const ACCOUNT = { id: 1, provider: 'steam', label: 'Main', credentials: '••••••••' }
+// The whole response, not the two fields the gate reads: a stub that answers
+// less than the API does is a fixture that can drift away from it (#35).
+const ACCOUNT: Account = {
+  id: 1,
+  provider: 'steam',
+  external_account_id: '76561197960287930',
+  label: 'Main',
+  is_active: true,
+  created_at: '2026-08-01T09:00:00Z',
+  last_success_at: null,
+  credentials: '••••••••',
+}
+const EMPTY_LIBRARY: WorksPage = { works: [], next_cursor: null }
 const UNAUTHORISED = { status: 401, body: { detail: 'not signed in' } }
 
 describe('routing', () => {
@@ -31,7 +44,7 @@ describe('routing', () => {
   it('lets a connected visitor through to the library', async () => {
     stubFetch({
       'GET /api/accounts': { body: [ACCOUNT] },
-      'GET /api/works': { body: { works: [], next_cursor: null } },
+      'GET /api/works': { body: EMPTY_LIBRARY },
     })
     renderApp(<Router />, { route: '/library' })
 
@@ -41,7 +54,7 @@ describe('routing', () => {
   it('leaves an unknown path at the library rather than at nothing', async () => {
     stubFetch({
       'GET /api/accounts': { body: [ACCOUNT] },
-      'GET /api/works': { body: { works: [], next_cursor: null } },
+      'GET /api/works': { body: EMPTY_LIBRARY },
     })
     renderApp(<Router />, { route: '/somewhere-else' })
 
@@ -51,7 +64,7 @@ describe('routing', () => {
   it('returns to the login screen after signing out', async () => {
     stubFetch({
       'GET /api/accounts': { body: [ACCOUNT] },
-      'GET /api/works': { body: { works: [], next_cursor: null } },
+      'GET /api/works': { body: EMPTY_LIBRARY },
       'POST /api/auth/logout': { status: 204 },
     })
     renderApp(<Router />, { route: '/library' })

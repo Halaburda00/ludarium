@@ -9,60 +9,28 @@ import {
 } from '@tanstack/react-query'
 
 import { api, ApiError } from '@/lib/api'
+import type { components } from '@/lib/api-types'
 
-export type Account = {
-  id: number
-  provider: string
-  external_account_id: string | null
-  label: string
-  is_active: boolean
-  created_at: string
-  last_success_at: string | null
-  credentials: string | null
-}
+/**
+ * The shapes the API actually publishes, aliased rather than transcribed (#35).
+ *
+ * Hand-written copies of these matched the backend on the day they were typed
+ * and nothing kept them matching: a renamed field passed the backend's contract
+ * test, passed a vitest suite whose fixtures were written to the same hand-made
+ * shape, and reached the user as an empty column. Named through
+ * `docs/openapi.json`, a rename is a compile error at every place that reads the
+ * field — including the fixtures.
+ */
+type Schemas = components['schemas']
 
-export type SyncRun = {
-  id: number
-  provider: string
-  account_id: number | null
-  status: 'pending' | 'running' | 'success' | 'partial' | 'failed'
-  items_seen: number
-  items_added: number
-  items_updated: number
-  items_removed: number
-  error_text: string | null
-}
-
+export type Account = Schemas['AccountResponse']
+export type SyncRun = Schemas['SyncRunResponse']
 /** One copy the user owns. The platform column of the table is a list of these. */
-export type EntitlementSummary = {
-  id: number
-  provider: string
-  provider_name: string
-  provider_item_id: string | null
-  provider_title: string
-  playtime_minutes: number | null
-  store_url: string | null
-}
-
-export type WorkSummary = {
-  id: number
-  title: string
-  sort_title: string
-  is_matched: boolean
-  item_kind: string
-  release_year: number | null
-  play_status: string
-  is_favourite: boolean
-  is_hidden: boolean
-  playtime_minutes: number
-  last_played_at: string | null
-  entitlements: EntitlementSummary[]
-}
-
-export type WorksPage = {
-  works: WorkSummary[]
-  next_cursor: string | null
-}
+export type EntitlementSummary = Schemas['EntitlementSummary']
+export type WorkSummary = Schemas['WorkSummary']
+export type WorksPage = Schemas['WorksPage']
+export type Connection = Schemas['ConnectRequest']
+export type Credentials = Schemas['LoginRequest']
 
 export const accountsKey = ['accounts'] as const
 export const worksKey = ['works'] as const
@@ -86,7 +54,7 @@ export function useAccounts(): UseQueryResult<Account[], ApiError> {
 
 export function useLogin() {
   const client = useQueryClient()
-  return useMutation<unknown, ApiError, { username: string; password: string }>({
+  return useMutation<unknown, ApiError, Credentials>({
     mutationFn: (credentials) =>
       api('/api/auth/login', { method: 'POST', body: credentials }),
     // Everything, unlike its neighbours: before a login every query is sitting
@@ -103,13 +71,6 @@ export function useLogout() {
     // allowed to read would answer 401 and flash an error on the way out.
     onSuccess: () => client.clear(),
   })
-}
-
-export type Connection = {
-  provider: string
-  external_account_id: string
-  label: string
-  credentials: string
 }
 
 export function useConnect() {
