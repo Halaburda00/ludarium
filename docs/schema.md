@@ -435,6 +435,7 @@ grows with every sync forever, and nothing in the product reads it.
 | `source_ref` | TEXT | no | | Provider key, or `account:12` where the same provider has several accounts |
 | `value` | TEXT | yes | | JSON-encoded scalar. Null means "this source explicitly has no value", which is different from having no row |
 | `is_effective` | BOOLEAN | no | `false` | Exactly one true row per (entity, field) once resolved, enforced by a partial unique index |
+| `sole_source` | BOOLEAN | no | `false` | True where the registry calls the field `single_source` and the row is not the user's override. Written by `record()` so a partial unique index can enforce a rule that lives in code (ADR-0017) |
 | `observed_at` | TIMESTAMP | no | `now()` | |
 | `run_id` | INTEGER | yes | | FK → `sync_run`. Null for user edits |
 
@@ -591,6 +592,7 @@ erDiagram
         string source_ref
         string value "json"
         bool is_effective
+        bool sole_source
     }
     FIELD_PIN {
         int id PK
@@ -676,7 +678,7 @@ table that references the source is dealt with explicitly:
 | `entitlement_work` | Links move to the target. A `primary` link that would collide with an existing `primary` for the same entitlement becomes `granted` |
 | `edition` | Re-parented to the target, deduplicated by `slug`. `entitlement.edition_id` is repointed to the surviving edition; a stub's `Standard` collapses into the target's default |
 | `user_work_state` | Merged, not moved: user-set fields take the source's value only where the target still holds the default. `playtime_minutes` and `platform_count` are recomputed by the resolver afterwards, not copied |
-| `field_provenance` | Rows move. On collision with the target's row for the same `(field, source_kind, source_ref)` the later `observed_at` survives. `is_effective` is cleared across the field and the resolver runs again |
+| `field_provenance` | Rows move. On collision with the target's row for the same `(field, source_kind, source_ref)` the later `observed_at` survives. `is_effective` is cleared across the field and the resolver runs again. Two works each carrying a `sole_source` row for the same field cannot both keep it — the merge is a genuine `single_source` conflict and belongs in the review queue, not in an `IntegrityError` |
 | `field_pin` | Moves, unless the target already pins that field, in which case the target's pin stands |
 | `external_id` | Moves; duplicates by `(namespace, value)` are dropped |
 | `work_genre`, `work_company`, `work_platform` | Moved, duplicates dropped |
@@ -871,6 +873,7 @@ through `EXISTS` over `entitlement_work` → `entitlement`.
 | `entitlement` | `(provider_title)` | The store-title half of search, which `work_fts` cannot cover |
 | `field_provenance` | `UNIQUE (entity_type, entity_id, field, source_kind, source_ref)` | One row per source per field |
 | `field_provenance` | `UNIQUE (entity_type, entity_id, field) WHERE is_effective` | Both the lookup path for the resolver and the detail view, and the guard on the flag. `is_effective` is a denormalisation; without this index a half-finished resolve could leave two winners for one field and nothing would notice |
+| `field_provenance` | `UNIQUE (entity_type, entity_id, field) WHERE sole_source` | The `single_source` strategy, which is a property of the registry rather than of any column. `record()` writes the flag from `STRATEGIES`, so the predicate names no fields and cannot drift from them (ADR-0017) |
 | `field_pin` | `UNIQUE (entity_type, entity_id, field)` | |
 | `external_id` | `UNIQUE (namespace, value, entity_type)` + `(entity_type, entity_id)` | Matching layer 1, both directions |
 | `work` | `UNIQUE (igdb_id) WHERE igdb_id IS NOT NULL` | |

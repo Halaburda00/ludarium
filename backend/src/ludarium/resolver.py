@@ -162,6 +162,22 @@ def _greatest(rows: Sequence[FieldProvenance]) -> FieldProvenance | None:
     return max(numeric, key=lambda pair: pair[1])[0]
 
 
+def _claims_sole_source(strategy: FieldStrategy, source_kind: SourceKind) -> bool:
+    """Whether this write is the one the `single_source` rule allows exactly one of.
+
+    Two things depend on the answer and must never give different ones: the
+    refusal below, and the flag `record()` writes for the partial unique index
+    (ADR-0017). A runtime guard that excluded a source the flag still claimed
+    for would leave the database enforcing a rule the code no longer holds.
+
+    Manual is outside the rule rather than an exception to it — rule 3 puts a
+    user override above the strategy, so it has to be able to sit beside the
+    source it overrides.
+    """
+
+    return strategy is FieldStrategy.SINGLE_SOURCE and source_kind is not SourceKind.MANUAL
+
+
 def _check_sole_source(
     rows: Sequence[FieldProvenance],
     strategy: FieldStrategy,
@@ -177,14 +193,13 @@ def _check_sole_source(
     would hide a provider writing where it must not. Refusing the write cannot
     be masked, and names who did it.
 
-    Check-then-act, and rule 4 makes the contention legal: two provider runs can
-    both read the field as unclaimed and both insert. No constraint can catch
-    that pair — `single_source` is a property of the registry, not a column —
-    so `_only` refuses them at the next resolve instead. Only a raced pair on a
-    field the user has also overridden goes unreported. See issue #20.
+    Still check-then-act, and rule 4 makes the contention legal: two provider
+    runs can both read the field as unclaimed. What stops them landing together
+    is not this function but the transaction around it — and, where that is not
+    enough, the `sole_source` index the insert below writes for (ADR-0017).
     """
 
-    if strategy is not FieldStrategy.SINGLE_SOURCE or source_kind is SourceKind.MANUAL:
+    if not _claims_sole_source(strategy, source_kind):
         return
     rival = next(
         (
@@ -261,16 +276,17 @@ async def record(
         None,
     )
     if row is None:
-        # Check-then-act. The unique constraint backs this up for one source
-        # writing twice, which is all it can see: whether two sources may share
-        # the field is the registry's answer, not the schema's, and
-        # `_check_sole_source` says what covers that.
+        # The 5-tuple constraint covers one source writing twice; the
+        # `sole_source` flag is what covers two sources sharing a field the
+        # registry says only one may assert. Written from `STRATEGIES` rather
+        # than named in the migration, so the two cannot drift (ADR-0017).
         row = FieldProvenance(
             entity_type=entity_type,
             entity_id=entity_id,
             field=field,
             source_kind=source_kind,
             source_ref=source_ref,
+            sole_source=_claims_sole_source(strategy, source_kind),
         )
         session.add(row)
     row.value = value

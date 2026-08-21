@@ -1,11 +1,14 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from conftest import make_account, make_entitlement, make_provider, make_user, make_work
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium import resolver
+from ludarium.db import Database
 from ludarium.enums import EntityType, FieldStrategy, ItemKind, SourceKind
 from ludarium.models import Account, Base, EntitlementWork, FieldProvenance, UserWorkState, Work
 from ludarium.models.types import ScalarValue
@@ -666,3 +669,146 @@ def test_every_registry_field_is_a_column() -> None:
     for table, field in STRATEGIES:
         assert table in tables, table
         assert field in tables[table].__table__.columns, f"{table}.{field}"
+
+
+async def test_the_flag_says_what_the_registry_says(session: AsyncSession) -> None:
+    """`sole_source` is `STRATEGIES` written down, so the index has something to be unique over.
+
+    The manual row is deliberately not flagged: rule 3 puts the user above the
+    strategy, so an override has to be able to sit beside the source it
+    overrides.
+    """
+
+    work = await make_work(session)
+    for field, source_kind, source_ref in (
+        ("title", SourceKind.METADATA_PROVIDER, "igdb"),
+        ("title", SourceKind.MANUAL, "manual"),
+        ("item_kind", SourceKind.METADATA_PROVIDER, "igdb"),
+    ):
+        await record(
+            session,
+            entity_type=EntityType.WORK,
+            entity_id=work.id,
+            field=field,
+            source_kind=source_kind,
+            source_ref=source_ref,
+            value="Prey" if field == "title" else ItemKind.GAME,
+        )
+
+    flags = {
+        (row.field, row.source_ref): row.sole_source
+        for row in await session.scalars(select(FieldProvenance))
+    }
+    assert flags == {
+        ("title", "igdb"): True,
+        ("title", "manual"): False,
+        ("item_kind", "igdb"): False,
+    }
+
+
+async def test_the_database_refuses_the_second_source_on_its_own(session: AsyncSession) -> None:
+    """What issue #20 found the schema unable to say, said as a constraint.
+
+    `record()` refuses this pair long before the flush, so the only way to reach
+    the index is to write the rows the way a lost race would — both decided
+    against a database in which neither existed yet.
+    """
+
+    work = await make_work(session)
+    for source_ref in ("igdb", "rawg"):
+        session.add(
+            FieldProvenance(
+                entity_type=EntityType.WORK,
+                entity_id=work.id,
+                field="title",
+                source_kind=SourceKind.METADATA_PROVIDER,
+                source_ref=source_ref,
+                value=f"Prey, according to {source_ref}",
+                sole_source=True,
+            )
+        )
+
+    with pytest.raises(IntegrityError):
+        await session.flush()
+
+
+async def test_two_runs_racing_one_single_source_field_end_in_one_row(db: Database) -> None:
+    """Two interleaved sessions, and a decided outcome rather than whichever committed last.
+
+    Rule 4 makes the contention legal — providers sync independently — and
+    before ADR-0016 both read the field as unclaimed and both inserted. The
+    second `BEGIN IMMEDIATE` now waits for the first to commit, so the loser's
+    own `SELECT` finds the rival and `record()` names it. Which of the two wins
+    is not asserted, because the transaction decides that and the outcome is
+    the same either way.
+    """
+
+    async with db.writing_session_factory() as setup:
+        work = Work(title="Prey", sort_title="prey")
+        setup.add(work)
+        await setup.commit()
+        work_id = work.id
+
+    async def claim(source_ref: str) -> str | None:
+        async with db.writing_session_factory() as session:
+            try:
+                await record(
+                    session,
+                    entity_type=EntityType.WORK,
+                    entity_id=work_id,
+                    field="title",
+                    source_kind=SourceKind.METADATA_PROVIDER,
+                    source_ref=source_ref,
+                    value=f"Prey, according to {source_ref}",
+                )
+            except ResolutionError as exc:
+                return str(exc)
+            # Held open, so the other one is certainly waiting at its BEGIN
+            # rather than passing through before this one has committed.
+            await asyncio.sleep(0.05)
+            await session.commit()
+        return None
+
+    refusals = [
+        refusal for refusal in await asyncio.gather(claim("igdb"), claim("rawg")) if refusal
+    ]
+
+    async with db.session_factory() as reader:
+        rows = list(await reader.scalars(select(FieldProvenance)))
+    assert len(refusals) == 1
+    assert len(rows) == 1
+    assert f"{rows[0].source_ref} already asserts it" in refusals[0]
+
+
+@pytest.mark.parametrize("strategy", list(FieldStrategy))
+@pytest.mark.parametrize("source_kind", list(SourceKind))
+def test_the_refusal_and_the_flag_are_one_answer(
+    strategy: FieldStrategy, source_kind: SourceKind
+) -> None:
+    """The two ends of `single_source`, which must never be given different rules.
+
+    `record()` refuses a second source at runtime and flags the first one for
+    the partial unique index. Were the exclusion list to grow a second
+    `SourceKind` in one of the two places only, the database would go on
+    enforcing a rule the code had stopped holding — and the disagreement would
+    surface as an `IntegrityError` on a write the guard had just allowed.
+    """
+
+    rival = FieldProvenance(
+        entity_type=EntityType.WORK,
+        entity_id=1,
+        field="title",
+        source_kind=SourceKind.METADATA_PROVIDER,
+        source_ref="igdb",
+        value="Prey",
+    )
+
+    try:
+        resolver._check_sole_source(
+            [rival], strategy, EntityType.WORK, "title", source_kind, "rawg"
+        )
+        refused = False
+    except ResolutionError:
+        refused = True
+
+    assert refused is resolver._claims_sole_source(strategy, source_kind)

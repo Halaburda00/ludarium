@@ -33,6 +33,18 @@ class FieldProvenance(Base):
             sqlite_where=text("is_effective"),
             postgresql_where=text("is_effective"),
         ),
+        # `single_source` is a property of the registry, so the database can
+        # only enforce it if the registry writes it down: `record()` sets the
+        # flag, and this refuses the second source (#20, ADR-0017).
+        Index(
+            "uq_field_provenance_entity_type_entity_id_field_sole_source",
+            "entity_type",
+            "entity_id",
+            "field",
+            unique=True,
+            sqlite_where=text("sole_source"),
+            postgresql_where=text("sole_source"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -46,6 +58,11 @@ class FieldProvenance(Base):
     source_ref: Mapped[str]
     value: Mapped[ScalarValue | None] = mapped_column(JsonScalar())
     is_effective: Mapped[bool] = mapped_column(default=False, server_default=false())
+    # True where the registry calls the field `single_source` and this row is
+    # not the user's override — a denormalisation of `STRATEGIES`, kept so the
+    # index above has something to be unique over. Never read; `resolver` owns
+    # both the value and the decision it stands for.
+    sole_source: Mapped[bool] = mapped_column(default=False, server_default=false())
     observed_at: Mapped[CreatedAt]
     # Null for user edits, which no run produced.
     run_id: Mapped[int | None] = mapped_column(ForeignKey("sync_run.id", ondelete="RESTRICT"))
