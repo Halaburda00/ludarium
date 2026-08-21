@@ -985,3 +985,36 @@ async def test_aggregating_a_work_with_no_state_row_names_it(session: AsyncSessi
 
 async def test_aggregating_nothing_asks_the_database_nothing(session: AsyncSession) -> None:
     assert await resolve_work_aggregates_many(session, work_ids=[], user_id=1) == []
+
+
+async def test_resolve_refuses_a_map_that_is_not_about_the_fields_it_was_asked_for(
+    session: AsyncSession,
+) -> None:
+    """The half of `recorded`'s contract a caller can break by accident (#39 review).
+
+    Subsetting what `record_many()` returned, or handing over a map from an
+    earlier call, is how a resolve would end up deciding by the ladder over half
+    the sources — a false positive with no review queue behind it (rule 6).
+    Rows pruned from a field this cannot see; a field missing from the map it
+    can, and refuses rather than filling the gap with a read the parameter
+    exists to avoid.
+    """
+
+    work = await make_work(session)
+    recorded = await record_many(
+        session,
+        entity_type=EntityType.WORK,
+        entity_id=work.id,
+        source_kind=SourceKind.METADATA_PROVIDER,
+        source_ref="igdb",
+        values={"item_kind": "dlc"},
+    )
+
+    with pytest.raises(ResolutionError, match="must name the fields being resolved"):
+        await resolve(
+            session,
+            entity_type=EntityType.WORK,
+            entity_id=work.id,
+            fields=["item_kind", "release_year"],
+            recorded=recorded,
+        )

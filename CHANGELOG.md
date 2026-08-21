@@ -31,6 +31,10 @@ shape moves.
   falling from 22 to 9 and from 12 to 2. What is left per game is the inserts
   SQLite will not batch. A test pins the slope, so the next per-item query
   fails there rather than on somebody's NAS.
+- A provider that lists one item twice with two different titles now names the
+  work stub by the title the entitlement ends the run with, rather than by the
+  one the first mention happened to seed. The stub is a copy of the resolved
+  `provider_title`, and it used to be a copy of a value that had since moved.
 - Lists of ids are named to the database a bind-limit at a time. Past the
   driver's ceiling an `IN (...)` does not run slowly, it raises inside the run's
   own transaction — so the sync rolls back and reports `failed` identically on

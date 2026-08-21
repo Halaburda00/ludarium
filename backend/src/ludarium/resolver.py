@@ -362,13 +362,26 @@ async def resolve(
 
     `recorded` is what `record_many()` just read and wrote, offered so the same
     rows are not read a second statement later (#23). It must be every row for
-    every named field, rivals included — given a subset this would resolve on a
-    partial picture, which is why nothing but the write path that just built it
-    should pass it.
+    every named field, rivals included: resolving on a subset would decide by
+    the ladder over half the sources, which is rule 6's false positive with no
+    review queue to catch it.
+
+    Naming a different set of fields than it resolves is refused below, which is
+    the half of that contract a caller can get wrong by accident — subsetting
+    what `record_many()` returned, or reusing a map from an earlier call.
+    Nothing here can tell a complete field's rows from a pruned one's without
+    the query the parameter exists to avoid, so the rule stays: only the write
+    path that just built the map may pass it.
 
     Does not commit: the caller owns the transaction, and the whole point of the
     ordering below is that it is atomic.
     """
+
+    if recorded is not None and set(recorded) != set(fields):
+        raise ResolutionError(
+            "`recorded` must name the fields being resolved and no others; "
+            f"got {sorted(recorded)} for {sorted(fields)}"
+        )
 
     entity = await session.get(ENTITIES[entity_type], entity_id)
     if entity is None:
@@ -376,7 +389,7 @@ async def resolve(
 
     strategies = {field: strategy_for(entity_type, field) for field in fields}
     rows_by_field = (
-        {field: list(recorded.get(field, ())) for field in fields}
+        {field: list(recorded[field]) for field in fields}
         if recorded is not None
         else await _rows_for(session, entity_type, entity_id, fields)
     )

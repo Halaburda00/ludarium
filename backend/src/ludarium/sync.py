@@ -430,6 +430,8 @@ async def _apply(
     # A removal changes its work's totals as surely as an update does, so the
     # swept rows join the list the aggregates are recomputed from.
     touched += _sweep(run=run, known=known, items=items)
+    # The stub's last phase and the sweep in one flush, because the aggregates
+    # below read both back.
     await session.flush()
     await _aggregate(session, user_id=account.user_id, entitlement_ids=touched)
 
@@ -616,12 +618,12 @@ async def _stub(
     `normalised_title` stays null: that is `ludamatch`'s output and it lives in
     another repository (M2).
 
-    Three flushes for the whole library rather than three per game: an edition
-    needs its work's id and a link needs the edition's, so the phases cannot
-    merge — but nothing makes them per-item (#23). Worth about 5% of a first
-    run's wall clock and no round-trips at all on SQLite, which inserts a row
-    whose generated id is wanted back one statement at a time whatever the
-    caller batches. An engine that can batch those has more to gain, and
+    Two flushes for the whole library rather than three per game: an edition
+    needs its work's id, so the phases cannot merge — but nothing makes them
+    per-item (#23). On SQLite that buys no round-trips at all: a row whose
+    generated id is wanted back is inserted one statement at a time whatever
+    the caller batches, and the measured saving is a percent or two of unit-of-
+    work overhead. An engine that can batch those inserts has more to gain, and
     ADR-0004 keeps PostgreSQL a target.
     """
 
@@ -664,7 +666,9 @@ async def _stub(
         # with one platform connected a strategy tested against a constant
         # proves nothing.
         session.add(UserWorkState(user_id=account.user_id, work_id=work.id))
-    await session.flush()
+    # No flush after the last phase: nothing between here and `_apply`'s own
+    # asks the database anything, and it flushes before the aggregates read
+    # these rows back.
 
 
 def _nameless(entitlement: Entitlement) -> str:

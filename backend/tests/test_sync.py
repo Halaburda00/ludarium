@@ -1341,9 +1341,15 @@ async def test_an_item_the_provider_lists_twice_is_still_one_row(
     row made for the first mention has to go back into that map. Without it the
     second mention inserts a duplicate, the unique index refuses it, and a
     harmless quirk in a response becomes a failed run.
+
+    The two mentions carry different titles on purpose: with the same title the
+    ordering below could change and nothing would say so.
     """
 
-    twice = [owned("570", "Dota 2"), owned("570", "Dota 2", playtime_minutes=12)]
+    twice = [
+        owned("570", "Dota 2"),
+        owned("570", "Dota 2: Battle Pass Edition", playtime_minutes=12),
+    ]
 
     run = await sync_account(session, account=account, library=FakeLibrary(twice))
 
@@ -1353,6 +1359,32 @@ async def test_an_item_the_provider_lists_twice_is_still_one_row(
     # The second mention is the same source changing its mind, written to the
     # same provenance row.
     assert (await one_entitlement(session, "570")).playtime_minutes == 12
+
+
+async def test_a_stub_is_named_by_what_the_field_finally_resolved_to(
+    session: AsyncSession, account: Account
+) -> None:
+    """The last word, not the first, when one response says two things about one id.
+
+    Stubs are made after every field of every item is resolved now, rather than
+    between one item and the next — so the title a stub copies is the one the
+    entitlement ends the run with. It used to be the one the first mention
+    happened to seed, which left `work.title` standing on a value
+    `provider_title` no longer held.
+
+    Which mention is right is not something this can know. That the two agree is.
+    """
+
+    twice = [
+        owned("570", "Dota 2"),
+        owned("570", "Dota 2: Battle Pass Edition", playtime_minutes=12),
+    ]
+
+    await sync_account(session, account=account, library=FakeLibrary(twice))
+
+    titles = list(await session.scalars(select(Work.title)))
+    assert titles == ["Dota 2: Battle Pass Edition"]
+    assert (await one_entitlement(session, "570")).provider_title == titles[0]
 
 
 async def test_more_works_than_one_in_clause_holds_still_get_their_totals(
