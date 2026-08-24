@@ -44,7 +44,8 @@ from ludarium.models import (
 from ludarium.models.types import ScalarValue, utcnow
 from ludarium.providers import LibraryItem, LibraryProvider, ProviderError
 from ludarium.providers.registry import build_library
-from ludarium.resolver import record, resolve, resolve_work_aggregates
+from ludarium.queries import in_batches
+from ludarium.resolver import record_many, resolve, resolve_work_aggregates_many
 from ludarium.titles import sort_title
 
 # Every work has at least one edition, so a provider entry that says nothing
@@ -53,7 +54,7 @@ DEFAULT_EDITION_NAME: Final = "Standard"
 DEFAULT_EDITION_SLUG: Final = "standard"
 
 
-# A run measures in seconds — 27 for a 2000-game library (#23) — and the fetch
+# A run measures in seconds — 9 for a 2000-game library (#23) — and the fetch
 # is bounded by the client's timeout and three tenacity attempts. An hour is
 # therefore not a slow sync; it is a process that was killed between opening the
 # row and closing it, and the index below would otherwise let that one orphan
@@ -379,58 +380,108 @@ async def _apply(
     reporter: Provider,
     items: list[LibraryItem],
 ) -> None:
+    """One library, in phases rather than one item at a time.
+
+    Every item used to cost the same fixed set of sequential round-trips — its
+    own lookup, its own four reads of `field_provenance`, its own recomputed
+    work total (#23). The work is the same; what changes is that each question
+    is asked once for the whole library, so what is left per game is writes.
+
+    The order within an item is what it always was, and has to be: the row
+    exists before anything asserts a field about it, the fields are resolved
+    before a stub copies the resolved title, and the aggregates are last because
+    a removal moves a total as surely as an update does.
+    """
+
     # `items_seen` is `_close`'s, so that a failed run keeps it.
-    touched: list[int] = []
+    known = await _known(session, account=account)
+    seen: list[Entitlement] = []
+    fresh: list[Entitlement] = []
     for item in items:
-        entitlement, created = await _upsert(session, account=account, item=item)
+        entitlement = known.get(item.provider_item_id)
+        if entitlement is None:
+            entitlement = _blank(account, item)
+            session.add(entitlement)
+            # Back into the map, so a provider that lists one item twice finds
+            # the row it just made rather than colliding with it.
+            known[item.provider_item_id] = entitlement
+            fresh.append(entitlement)
+        _refresh(entitlement, item)
+        seen.append(entitlement)
+    # One flush for the whole library, which is where every id the provenance
+    # rows are about to address gets assigned. Still one INSERT per row on
+    # SQLite — a generated id has to come back through `lastrowid`, one
+    # execution at a time — so what this saves is the flushes around them, not
+    # the inserts themselves.
+    await session.flush()
+
+    for entitlement, item in zip(seen, items, strict=True):
         await _assert_fields(
             session, run=run, reporter=reporter, entitlement=entitlement, item=item
         )
-        if created:
-            await _stub(session, run=run, account=account, entitlement=entitlement)
-            run.items_added += 1
-        else:
-            run.items_updated += 1
-        touched.append(entitlement.id)
+
+    await _stub(session, run=run, account=account, entitlements=fresh)
+    # Counted rather than incremented: a counter touched inside the loop is
+    # dirty at every flush in it, which was an `UPDATE sync_run` per item.
+    run.items_added = len(fresh)
+    run.items_updated = len(seen) - len(fresh)
+
+    touched = [entitlement.id for entitlement in seen]
     # A removal changes its work's totals as surely as an update does, so the
     # swept rows join the list the aggregates are recomputed from.
-    touched += await _sweep(session, run=run, account=account, items=items)
+    touched += _sweep(run=run, known=known, items=items)
+    # The stub's last phase and the sweep in one flush, because the aggregates
+    # below read both back.
+    await session.flush()
     await _aggregate(session, user_id=account.user_id, entitlement_ids=touched)
 
 
-async def _upsert(
-    session: AsyncSession, *, account: Account, item: LibraryItem
-) -> tuple[Entitlement, bool]:
-    """Find or create the row for one owned item. Returns it and whether it is new.
+async def _known(session: AsyncSession, *, account: Account) -> dict[str, Entitlement]:
+    """Every row of this account the run might touch, keyed by the platform's id.
 
-    Keyed on `(account_id, provider_item_id)`, which is the unique index. Rows
-    with `origin = manual` are excluded by predicate as well (rule 2). A CHECK
-    constraint now makes it impossible for such a row to carry a
-    `provider_item_id` at all, so the predicate is deliberately redundant: rule
-    2 is worth two independent guards, and this is the one that says so where
-    the query is written.
+    One query where there was one per item plus one for the sweep, and both of
+    those wanted almost the same set: the upsert needs removed rows too, so it
+    can restore them, and the sweep wants only the live ones — which is a
+    `removed_at` test in Python rather than a second trip.
+
+    Rows with `origin = manual` are excluded (rule 2), and so are rows the
+    platform cannot name: a null `provider_item_id` matches no item and is not
+    something the platform stopped listing — it is a row the platform was never
+    asked about. An import writes those.
+
+    The `origin` predicate is deliberately redundant. A CHECK constraint already
+    makes it impossible for a manual row to carry a `provider_item_id` at all,
+    so the null test would drop it anyway; rule 2 is worth two independent
+    guards, and this is the one that says so where the query is written.
     """
 
-    entitlement = await session.scalar(
+    rows = await session.scalars(
         select(Entitlement).where(
             Entitlement.account_id == account.id,
-            Entitlement.provider_item_id == item.provider_item_id,
             Entitlement.origin != EntitlementOrigin.MANUAL,
+            Entitlement.provider_item_id.is_not(None),
         )
     )
-    created = entitlement is None
-    if entitlement is None:
-        entitlement = Entitlement(
-            user_id=account.user_id,
-            account_id=account.id,
-            origin=EntitlementOrigin.SYNC,
-            provider_item_id=item.provider_item_id,
-            # Seeded because the column is NOT NULL and the row has to exist
-            # before a provenance row can address it. The resolver owns it from
-            # the next statement onwards.
-            provider_title=item.title,
-        )
-        session.add(entitlement)
+    # The key is not null by the predicate above; mypy cannot see that.
+    return {str(entitlement.provider_item_id): entitlement for entitlement in rows}
+
+
+def _blank(account: Account, item: LibraryItem) -> Entitlement:
+    return Entitlement(
+        user_id=account.user_id,
+        account_id=account.id,
+        origin=EntitlementOrigin.SYNC,
+        provider_item_id=item.provider_item_id,
+        # Seeded because the column is NOT NULL and the row has to exist before
+        # a provenance row can address it. The resolver owns it from the next
+        # statement onwards.
+        provider_title=item.title,
+    )
+
+
+def _refresh(entitlement: Entitlement, item: LibraryItem) -> None:
+    """What every run writes about an item it can still see, new or not."""
+
     _describe(entitlement, item)
     # Touched by every run that still sees the item; `first_seen_at` is not, so
     # that "owned since" survives every later run and a removal after it.
@@ -444,13 +495,9 @@ async def _upsert(
         # the round trip and reads the same as if nothing had happened.
         entitlement.removed_at = None
         entitlement.removed_by_run_id = None
-    await session.flush()
-    return entitlement, created
 
 
-async def _sweep(
-    session: AsyncSession, *, run: SyncRun, account: Account, items: list[LibraryItem]
-) -> list[int]:
+def _sweep(*, run: SyncRun, known: dict[str, Entitlement], items: list[LibraryItem]) -> list[int]:
     """Mark what the provider stopped listing. Never a DELETE (rule 1).
 
     Absence is not proof of anything. A game drops out of a response because of
@@ -463,46 +510,31 @@ async def _sweep(
     transaction. These updates commit with the status or roll back with it, so
     there is no path by which a failed run leaves a removal behind.
 
-    A row the provider cannot name is excluded: a null `provider_item_id` is not
-    an item the platform stopped listing, it is a row the platform was never
-    asked about. An import writes those, and so does a manual entry.
-
-    Which makes the `origin = manual` predicate redundant twice over — the CHECK
-    constraint keeps such a row nameless and the null guard then drops it — and
-    no test can distinguish it. It stays because rule 2 should be legible at the
-    query that would break it, rather than inferred from two facts stated
-    elsewhere.
-
     An empty library sweeps everything, deliberately: that is what a platform
     saying "you own nothing" looks like, and telling it apart from a truncated
     response belongs to the provider, which is why `SteamProvider` refuses a
     body shorter than the count Steam sent with it.
 
     The set difference is taken in Python rather than as `NOT IN (...)`, which
-    binds one parameter per owned item and fails outright past SQLite's ceiling
-    of 32766. A library that large is rare, but the failure would not be: the
-    sweep raises inside the run's own transaction, so every run of that account
-    rolls back and reports `failed` until the library shrinks. The rows are
-    already paid for — the account's live entitlements are what the upsert loop
-    just put in the identity map.
+    binds one parameter per owned item and fails outright past SQLite's ceiling.
+    A library that large is rare, but the failure would not be: the sweep raises
+    inside the run's own transaction, so every run of that account rolls back
+    and reports `failed` until the library shrinks. Nothing is paid for it — the
+    rows are the ones `_known` already loaded, and an already-removed row is
+    left alone rather than re-stamped with this run's id.
     """
 
     owned = {item.provider_item_id for item in items}
-    live = await session.scalars(
-        select(Entitlement).where(
-            Entitlement.account_id == account.id,
-            Entitlement.origin != EntitlementOrigin.MANUAL,
-            Entitlement.removed_at.is_(None),
-            Entitlement.provider_item_id.is_not(None),
-        )
-    )
-    stale = [entitlement for entitlement in live if entitlement.provider_item_id not in owned]
+    stale = [
+        entitlement
+        for provider_item_id, entitlement in known.items()
+        if provider_item_id not in owned and entitlement.removed_at is None
+    ]
     moment = utcnow()
     for entitlement in stale:
         entitlement.removed_at = moment
         entitlement.removed_by_run_id = run.id
     run.items_removed = len(stale)
-    await session.flush()
     return [entitlement.id for entitlement in stale]
 
 
@@ -539,6 +571,9 @@ async def _assert_fields(
     One `source_ref` per provider is enough even once a platform has several
     accounts: an entitlement belongs to exactly one account, so two Steam
     accounts own two rows and never assert the same entitlement's fields.
+
+    The three fields go down together and the rows come straight back to
+    `resolve`, so the run reads them once instead of four times over (#23).
     """
 
     values: dict[str, ScalarValue | None] = {
@@ -548,28 +583,27 @@ async def _assert_fields(
         # "this source has no figure" rather than as zero minutes played.
         "playtime_minutes": item.playtime_minutes,
     }
-    for field, value in values.items():
-        await record(
-            session,
-            entity_type=EntityType.ENTITLEMENT,
-            entity_id=entitlement.id,
-            field=field,
-            source_kind=reporter.source_kind,
-            source_ref=reporter.key,
-            value=value,
-            run_id=run.id,
-        )
+    recorded = await record_many(
+        session,
+        entity_type=EntityType.ENTITLEMENT,
+        entity_id=entitlement.id,
+        source_kind=reporter.source_kind,
+        source_ref=reporter.key,
+        values=values,
+        run_id=run.id,
+    )
     await resolve(
         session,
         entity_type=EntityType.ENTITLEMENT,
         entity_id=entitlement.id,
         fields=list(values),
+        recorded=recorded,
     )
 
 
 async def _stub(
-    session: AsyncSession, *, run: SyncRun, account: Account, entitlement: Entitlement
-) -> Work:
+    session: AsyncSession, *, run: SyncRun, account: Account, entitlements: list[Entitlement]
+) -> None:
     """A work, its default edition and the primary link, in this transaction (ADR-0015).
 
     So that no entitlement is ever work-less: the grid is work-centric from the
@@ -583,38 +617,58 @@ async def _stub(
 
     `normalised_title` stays null: that is `ludamatch`'s output and it lives in
     another repository (M2).
+
+    Two flushes for the whole library rather than three per game: an edition
+    needs its work's id, so the phases cannot merge — but nothing makes them
+    per-item (#23). On SQLite that buys no round-trips at all: a row whose
+    generated id is wanted back is inserted one statement at a time whatever
+    the caller batches, and the measured saving is a percent or two of unit-of-
+    work overhead. An engine that can batch those inserts has more to gain, and
+    ADR-0004 keeps PostgreSQL a target.
     """
 
-    title = entitlement.provider_title.strip() or _nameless(entitlement)
-    work = Work(title=title, sort_title=sort_title(title))
-    session.add(work)
+    if not entitlements:
+        return
+
+    works = []
+    for entitlement in entitlements:
+        title = entitlement.provider_title.strip() or _nameless(entitlement)
+        work = Work(title=title, sort_title=sort_title(title))
+        session.add(work)
+        works.append(work)
     await session.flush()
 
-    edition = Edition(
-        work_id=work.id,
-        name=DEFAULT_EDITION_NAME,
-        slug=DEFAULT_EDITION_SLUG,
-        is_default=True,
-    )
-    session.add(edition)
-    await session.flush()
-
-    # Which edition was bought. The route to the work is the primary link, not
-    # this column.
-    entitlement.edition_id = edition.id
-    session.add(
-        EntitlementWork(
-            entitlement_id=entitlement.id,
+    editions = []
+    for work in works:
+        edition = Edition(
             work_id=work.id,
-            role=WorkLinkRole.PRIMARY,
-            created_by_run_id=run.id,
+            name=DEFAULT_EDITION_NAME,
+            slug=DEFAULT_EDITION_SLUG,
+            is_default=True,
         )
-    )
-    # `platform_count` is left at its default: `derived` belongs to M4, and with
-    # one platform connected a strategy tested against a constant proves nothing.
-    session.add(UserWorkState(user_id=account.user_id, work_id=work.id))
+        session.add(edition)
+        editions.append(edition)
     await session.flush()
-    return work
+
+    for entitlement, work, edition in zip(entitlements, works, editions, strict=True):
+        # Which edition was bought. The route to the work is the primary link,
+        # not this column.
+        entitlement.edition_id = edition.id
+        session.add(
+            EntitlementWork(
+                entitlement_id=entitlement.id,
+                work_id=work.id,
+                role=WorkLinkRole.PRIMARY,
+                created_by_run_id=run.id,
+            )
+        )
+        # `platform_count` is left at its default: `derived` belongs to M4, and
+        # with one platform connected a strategy tested against a constant
+        # proves nothing.
+        session.add(UserWorkState(user_id=account.user_id, work_id=work.id))
+    # No flush after the last phase: nothing between here and `_apply`'s own
+    # asks the database anything, and it flushes before the aggregates read
+    # these rows back.
 
 
 def _nameless(entitlement: Entitlement) -> str:
@@ -639,14 +693,18 @@ async def _aggregate(session: AsyncSession, *, user_id: int, entitlement_ids: li
     Driven from the links rather than from the new stubs: an existing
     entitlement whose playtime moved changes its work's total too, and one
     entitlement can reach several works once bundles are matched.
+
+    Batched, and the ids are named a bind-limit at a time: a first sync touches
+    every game in the library, and one `IN (...)` that long is the same cliff
+    the sweep is written to avoid.
     """
 
-    if not entitlement_ids:
-        return
-    work_ids = await session.scalars(
-        select(EntitlementWork.work_id)
-        .where(EntitlementWork.entitlement_id.in_(entitlement_ids))
-        .distinct()
-    )
-    for work_id in work_ids:
-        await resolve_work_aggregates(session, work_id=work_id, user_id=user_id)
+    unique = list(dict.fromkeys(entitlement_ids))
+    work_ids: list[int] = []
+    for batch in in_batches(unique):
+        work_ids += await session.scalars(
+            select(EntitlementWork.work_id)
+            .where(EntitlementWork.entitlement_id.in_(batch))
+            .distinct()
+        )
+    await resolve_work_aggregates_many(session, work_ids=work_ids, user_id=user_id)

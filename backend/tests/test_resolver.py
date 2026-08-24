@@ -1,9 +1,10 @@
 import asyncio
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from conftest import make_account, make_entitlement, make_provider, make_user, make_work
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,8 +19,10 @@ from ludarium.resolver import (
     UnknownFieldError,
     picker_for,
     record,
+    record_many,
     resolve,
     resolve_work_aggregates,
+    resolve_work_aggregates_many,
 )
 
 
@@ -141,7 +144,7 @@ async def test_an_interrupted_resolve_keeps_the_previous_winner(
     )
     await session.commit()
 
-    async def interrupted(session: AsyncSession, row: FieldProvenance) -> None:
+    async def interrupted(session: AsyncSession, rows: Sequence[FieldProvenance]) -> None:
         raise RuntimeError("the process died here")
 
     monkeypatch.setattr(resolver, "_mark_effective", interrupted)
@@ -812,3 +815,206 @@ def test_the_refusal_and_the_flag_are_one_answer(
         refused = True
 
     assert refused is resolver._claims_sole_source(strategy, source_kind)
+
+
+async def test_recording_the_fields_together_says_what_recording_them_apart_said(
+    session: AsyncSession,
+) -> None:
+    """The batch form is an optimisation, so it has to be indistinguishable (#23).
+
+    Two works given the same three assertions, one field at a time and all three
+    at once, compared on everything a later resolve reads.
+    """
+
+    apart = await make_work(session, title="Apart")
+    together = await make_work(session, title="Together")
+    values: dict[str, ScalarValue | None] = {
+        "item_kind": "dlc",
+        "release_year": 2015,
+        "summary": None,
+    }
+
+    for field, value in values.items():
+        await record(
+            session,
+            entity_type=EntityType.WORK,
+            entity_id=apart.id,
+            field=field,
+            source_kind=SourceKind.METADATA_PROVIDER,
+            source_ref="igdb",
+            value=value,
+        )
+    recorded = await record_many(
+        session,
+        entity_type=EntityType.WORK,
+        entity_id=together.id,
+        source_kind=SourceKind.METADATA_PROVIDER,
+        source_ref="igdb",
+        values=values,
+    )
+
+    def described(rows: list[FieldProvenance]) -> set[tuple[str, ScalarValue | None, bool, bool]]:
+        return {(row.field, row.value, row.sole_source, row.is_effective) for row in rows}
+
+    stored = list(
+        await session.scalars(select(FieldProvenance).where(FieldProvenance.entity_id == apart.id))
+    )
+    assert described([row for rows in recorded.values() for row in rows]) == described(stored)
+
+
+async def test_the_batch_form_refuses_what_the_single_form_refuses(session: AsyncSession) -> None:
+    """A field the registry does not describe, named among two that it does.
+
+    Checked before anything is written, so the caller does not have to reason
+    about which of its fields landed.
+    """
+
+    work = await make_work(session)
+
+    with pytest.raises(UnknownFieldError, match=r"nothing resolves work\.publisher"):
+        await record_many(
+            session,
+            entity_type=EntityType.WORK,
+            entity_id=work.id,
+            source_kind=SourceKind.METADATA_PROVIDER,
+            source_ref="igdb",
+            values={"item_kind": "game", "publisher": "CD Projekt", "release_year": 2015},
+        )
+
+    assert await session.scalar(select(func.count()).select_from(FieldProvenance)) == 0
+
+
+async def test_resolve_given_the_rows_decides_what_it_would_have_read(
+    session: AsyncSession,
+) -> None:
+    """The handed-over rows are the ones a second `SELECT` would have returned (#23).
+
+    Two works with the same two sources disagreeing, resolved both ways.
+    """
+
+    read = await make_work(session, title="Read")
+    handed = await make_work(session, title="Handed")
+    for work in (read, handed):
+        await record(
+            session,
+            entity_type=EntityType.WORK,
+            entity_id=work.id,
+            field="item_kind",
+            source_kind=SourceKind.METADATA_PROVIDER,
+            source_ref="igdb",
+            value="dlc",
+        )
+    recorded = await record_many(
+        session,
+        entity_type=EntityType.WORK,
+        entity_id=handed.id,
+        source_kind=SourceKind.PLATFORM_API,
+        source_ref="steam",
+        values={"item_kind": "game"},
+    )
+    await record(
+        session,
+        entity_type=EntityType.WORK,
+        entity_id=read.id,
+        field="item_kind",
+        source_kind=SourceKind.PLATFORM_API,
+        source_ref="steam",
+        value="game",
+    )
+
+    without = await resolve(
+        session, entity_type=EntityType.WORK, entity_id=read.id, fields=["item_kind"]
+    )
+    with_rows = await resolve(
+        session,
+        entity_type=EntityType.WORK,
+        entity_id=handed.id,
+        fields=["item_kind"],
+        recorded=recorded,
+    )
+
+    # `platform_api` outranks `metadata_provider`, and the losing row is cleared
+    # either way — the ladder is what decided, not which statement read the rows.
+    assert without == with_rows == {"item_kind": "game"}
+    winners = {row.entity_id: row.source_ref for row in await effective(session)}
+    assert winners == {read.id: "steam", handed.id: "steam"}
+
+
+async def test_many_works_aggregate_to_what_each_of_them_would(session: AsyncSession) -> None:
+    """Including the one nothing is left owning, which is zero rather than untouched.
+
+    The grouped query returns no row at all for such a work, so "no group" and
+    "no playtime" have to mean the same thing here (rule 1).
+    """
+
+    account = await make_account(session)
+    played = await make_work(session, title="Played")
+    removed = await make_work(session, title="Removed")
+    untouched = await make_work(session, title="Untouched")
+    for work, minutes, gone in ((played, 2400, False), (removed, 999, True)):
+        entitlement = await make_entitlement(session, account, provider_item_id=work.title)
+        entitlement.playtime_minutes = minutes
+        if gone:
+            entitlement.removed_at = datetime.now(UTC)
+        session.add(EntitlementWork(entitlement_id=entitlement.id, work_id=work.id))
+    for work in (played, removed, untouched):
+        session.add(UserWorkState(work_id=work.id, playtime_minutes=7))
+    await session.flush()
+
+    states = await resolve_work_aggregates_many(
+        session, work_ids=[played.id, removed.id, untouched.id, played.id], user_id=1
+    )
+
+    # Four ids in, three states out: the repeat is one work, not two.
+    assert [state.work_id for state in states] == [played.id, removed.id, untouched.id]
+    assert [state.playtime_minutes for state in states] == [2400, 0, 0]
+
+
+async def test_aggregating_a_work_with_no_state_row_names_it(session: AsyncSession) -> None:
+    """One missing row refuses the batch rather than quietly skipping it."""
+
+    await make_user(session)
+    work = await make_work(session)
+    session.add(UserWorkState(work_id=work.id))
+    await session.flush()
+    orphan = await make_work(session, title="No State")
+
+    with pytest.raises(ResolutionError, match=f"work {orphan.id}"):
+        await resolve_work_aggregates_many(session, work_ids=[work.id, orphan.id], user_id=1)
+
+
+async def test_aggregating_nothing_asks_the_database_nothing(session: AsyncSession) -> None:
+    assert await resolve_work_aggregates_many(session, work_ids=[], user_id=1) == []
+
+
+async def test_resolve_refuses_a_map_that_is_not_about_the_fields_it_was_asked_for(
+    session: AsyncSession,
+) -> None:
+    """The half of `recorded`'s contract a caller can break by accident (#39 review).
+
+    Subsetting what `record_many()` returned, or handing over a map from an
+    earlier call, is how a resolve would end up deciding by the ladder over half
+    the sources — a false positive with no review queue behind it (rule 6).
+    Rows pruned from a field this cannot see; a field missing from the map it
+    can, and refuses rather than filling the gap with a read the parameter
+    exists to avoid.
+    """
+
+    work = await make_work(session)
+    recorded = await record_many(
+        session,
+        entity_type=EntityType.WORK,
+        entity_id=work.id,
+        source_kind=SourceKind.METADATA_PROVIDER,
+        source_ref="igdb",
+        values={"item_kind": "dlc"},
+    )
+
+    with pytest.raises(ResolutionError, match="must name the fields being resolved"):
+        await resolve(
+            session,
+            entity_type=EntityType.WORK,
+            entity_id=work.id,
+            fields=["item_kind", "release_year"],
+            recorded=recorded,
+        )
