@@ -9,6 +9,14 @@ shape moves.
 
 ## [Unreleased]
 
+### Fixed
+
+- A Steam sync no longer skips games Steam considers unvetted. `GetOwnedGames`
+  omits them by default and lowers its own `game_count` to match, so the
+  response was self-consistent and the loss was invisible from this side:
+  measured against a real library, one owned game of 197 was in the Steam
+  client and never in Ludarium.
+
 ### Added
 
 - `docs/openapi.json`, the API contract as the app publishes it, printed by

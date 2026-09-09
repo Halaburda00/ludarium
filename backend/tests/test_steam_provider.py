@@ -111,6 +111,25 @@ async def test_titles_are_requested_in_english(provider: SteamProvider) -> None:
 
 
 @respx.mock
+async def test_the_library_is_asked_for_unvetted_apps_too(provider: SteamProvider) -> None:
+    """Steam's default hides owned games, and hides them without saying so.
+
+    Measured against a real library: the default dropped one of 197 titles, and
+    the endpoint reported the reduced number as `game_count` — so `_check_count`
+    saw a consistent response and nothing anywhere reported a loss. The only
+    place this can be caught is here.
+    """
+
+    route = respx.get(OWNED_GAMES_URL).mock(
+        return_value=httpx.Response(200, json=recorded_json("owned_games.json"))
+    )
+
+    await provider.fetch_library()
+
+    assert route.calls.last.request.url.params["skip_unvetted_apps"] == "false"
+
+
+@respx.mock
 async def test_an_empty_library_is_not_a_failure(provider: SteamProvider) -> None:
     respx.get(OWNED_GAMES_URL).mock(
         return_value=httpx.Response(200, json=recorded_json("owned_games_empty.json"))
