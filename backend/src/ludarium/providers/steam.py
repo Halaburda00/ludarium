@@ -70,6 +70,15 @@ class SteamProvider:
                 # anyone looking at it is concerned. Steam does not say which
                 # they are, so they stay `owned` rather than becoming a guess.
                 "include_played_free_games": 1,
+                # Defaults to true and silently drops owned games: measured
+                # against a real 196-game library, it hid `The Chronicles Of
+                # Myrtana: Archolos` and nothing else. Steam does not say what
+                # makes an app unvetted, so this cannot be narrowed to a class
+                # we would rather keep — and a library the user can see in the
+                # client and not here is the failure this endpoint exists to
+                # avoid. A string rather than `False`, to match `l` and
+                # `format` and to leave nothing to httpx's bool spelling.
+                "skip_unvetted_apps": "false",
                 # English regardless of the UI language: the matcher compares
                 # these titles across platforms and needs one spelling.
                 "l": "english",
