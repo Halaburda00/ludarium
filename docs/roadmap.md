@@ -74,24 +74,44 @@ frontend locally shows your real Steam library in the browser.
 
 ---
 
-## M2 — Metadata and a real grid · ~5 days
+## M2a — Metadata and matching · ~3 days
 
+The data half of what was one milestone. Split because the two halves are
+different work with different failure modes, and because the view half cannot
+start until the ordering underneath it is correct.
+
+References elsewhere in the docs to "M2" mean both halves and stay true.
+
+The list is in build order, and the order is load-bearing twice over.
+
+- [ ] Fix the works ordering and the cursor that depends on it. First, because
+      the grid in M2b is built on both, and fixing them afterwards means
+      migrating the column twice
 - [ ] IGDB client (Twitch OAuth, token cache, rate limiting)
-- [ ] Matching layer 1: hard IDs from IGDB `external_games`. It belongs here,
-      not in M4 — a stub has to acquire its IGDB anchor before there is
-      anything to enrich, and the IGDB client is already in this milestone
+- [ ] Enrichment pipeline with local caching — never re-fetch what we have.
+      Ahead of everything that fetches, because it is the cache, the batching
+      and the rate limiting all of them share; written after its callers it
+      becomes three private ones
+- [ ] `ItemKind` classification, moved forward from M3, and ahead of the
+      matcher rather than merely inside the same milestone. A real library
+      carries playtests, public beta clients and test servers, and
+      `GetOwnedGames` carries no field that separates them from games — so
+      layer 1 would be handed titles that resolve in IGDB to the game they are
+      a test of. Rule 6 makes that worse than leaving them unmatched, which is
+      the whole reason this moved; running the matcher first would keep the
+      milestone and lose the point of it
 - [ ] Create `ludamatch` as a separate MIT repository, seeded with what layer 1
       needs: title normalisation, the `external_games` lookup, and the mapping
       types. Ludarium depends on it from this milestone onward and keeps no
       matcher logic of its own
+- [ ] Matching layer 1: hard IDs from IGDB `external_games`. It belongs here,
+      not in M4 — a stub has to acquire its IGDB anchor before there is
+      anything to enrich, and the IGDB client is already in this milestone
 - [ ] `merge_work(source, target)` and the orphan-stub cleanup job, both
       specified in `docs/schema.md`. Layer 1 is the first thing that merges
       stubs, so the operation ships with it, tests and undo included
 - [ ] RAWG client for Metacritic + required attribution link in the UI
-- [ ] Enrichment pipeline with local caching — never re-fetch what we have
-- [ ] Cover art, storage and lazy loading
-- [ ] Frontend: virtualised grid, search, detail view
-- [ ] Dark mode
+- [ ] Cover art: fetching and storage
 
 **On the timing of `ludamatch`:** it is created here rather than at M6 for two
 reasons, neither of them preference. Licence hygiene — every line of matcher
@@ -101,6 +121,25 @@ every contributor's agreement. And cost — extracting three functions now takes
 an hour, extracting a grown matcher takes a week, and a library written as a
 library ends up with a better API than one carved out of an application.
 
+**Done when:** the library knows what its games are — matched, enriched and
+classified — even though it still looks like a table.
+
+---
+
+## M2b — A real grid · ~3 days
+
+The view half, and it follows M2a because three of its four items are useless
+until there is metadata to show. It is not purely a consumer, and the estimate
+says so: search needs a backend of its own.
+
+- [ ] Virtualised grid with covers and lazy loading
+- [ ] Search. The only item here with a backend half — `docs/schema.md`
+      specifies FTS5 on SQLite and `pg_trgm` on PostgreSQL, and the query has
+      to union `work.title` with `entitlement.provider_title` and still page on
+      the cursor the first item of M2a fixes. Counted as the expensive one
+- [ ] Work detail view
+- [ ] Dark mode
+
 **Done when:** the library looks like something you would actually want to browse.
 
 ---
@@ -109,7 +148,7 @@ library ends up with a better API than one carved out of an application.
 
 - [ ] Filter registry: one entry per filter, declarative, maps to SQL
 - [ ] Filters: platform, Metacritic, genre, year, playtime, `ItemKind`, status
-- [ ] `ItemKind` classification; DLC folded under its parent game
+- [ ] DLC folded under its parent game (`ItemKind` classification moved to M2a)
 - [ ] Filter state in the URL; saved views
 - [ ] `PlayStatus`, personal rating, notes
 - [ ] Manual entry — physical copies, unredeemed keys, itch.io
