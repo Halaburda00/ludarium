@@ -1,10 +1,14 @@
+import logging
 from dataclasses import asdict, dataclass
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ludarium import titles
 from ludarium.enums import LicenceClass, ProviderKind, SourceKind
-from ludarium.models import Provider
+from ludarium.models import Provider, Work
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -74,3 +78,41 @@ async def seed_providers(session: AsyncSession) -> None:
                 setattr(provider, column, value)
 
     await session.commit()
+
+
+async def reconcile_sort_keys(session: AsyncSession) -> int:
+    """Rewrite every stored `sort_key` the running code would not compute. Safe on every start.
+
+    The keyset under `GET /api/works` is correct only while each stored key is
+    what `titles.sort_key` returns now, and three things can make it otherwise
+    without an error anywhere. A newer Python brings a newer Unicode database,
+    which folds characters the older one did not know — measured between 3.13
+    and 3.14, 95 code points, every one unassigned in the older version, so a
+    title is affected only if it holds a character that did not exist when its
+    key was computed. A bulk `UPDATE` bypasses the model's validator. And a
+    change to the fold can ship without the migration that recomputes the
+    column.
+
+    A stored Unicode version would notice the first of those and nothing else.
+    Checking every row notices all three, and costs 64 ms at 20 000 works —
+    cheaper than the bookkeeping, which is the difference from embeddings,
+    where recomputing is what takes the minutes (ADR-0018).
+
+    Logged when anything was rewritten: a key that needed repair is a fact about
+    how the instance was changed, and healing it silently would hide that.
+    """
+
+    rows = await session.execute(select(Work.id, Work.sort_title, Work.sort_key))
+    stale = [
+        {"id": work_id, "sort_key": fresh}
+        for work_id, sort_title, stored in rows
+        if (fresh := titles.sort_key(sort_title)) != stored
+    ]
+    if stale:
+        await session.execute(update(Work), stale)
+        logger.warning(
+            "sort keys rewritten because the running code computes them differently: %d",
+            len(stale),
+        )
+    await session.commit()
+    return len(stale)

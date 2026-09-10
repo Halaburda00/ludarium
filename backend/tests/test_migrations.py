@@ -2,10 +2,13 @@ import re
 from pathlib import Path
 
 from alembic import command
+from alembic.script import ScriptDirectory
 from conftest import alembic_config, create_schema, sync_url
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.dialects import postgresql
 
 from ludarium.config import Settings
+from ludarium.models import Work
 from ludarium.titles import sort_key
 
 
@@ -364,3 +367,23 @@ def test_the_backfill_folds_every_title_and_loses_nothing_that_points_at_one(
 
     assert keys == {title: sort_key(title) for title in TITLES_BEFORE_THE_KEY}
     assert counts == dict.fromkeys(REFERENCING_WORK, len(TITLES_BEFORE_THE_KEY))
+
+
+def test_the_revision_gives_postgresql_the_collation_the_model_declares(settings: Settings) -> None:
+    """The half of this schema no SQLite test reaches, and the half a real install gets.
+
+    `test_the_migration_and_the_models_agree` compares SQLite DDL, where the
+    variant does not exist. On PostgreSQL an instance's column comes from this
+    revision rather than from `create_all`, so without this a revision that lost
+    `COLLATE "C"` would pass every test and order by locale in production.
+    """
+
+    script = ScriptDirectory.from_config(alembic_config(settings.database_url))
+    revision = script.get_revision("cb303273d67a")
+    assert revision is not None
+    dialect = postgresql.dialect()
+
+    migrated = revision.module.SORT_KEY.compile(dialect=dialect)
+    modelled = Work.__table__.c.sort_key.type.compile(dialect=dialect)
+
+    assert migrated == modelled == 'TEXT COLLATE "C"'

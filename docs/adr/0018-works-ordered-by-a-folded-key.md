@@ -43,6 +43,39 @@ combining marks dropped, whitespace runs collapsed. The listing orders by
 `ix_work_sort_title_id` is dropped, since nothing orders by `sort_title` any
 more.
 
+The column is declared `COLLATE "C"` on PostgreSQL. Folding in Python settles
+what the key contains, not how the database compares two keys: PostgreSQL's
+default collation is the database's locale, and a locale collation reorders the
+punctuation, digits and spaces the key deliberately keeps. `C` compares bytes,
+which on UTF-8 is code point order — the order SQLite's `BINARY` and Python's
+`sorted` already use. The first version of this ADR claimed the engines agreed
+without the declaration; review caught it. There was no PostgreSQL to measure
+against when this was written, so this rests on PostgreSQL's documented `C`
+behaviour, and a test pins the declaration in the compiled DDL.
+
+The fold also depends on the interpreter. `unicodedata` carries the Unicode
+database of the Python running it, and a newer one folds characters an older
+one did not know. Measured over every code point between Python 3.13.14 (UCD
+15.1.0) and 3.14.4 (UCD 16.0.0):
+
+```
+code points whose sort_key differs: 95
+  of which were already assigned in the old UCD: 0
+  of which were unassigned (Cn) in the old UCD:   95
+```
+
+That is Unicode's normalization and case-folding stability policies, observed
+on this function: a key computed from characters that existed at the time does
+not change. A title is exposed only if it holds a character newer than the
+interpreter that keyed it — rare, and silent when it happens, since the old row
+and a new one would file apart with no error.
+
+So startup rewrites every stored key the running code would compute
+differently, and logs how many (`seed.reconcile_sort_keys`). That also repairs
+the two other ways a key can go stale — a bulk `UPDATE` past the validator, and
+a change to the fold shipped without a recomputing migration. It reads every
+row on every start: 64 ms at 20 000 works and 329 ms at 100 000, measured.
+
 The key is derived by a SQLAlchemy validator on `Work.sort_title`, and is never
 assigned directly. Every writer already assigns `sort_title` through the ORM —
 the resolver with `setattr`, the sync stub through the constructor, tests the
@@ -82,18 +115,27 @@ measured:
   computed before either engine sees it cannot disagree with itself.
 - **Folding `sort_title` in place.** Rejected above: it destroys the value rule 3
   protects.
+- **Storing the Unicode version beside the keys**, as CLAUDE.md asks for
+  embeddings, and recomputing when it changes. Notices one of the three ways a
+  key goes stale and not the other two. The convention exists for embeddings
+  because recomputing them takes minutes, so knowing *when* is worth
+  bookkeeping; a key costs microseconds, and checking every row is cheaper than
+  deciding whether to.
 
 ## Consequences
 
-- Both engines order identically by construction, because neither is asked to
-  fold anything.
+- Both engines order identically because neither folds anything and both compare
+  bytes — SQLite by default, PostgreSQL because the column says `COLLATE "C"`.
+  Remove the declaration and PostgreSQL silently orders by locale instead.
 - A bulk `UPDATE` against `work.sort_title` would bypass the validator and leave
-  the key stale. Nothing issues one; a resolver test fails if the resolver ever
-  stops assigning through the ORM.
-- Changing the fold is a migration that recomputes the column, not an edit to
-  `titles.py` alone. The stored keys and the function have to agree for the
-  keyset to be correct, and editing the function changes only the rows written
-  afterwards.
+  the key stale until the next start. Nothing issues one; a resolver test fails
+  if the resolver ever stops assigning through the ORM.
+- Changing the fold, or the Python that runs it, is repaired at the next start
+  rather than needing a migration of its own. The warning in the log is the only
+  notice an operator gets that it happened.
+- Startup reads `work.sort_key`, so a database the upgrade was never run on is
+  refused at start with the command to run, rather than failing on the first
+  request.
 - Punctuation is not folded. It is ordering — it is what files "Company of
   Heroes: Opposing Fronts" after "Company of Heroes 2" — and stripping it is
   matcher normalisation, which belongs to `ludamatch` (ADR-0008).

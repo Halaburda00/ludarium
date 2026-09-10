@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import ForeignKey, Index, UniqueConstraint, false, text
+from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from ludarium import titles
@@ -44,9 +44,14 @@ class Work(Base):
     # `sort_title` as the database compares it, and never assigned directly: the
     # validator below keeps it in step with every assignment to `sort_title`,
     # the resolver's included. A bulk `UPDATE` would bypass it and leave the key
-    # stale — nothing issues one against `work`, and a resolver test holds the
-    # write path to the ORM.
-    sort_key: Mapped[str]
+    # stale until startup repairs it — nothing issues one against `work`, and a
+    # resolver test holds the write path to the ORM.
+    #
+    # `COLLATE "C"` on PostgreSQL, where the default is the database's locale and
+    # a locale collation reorders punctuation and spaces by its own rules. `C` is
+    # byte order, which on UTF-8 is code point order — what SQLite's `BINARY` and
+    # Python's `sorted` already do, so the three agree (ADR-0018).
+    sort_key: Mapped[str] = mapped_column(Text().with_variant(Text(collation="C"), "postgresql"))
     # Matcher logic, `ludamatch`'s (MIT, M2). Nullable because nothing in M1
     # writes it, and writing it here would put matcher code in the wrong repo.
     normalised_title: Mapped[str | None]

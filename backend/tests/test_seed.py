@@ -1,13 +1,15 @@
 import asyncio
+import logging
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+import pytest
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.db import Database
 from ludarium.enums import LicenceClass, ProviderKind, SourceKind, SyncStatus
-from ludarium.models import Provider
-from ludarium.seed import ProviderSpec, seed_providers
+from ludarium.models import Provider, Work
+from ludarium.seed import ProviderSpec, reconcile_sort_keys, seed_providers
 
 
 def test_every_provider_column_is_either_seeded_or_runtime() -> None:
@@ -121,3 +123,51 @@ async def test_a_second_instance_seeds_behind_the_first(db: Database) -> None:
     async with db.session_factory() as reader:
         providers = {row.key: row.display_name for row in await reader.scalars(select(Provider))}
     assert providers == {"steam": "Steam", "manual": "Manual entry"}
+
+
+async def test_a_key_the_running_code_would_not_compute_is_rewritten(
+    session: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The keyset is only as right as its keys, and a key can go stale behind the model.
+
+    Made stale here the way it happens: behind the validator, where a newer
+    Unicode database or a bulk `UPDATE` would leave it.
+    """
+
+    session.add_all(
+        [
+            Work(title="ARC Raiders", sort_title="ARC Raiders"),
+            Work(title="Batman™: Arkham Knight", sort_title="Batman™: Arkham Knight"),
+        ]
+    )
+    await session.commit()
+    await session.execute(
+        text("UPDATE work SET sort_key = 'batmantm: arkham knight' WHERE title LIKE 'Batman%'")
+    )
+    await session.commit()
+
+    with caplog.at_level(logging.WARNING, logger="ludarium.seed"):
+        rewritten = await reconcile_sort_keys(session)
+
+    keys = dict((await session.execute(select(Work.title, Work.sort_key))).all())
+    assert rewritten == 1
+    assert keys == {
+        "ARC Raiders": "arc raiders",
+        "Batman™: Arkham Knight": "batman: arkham knight",
+    }
+    assert "sort keys rewritten" in caplog.text
+
+
+async def test_keys_that_already_match_are_left_alone_and_unreported(
+    session: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    """It runs on every start, so the ordinary case must say nothing at all."""
+
+    session.add(Work(title="Portal 2", sort_title="Portal 2"))
+    await session.commit()
+
+    with caplog.at_level(logging.WARNING, logger="ludarium.seed"):
+        rewritten = await reconcile_sort_keys(session)
+
+    assert rewritten == 0
+    assert caplog.text == ""

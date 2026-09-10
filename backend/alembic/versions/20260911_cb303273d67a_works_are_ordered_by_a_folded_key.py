@@ -21,9 +21,15 @@ depends_on: str | Sequence[str] | None = None
 # imported, for the reason the previous revision spells out its registry: a
 # migration describes the database at its revision, and a later change to the
 # function must not reach back and change what this backfill wrote. A test holds
-# the copy equal to the function today; a change to the fold is a new revision
-# that recomputes the column (ADR-0018).
+# the copy equal to the function today, and startup rewrites any key that later
+# disagrees with it (ADR-0018).
 MARKS = str.maketrans("", "", "™®©℠")
+
+# `COLLATE "C"` on PostgreSQL, so the key compares by code point as SQLite's
+# `BINARY` does. Named rather than written inline so a test can compile it: an
+# existing PostgreSQL install gets this column from this revision, never from
+# the model, so the model's declaration alone pins nothing there.
+SORT_KEY = sa.Text().with_variant(sa.Text(collation="C"), "postgresql")
 
 
 def sort_key(value: str) -> str:
@@ -36,7 +42,7 @@ def sort_key(value: str) -> str:
 def upgrade() -> None:
     # Nullable until it is filled: SQLite adds a NOT NULL column only with a
     # default, and any default would be a key nobody computed.
-    op.add_column("work", sa.Column("sort_key", sa.Text(), nullable=True))
+    op.add_column("work", sa.Column("sort_key", SORT_KEY, nullable=True))
 
     # In Python, because the fold is the one SQL cannot do here: `lower()` on
     # SQLite changes ASCII letters only (ADR-0018).

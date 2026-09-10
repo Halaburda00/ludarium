@@ -25,7 +25,12 @@ shape moves.
   and the listing and its cursor both order by it. The title a user sets by
   hand is kept exactly as written. A cursor handed out before the upgrade is
   refused rather than read under the new order, so a library left open across
-  the upgrade needs a reload to carry on scrolling.
+  the upgrade needs a reload to carry on scrolling. On PostgreSQL the key is
+  compared byte for byte, as on SQLite, rather than by the database's locale.
+  Every start rewrites any stored key the running code would compute
+  differently — after an upgrade to a Python with a newer Unicode database, for
+  instance — and logs how many; a database that was never upgraded is refused at
+  start with the command to run.
 
 ### Added
 

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from conftest import create_schema, sync_url
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.exc import OperationalError
@@ -10,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ludarium.config import Settings
 from ludarium.db import Database
 from ludarium.main import create_app
-from ludarium.models import Provider
+from ludarium.models import Provider, Work
 
 
 def test_startup_seeds_the_providers(client: TestClient, settings: Settings) -> None:
@@ -28,6 +29,54 @@ def test_startup_seeds_the_providers(client: TestClient, settings: Settings) -> 
 
 def test_startup_without_a_schema_says_what_to_run(settings: Settings) -> None:
     # The `app` fixture is not used here: the point is a database nobody migrated.
+    with (
+        pytest.raises(RuntimeError, match="alembic upgrade head"),
+        TestClient(create_app(settings)),
+    ):
+        pass  # pragma: no cover
+
+
+def test_startup_rewrites_a_stale_sort_key_before_serving(app: FastAPI, settings: Settings) -> None:
+    """Before the first request, because the first request is a page ordered by these keys."""
+
+    engine = create_engine(sync_url(settings.database_url))
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO work (id, title, sort_title, sort_key) VALUES "
+                    "(1, 'Batman™: Arkham Knight', 'Batman™: Arkham Knight', "
+                    "'batmantm: arkham knight')"
+                )
+            )
+        with TestClient(app):
+            pass
+        with engine.connect() as connection:
+            key = connection.scalar(select(Work.sort_key))
+    finally:
+        engine.dispose()
+
+    assert key == "batman: arkham knight"
+
+
+def test_startup_against_a_schema_older_than_the_code_says_what_to_run(
+    settings: Settings,
+) -> None:
+    """Startup reads `work.sort_key`, so a database nobody upgraded is refused with the fix in hand.
+
+    Built the way an instance meets it: code that expects the column, and a file
+    from before the column existed.
+    """
+
+    create_schema(settings.database_url)
+    engine = create_engine(sync_url(settings.database_url))
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("DROP INDEX ix_work_sort_key_id"))
+            connection.execute(text("ALTER TABLE work DROP COLUMN sort_key"))
+    finally:
+        engine.dispose()
+
     with (
         pytest.raises(RuntimeError, match="alembic upgrade head"),
         TestClient(create_app(settings)),

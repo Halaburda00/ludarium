@@ -3,8 +3,10 @@ from datetime import UTC, datetime
 import pytest
 from conftest import make_account, make_entitlement, make_work
 from sqlalchemy import func, select, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.schema import CreateTable
 
 from ludarium.enums import (
     EntitlementOrigin,
@@ -387,3 +389,17 @@ async def test_the_sort_key_follows_every_assignment_to_sort_title(session: Asyn
 
     stored = (await session.scalars(select(Work))).one()
     assert stored.sort_key == "batman: arkham knight"
+
+
+def test_the_sort_key_compares_by_code_point_on_postgresql_too() -> None:
+    """The one engine difference no SQLite test can see.
+
+    PostgreSQL's default collation is the database's locale, and a locale
+    collation reorders the punctuation, digits and spaces the key keeps. `C` is
+    byte order, which on UTF-8 is code point order — what SQLite's `BINARY` and
+    Python's `sorted` do (ADR-0018).
+    """
+
+    ddl = str(CreateTable(Work.__table__).compile(dialect=postgresql.dialect()))
+
+    assert 'sort_key TEXT COLLATE "C" NOT NULL' in ddl
