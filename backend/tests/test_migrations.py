@@ -6,6 +6,7 @@ from conftest import alembic_config, create_schema, sync_url
 from sqlalchemy import create_engine, inspect, text
 
 from ludarium.config import Settings
+from ludarium.titles import sort_key
 
 
 def table_names(url: str) -> set[str]:
@@ -287,3 +288,79 @@ def test_the_backfill_flags_what_the_registry_would_have(settings: Settings) -> 
         ("work", 1, "item_kind", "igdb"): 0,
         ("entitlement", 5, "provider_title", "steam"): 1,
     }
+
+
+TITLES_BEFORE_THE_KEY = (
+    "ARC Raiders",
+    "Batman™: Arkham Knight",
+    "Brütal Legend",
+    "Yu-Gi-Oh!  Master Duel",
+    "Witcher 3, The: Wild Hunt",
+)
+REFERENCING_WORK = ("edition", "user_work_state", "entitlement_work")
+SEED_BEFORE_THE_KEY = (
+    "INSERT INTO app_user (id, username, password_hash) VALUES (1, 'owner', 'x')",
+    "INSERT INTO provider (id, key, kind, source_kind, display_name) "
+    "VALUES (1, 'steam', 'platform', 'platform_api', 'Steam')",
+    "INSERT INTO account (id, provider_id, label) VALUES (1, 1, 'Main')",
+)
+SEED_PER_WORK = (
+    "INSERT INTO work (id, title, sort_title) VALUES (:id, :title, :title)",
+    "INSERT INTO edition (work_id, name, slug) VALUES (:id, 'Standard', 'standard')",
+    "INSERT INTO user_work_state (work_id) VALUES (:id)",
+    "INSERT INTO entitlement (id, account_id, provider_item_id, provider_title) "
+    "VALUES (:id, 1, :id, :title)",
+    "INSERT INTO entitlement_work (entitlement_id, work_id) VALUES (:id, :id)",
+)
+
+
+def seed_works_before_the_key(url: str) -> None:
+    """Works from before `sort_key` existed, and a row in every table that points at one.
+
+    Raw SQL for the reason above. The references matter as much as the titles:
+    adding the column rebuilds `work`, and all three tables cascade on its delete.
+    """
+
+    engine = create_engine(sync_url(url))
+    try:
+        with engine.begin() as connection:
+            for statement in SEED_BEFORE_THE_KEY:
+                connection.execute(text(statement))
+            for work_id, title in enumerate(TITLES_BEFORE_THE_KEY, start=1):
+                for statement in SEED_PER_WORK:
+                    connection.execute(text(statement), {"id": work_id, "title": title})
+    finally:
+        engine.dispose()
+
+
+def test_the_backfill_folds_every_title_and_loses_nothing_that_points_at_one(
+    settings: Settings,
+) -> None:
+    """The migration carries its own copy of `sort_key`, and this is what holds it to the original.
+
+    A copy is the convention — a migration must not change meaning when the
+    function it was taken from does — so today the two agree only because a test
+    says they do. And the rebuild must not cost a row: `edition`,
+    `user_work_state` and `entitlement_work` all cascade on delete, so recreating
+    `work` with foreign keys on would empty them without raising anything.
+    """
+
+    config = alembic_config(settings.database_url)
+    command.upgrade(config, "452d07adf8a5")
+    seed_works_before_the_key(settings.database_url)
+
+    command.upgrade(config, "head")
+
+    engine = create_engine(sync_url(settings.database_url))
+    try:
+        with engine.connect() as connection:
+            keys = dict(connection.execute(text("SELECT sort_title, sort_key FROM work")).all())
+            counts = {
+                table: connection.scalar(text(f"SELECT count(*) FROM {table}"))
+                for table in REFERENCING_WORK
+            }
+    finally:
+        engine.dispose()
+
+    assert keys == {title: sort_key(title) for title in TITLES_BEFORE_THE_KEY}
+    assert counts == dict.fromkeys(REFERENCING_WORK, len(TITLES_BEFORE_THE_KEY))

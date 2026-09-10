@@ -370,3 +370,20 @@ async def test_a_run_that_removed_an_entitlement_cannot_be_deleted(session: Asyn
 
     with pytest.raises(IntegrityError):
         await session.execute(text("DELETE FROM sync_run WHERE id = :id"), {"id": run_id})
+
+
+async def test_the_sort_key_follows_every_assignment_to_sort_title(session: AsyncSession) -> None:
+    """Never assigned directly, so it can be neither written wrongly nor forgotten."""
+
+    work = Work(title="ARC Raiders", sort_title="ARC Raiders")
+    assert work.sort_key == "arc raiders"
+
+    work.sort_title = "Batman™: Arkham Knight"
+    assert work.sort_key == "batman: arkham knight"
+
+    session.add(work)
+    await session.commit()
+    session.expunge_all()
+
+    stored = (await session.scalars(select(Work))).one()
+    assert stored.sort_key == "batman: arkham knight"

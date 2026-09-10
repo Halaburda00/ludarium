@@ -145,13 +145,17 @@ export interface paths {
         };
         /**
          * Listing
-         * @description One page, keyed on `(sort_title, id)` rather than an offset.
+         * @description One page, keyed on `(sort_key, id)` rather than an offset.
          *
          *     An offset re-reads and discards every row before the page, so the last page
          *     of a large library costs the most; and a sync landing a new title mid-scroll
          *     shifts every later page by one, which shows up as a duplicated or skipped
-         *     row. A keyset does neither: `ix_work_sort_title_id` seeks straight to the
+         *     row. A keyset does neither: `ix_work_sort_key_id` seeks straight to the
          *     position and the page is defined by content rather than by count.
+         *
+         *     The key and not `sort_title` itself, because the database compares bytes:
+         *     "ARC Raiders" would file ahead of "Amnesia", and a trademark sign would split
+         *     one series into two blocks (ADR-0018).
          */
         get: operations["listing_api_works_get"];
         put?: never;

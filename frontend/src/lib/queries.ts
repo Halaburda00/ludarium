@@ -101,8 +101,8 @@ export function useSync() {
  * The library, a page at a time, following the cursor the API hands back.
  *
  * `useInfiniteQuery` rather than a page number held in state: the backend keys
- * its pages on `(sort_title, id)` and there is no arithmetic that turns "page
- * 3" into that key. Every loaded page stays in one cache entry, so a sync
+ * its pages on a folded title and an id, and there is no arithmetic that turns
+ * "page 3" into that key. Every loaded page stays in one cache entry, so a sync
  * invalidating `worksKey` refetches what the user is actually looking at rather
  * than dropping them back to the top.
  */

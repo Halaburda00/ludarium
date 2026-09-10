@@ -369,6 +369,73 @@ async def test_two_works_that_sort_alike_are_still_paged_apart(
     assert len(seen) == len(set(seen))
 
 
+async def test_the_order_ignores_case_and_trademark_signs(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    """Found by running M1 against a real library, where byte order ruled.
+
+    "ARC Raiders" came ahead of "Amnesia", because `R` is a smaller byte than
+    `m`; and one series filed as two blocks, because `:` is smaller than `™`.
+    """
+
+    for title in (
+        "ARC Raiders",
+        "Batman™: Arkham Knight",
+        "Amnesia: The Dark Descent",
+        "Batman: Arkham Asylum",
+    ):
+        await _add_work(session, title=title, sort_title=title)
+
+    body = synced.get("/api/works").json()
+
+    assert titles(body) == [
+        "Amnesia: The Dark Descent",
+        "ARC Raiders",
+        "Batman: Arkham Asylum",
+        "Batman™: Arkham Knight",
+        *LIBRARY,
+    ]
+
+
+async def test_walking_the_cursor_meets_every_work_once_in_the_listed_order(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    """The ordering and the keyset have to be the same comparison, or a boundary loses rows.
+
+    Walked one work at a time, so every adjacent pair is a page boundary once —
+    including each pair that byte order and the folded key put the other way
+    round, and the two that fold to one key and are told apart by id alone.
+    """
+
+    for title in ("ARC Raiders", "Amnesia", "arc raiders", "Batman™: Arkham Knight", "Batman: A"):
+        await _add_work(session, title=title, sort_title=title)
+
+    listed = [work["id"] for work in synced.get("/api/works").json()["works"]]
+
+    walked: list[int] = []
+    params: dict[str, str | int] = {"limit": 1}
+    while True:
+        page = synced.get("/api/works", params=params).json()
+        walked += [work["id"] for work in page["works"]]
+        if page["next_cursor"] is None:
+            break
+        params = {"limit": 1, "cursor": page["next_cursor"]}
+
+    assert walked == listed
+
+
+def test_a_cursor_issued_before_the_key_was_folded_is_refused(synced: TestClient) -> None:
+    """`[sort_title, id]` is what every cursor was, and exactly the shape of `[key, id]`.
+
+    Without the version it would be read as a position in an order it was never
+    a position in, and the page would start somewhere nobody chose.
+    """
+
+    stale = urlsafe_b64encode(json.dumps(["Portal 2", 2]).encode()).decode()
+
+    assert synced.get("/api/works", params={"cursor": stale}).status_code == 400
+
+
 async def test_a_work_only_someone_else_still_owns_is_not_listed(
     synced: TestClient, session: AsyncSession
 ) -> None:
@@ -460,6 +527,10 @@ async def test_a_work_whose_state_row_is_missing_is_still_listed(
         b'["Portal 2"]',
         b'{"sort_title": "Portal 2", "id": 2}',
         b'"Portal 2"',
+        b'[1, "portal 2", 2]',
+        b'[2, "portal 2", 2.0]',
+        b'[2, "portal 2", true]',
+        b"[2, 3, 2]",
     ],
 )
 def test_a_cursor_of_the_wrong_shape_is_refused(synced: TestClient, cursor: bytes) -> None:

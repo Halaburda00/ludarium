@@ -1,8 +1,9 @@
 from datetime import date, datetime
 
 from sqlalchemy import ForeignKey, Index, UniqueConstraint, false, text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
+from ludarium import titles
 from ludarium.enums import ItemKind
 from ludarium.models.base import Base
 from ludarium.models.types import CreatedAt, UpdatedAt, enum_column
@@ -22,9 +23,10 @@ class Work(Base):
 
     __tablename__ = "work"
     __table_args__ = (
-        # Keyset pagination for the virtualised grid. The M3 filter indexes are
+        # Keyset pagination for the virtualised grid, on the folded key rather
+        # than on `sort_title` (ADR-0018). The M3 filter indexes are
         # deliberately absent until there is a query to size them against.
-        Index("ix_work_sort_title_id", "sort_title", "id"),
+        Index("ix_work_sort_key_id", "sort_key", "id"),
         Index(
             "uq_work_igdb_id",
             "igdb_id",
@@ -37,7 +39,14 @@ class Work(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str]
     # Display logic, ours: the leading article moved. See `ludarium.titles`.
+    # Resolved, so a user's own spelling of it survives a sync (rule 3).
     sort_title: Mapped[str]
+    # `sort_title` as the database compares it, and never assigned directly: the
+    # validator below keeps it in step with every assignment to `sort_title`,
+    # the resolver's included. A bulk `UPDATE` would bypass it and leave the key
+    # stale — nothing issues one against `work`, and a resolver test holds the
+    # write path to the ORM.
+    sort_key: Mapped[str]
     # Matcher logic, `ludamatch`'s (MIT, M2). Nullable because nothing in M1
     # writes it, and writing it here would put matcher code in the wrong repo.
     normalised_title: Mapped[str | None]
@@ -63,6 +72,11 @@ class Work(Base):
     updated_at: Mapped[UpdatedAt]
 
     parent_work: Mapped["Work | None"] = relationship(remote_side=[id], lazy="raise_on_sql")
+
+    @validates("sort_title")
+    def _keep_the_sort_key_in_step(self, _field: str, value: str) -> str:
+        self.sort_key = titles.sort_key(value)
+        return value
 
 
 class Edition(Base):
