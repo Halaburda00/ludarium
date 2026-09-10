@@ -82,10 +82,24 @@ start until the ordering underneath it is correct.
 
 References elsewhere in the docs to "M2" mean both halves and stay true.
 
+The list is in build order, and the order is load-bearing twice over.
+
 - [ ] Fix the works ordering and the cursor that depends on it. First, because
       the grid in M2b is built on both, and fixing them afterwards means
       migrating the column twice
 - [ ] IGDB client (Twitch OAuth, token cache, rate limiting)
+- [ ] Enrichment pipeline with local caching — never re-fetch what we have.
+      Ahead of everything that fetches, because it is the cache, the batching
+      and the rate limiting all of them share; written after its callers it
+      becomes three private ones
+- [ ] `ItemKind` classification, moved forward from M3, and ahead of the
+      matcher rather than merely inside the same milestone. A real library
+      carries playtests, public beta clients and test servers, and
+      `GetOwnedGames` carries no field that separates them from games — so
+      layer 1 would be handed titles that resolve in IGDB to the game they are
+      a test of. Rule 6 makes that worse than leaving them unmatched, which is
+      the whole reason this moved; running the matcher first would keep the
+      milestone and lose the point of it
 - [ ] Create `ludamatch` as a separate MIT repository, seeded with what layer 1
       needs: title normalisation, the `external_games` lookup, and the mapping
       types. Ludarium depends on it from this milestone onward and keeps no
@@ -96,14 +110,7 @@ References elsewhere in the docs to "M2" mean both halves and stay true.
 - [ ] `merge_work(source, target)` and the orphan-stub cleanup job, both
       specified in `docs/schema.md`. Layer 1 is the first thing that merges
       stubs, so the operation ships with it, tests and undo included
-- [ ] `ItemKind` classification, moved forward from M3. A real library carries
-      playtests, public beta clients and test servers, and `GetOwnedGames`
-      carries no field that separates them from games — so layer 1 is handed
-      titles that resolve in IGDB to the game they are a test of. Rule 6 makes
-      that worse than leaving them unmatched, and filters are no longer the
-      first thing that needs the distinction
 - [ ] RAWG client for Metacritic + required attribution link in the UI
-- [ ] Enrichment pipeline with local caching — never re-fetch what we have
 - [ ] Cover art: fetching and storage
 
 **On the timing of `ludamatch`:** it is created here rather than at M6 for two
@@ -119,13 +126,17 @@ classified — even though it still looks like a table.
 
 ---
 
-## M2b — A real grid · ~2 days
+## M2b — A real grid · ~3 days
 
-The view half. Every item here reads data M2a produces, which is why it follows
-rather than runs beside it.
+The view half, and it follows M2a because three of its four items are useless
+until there is metadata to show. It is not purely a consumer, and the estimate
+says so: search needs a backend of its own.
 
 - [ ] Virtualised grid with covers and lazy loading
-- [ ] Search
+- [ ] Search. The only item here with a backend half — `docs/schema.md`
+      specifies FTS5 on SQLite and `pg_trgm` on PostgreSQL, and the query has
+      to union `work.title` with `entitlement.provider_title` and still page on
+      the cursor the first item of M2a fixes. Counted as the expensive one
 - [ ] Work detail view
 - [ ] Dark mode
 
