@@ -13,11 +13,12 @@ error path keeps both out of messages and out of chained tracebacks — `raise
 import asyncio
 import re
 import time
+import weakref
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Final, Protocol
+from typing import Any, Final, Protocol, TypeGuard
 
 import httpx
 from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -28,6 +29,8 @@ from ludarium.providers.base import (
     ProviderError,
     ProviderUnavailableError,
     RateLimitedError,
+    retry_after_seconds,
+    whole_number,
 )
 
 IGDB_API: Final = "https://api.igdb.com/v4"
@@ -58,6 +61,16 @@ ENDPOINT: Final = re.compile(r"[a-z]+(?:_[a-z]+)*")
 
 class QueryRejectedError(ProviderError):
     """IGDB would not run the query. A bug in the query, so never retried."""
+
+
+class WindowExceededError(RateLimitedError):
+    """IGDB's own 429, against a limit documented per second. The only 429 retried.
+
+    Twitch answers a token request's 429 with a plain `RateLimitedError`. No limit
+    is documented for that request, so any wait before retrying would be a guess,
+    and a guessed retry into a limit is how it becomes a ban — the same reason
+    `SteamProvider` retries no 429 at all.
+    """
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -117,7 +130,8 @@ class RequestLimiter:
     its open slot until it returns — the eight-open limit is about requests IGDB
     is still answering, not requests sent.
 
-    Enforced here and nowhere else, so no later caller can exceed it by existing.
+    A client uses its application's limiter from `shared_limiter` unless it is
+    handed one, so two clients cannot each spend a budget of four.
     """
 
     def __init__(
@@ -156,6 +170,30 @@ class RequestLimiter:
         self._open.release()
 
 
+_SHARED_LIMITERS: Final[
+    weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, RequestLimiter]]
+] = weakref.WeakKeyDictionary()
+
+
+def shared_limiter(client_id: str) -> RequestLimiter:
+    """The limiter every client for one application queues on.
+
+    IGDB does not say what it counts requests against. The `Client-ID` every
+    request carries is the narrowest thing it could be, so one limiter per client
+    id is the reading that cannot overshoot. Per event loop as well: the lock and
+    semaphore inside belong to the loop that first used them, and a second loop —
+    a test, a worker thread — gets its own rather than an error. One instance is
+    one process; a second process would keep its own and is not something this
+    deployment runs.
+    """
+
+    limiters = _SHARED_LIMITERS.setdefault(asyncio.get_running_loop(), {})
+    limiter = limiters.get(client_id)
+    if limiter is None:
+        limiter = limiters[client_id] = RequestLimiter()
+    return limiter
+
+
 class IgdbClient:
     """An authenticated, rate-limited IGDB client that returns parsed rows."""
 
@@ -173,8 +211,15 @@ class IgdbClient:
         # the lifetime of the connection pool.
         self._client = client
         self._tokens = tokens
-        self._limiter = limiter or RequestLimiter()
+        # None means the application's, looked up at the first request rather
+        # than here: it needs the running loop, and a client may be built
+        # before there is one.
+        self._limiter = limiter
         self._now = now
+        # The token in hand. The store is asked only when this is missing or no
+        # longer usable — at four requests a second, asking on every request
+        # would be four reads and decryptions a second for an answer already held.
+        self._current: AppToken | None = None
         # One mint at a time. Without it every request that found the token
         # missing would ask Twitch for its own.
         self._minting = asyncio.Lock()
@@ -182,16 +227,15 @@ class IgdbClient:
     async def query(self, endpoint: str, body: str) -> list[dict[str, Any]]:
         """Run an Apicalypse query against one endpoint and return its rows.
 
-        Retried with backoff on an outage and on 429. Steam does not retry a
-        429, because its limits are opaque and a quick retry is how a limit
-        becomes a ban; IGDB's is documented as per second, so a second's wait is
-        exactly what resolves it.
+        Retried with backoff on an outage and on IGDB's own 429, whose limit is
+        documented per second, so a second's wait is exactly what resolves it.
+        Nothing else is retried — Twitch's 429 included (`WindowExceededError`).
         """
 
         if not ENDPOINT.fullmatch(endpoint):
             raise ValueError(f"not an IGDB endpoint name: {endpoint!r}")
         retrying = AsyncRetrying(
-            retry=retry_if_exception_type((ProviderUnavailableError, RateLimitedError)),
+            retry=retry_if_exception_type((ProviderUnavailableError, WindowExceededError)),
             wait=wait_exponential(multiplier=RETRY_BACKOFF_SECONDS, max=RETRY_MAX_WAIT_SECONDS),
             stop=stop_after_attempt(RETRY_ATTEMPTS),
             reraise=True,
@@ -216,21 +260,31 @@ class IgdbClient:
 
     async def _token(self, *, replacing: AppToken | None = None) -> AppToken:
         async with self._minting:
-            stored = await self._tokens.load(self._credentials.client_id)
-            # A different token than the one being replaced means another request
-            # minted while this one waited for the lock, and it is the answer.
-            if (
-                stored is not None
-                and stored != replacing
-                and self._now() < stored.expires_at - REFRESH_MARGIN
-            ):
-                return stored
+            token = self._current
+            if not self._usable(token, replacing):
+                # Missing at the first request, stale later, or the one just
+                # rejected. The store may already hold its replacement — minted by
+                # another client for this application — and that is worth one read
+                # before a mint.
+                token = await self._tokens.load(self._credentials.client_id)
+            if self._usable(token, replacing):
+                self._current = token
+                return token
             fresh = await self._mint()
             await self._tokens.save(self._credentials.client_id, fresh)
+            self._current = fresh
             return fresh
 
+    def _usable(self, token: AppToken | None, replacing: AppToken | None) -> TypeGuard[AppToken]:
+        return (
+            token is not None
+            and token != replacing
+            and self._now() < token.expires_at - REFRESH_MARGIN
+        )
+
     async def _post(self, endpoint: str, body: str, token: AppToken) -> httpx.Response:
-        async with self._limiter:
+        limiter = self._limiter or shared_limiter(self._credentials.client_id)
+        async with limiter:
             try:
                 return await self._client.post(
                     f"{IGDB_API}/{endpoint}",
@@ -271,8 +325,9 @@ class IgdbClient:
                 f"twitch rejected the IGDB client credentials with {status}"
             )
         if status == 429:
+            # Plain, so it is not retried: see `WindowExceededError`.
             raise RateLimitedError(
-                "twitch is rate limiting token requests", retry_after=_retry_after(response)
+                "twitch is rate limiting token requests", retry_after=retry_after_seconds(response)
             )
         if status >= 500:
             raise ProviderUnavailableError(f"twitch answered {status} for a token")
@@ -282,7 +337,8 @@ class IgdbClient:
         payload = _json(response, "the twitch token response")
         if not isinstance(payload, dict):
             raise MalformedResponseError("twitch returned a token response that is not an object")
-        access_token, lifetime = payload.get("access_token"), _whole(payload.get("expires_in"))
+        access_token = payload.get("access_token")
+        lifetime = whole_number(payload.get("expires_in"))
         if not isinstance(access_token, str) or not access_token:
             raise MalformedResponseError("twitch returned a token response without an access_token")
         if lifetime is None or lifetime <= 0:
@@ -299,8 +355,8 @@ def _check_igdb_status(response: httpx.Response, endpoint: str) -> None:
     if status == 403:
         raise InvalidCredentialsError(f"igdb refused /{endpoint} with 403")
     if status == 429:
-        raise RateLimitedError(
-            f"igdb is rate limiting /{endpoint}", retry_after=_retry_after(response)
+        raise WindowExceededError(
+            f"igdb is rate limiting /{endpoint}", retry_after=retry_after_seconds(response)
         )
     if status >= 500:
         raise ProviderUnavailableError(f"igdb answered {status} for /{endpoint}")
@@ -324,18 +380,3 @@ def _json(response: httpx.Response, what: str) -> Any:
         return response.json()
     except ValueError:
         raise MalformedResponseError(f"{what} is not JSON") from None
-
-
-def _retry_after(response: httpx.Response) -> float | None:
-    header = response.headers.get("retry-after", "")
-    try:
-        return float(header)
-    except ValueError:
-        return None
-
-
-def _whole(value: object) -> int | None:
-    # `bool` is an `int` in Python and is never a number here.
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value

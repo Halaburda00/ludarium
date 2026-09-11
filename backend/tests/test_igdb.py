@@ -605,3 +605,136 @@ async def test_every_query_passes_the_limiter_and_the_token_request_does_not(
         await igdb.query(ENDPOINT, BODY)
 
     assert entered == 2
+
+
+@respx.mock
+async def test_a_429_from_twitch_is_not_retried(igdb: IgdbClient) -> None:
+    """Twitch documents no limit for the token request, so any wait would be a guess.
+
+    IGDB's 429 is retried because its window is documented as a second. This one
+    is not, for the reason `SteamProvider` retries no 429 at all.
+    """
+
+    minted = token_route(return_value=httpx.Response(429, headers={"Retry-After": "30"}))
+    route = query_route()
+
+    with pytest.raises(RateLimitedError) as caught:
+        await igdb.query(ENDPOINT, BODY)
+
+    assert minted.call_count == 1
+    assert route.call_count == 0
+    assert not isinstance(caught.value, igdb_module.WindowExceededError)
+    assert caught.value.retry_after == 30.0
+
+
+class CountingTokenStore(MemoryTokenStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.loads = 0
+
+    async def load(self, client_id: str) -> AppToken | None:
+        self.loads += 1
+        return await super().load(client_id)
+
+
+@respx.mock
+async def test_the_store_is_not_asked_while_the_token_in_hand_is_usable(clock: Clock) -> None:
+    """At four requests a second, a read per request is four database reads a second for nothing."""
+
+    tokens = CountingTokenStore()
+    token_route()
+    query_route()
+
+    async with httpx.AsyncClient() as client:
+        igdb = IgdbClient(CREDENTIALS, client, tokens=tokens, limiter=generous(), now=clock)
+        for _ in range(20):
+            await igdb.query(ENDPOINT, BODY)
+
+    assert tokens.loads == 1
+
+
+@respx.mock
+async def test_a_lapsed_token_is_looked_for_in_the_store_before_it_is_minted_again(
+    clock: Clock,
+) -> None:
+    """Another client for the same application may already have replaced it."""
+
+    def token(access_token: str) -> httpx.Response:
+        body = {"access_token": access_token, "expires_in": 5011271, "token_type": "bearer"}
+        return httpx.Response(200, json=body)
+
+    tokens = MemoryTokenStore()
+    minted = token_route(side_effect=[token("first"), token("second")])
+    route = query_route()
+
+    async with httpx.AsyncClient() as client:
+        early = IgdbClient(CREDENTIALS, client, tokens=tokens, limiter=generous(), now=clock)
+        await early.query(ENDPOINT, BODY)
+
+        clock.moment = START + timedelta(seconds=5011271)
+        late = IgdbClient(CREDENTIALS, client, tokens=tokens, limiter=generous(), now=clock)
+        await late.query(ENDPOINT, BODY)
+
+        await early.query(ENDPOINT, BODY)
+
+    assert minted.call_count == 2
+    assert route.calls.last.request.headers["Authorization"] == "Bearer second"
+
+
+async def test_clients_for_one_application_queue_on_one_limiter() -> None:
+    """IGDB's budget belongs to the application; two clients holding four each would send eight."""
+
+    assert igdb_module.shared_limiter("one-application") is igdb_module.shared_limiter(
+        "one-application"
+    )
+    assert igdb_module.shared_limiter("one-application") is not igdb_module.shared_limiter(
+        "another-application"
+    )
+
+
+async def test_each_event_loop_gets_its_own_application_limiter() -> None:
+    """The lock and the semaphore inside belong to the loop that first used them."""
+
+    here = igdb_module.shared_limiter("one-application")
+
+    def in_another_loop() -> RequestLimiter:
+        async def fetch() -> RequestLimiter:
+            return igdb_module.shared_limiter("one-application")
+
+        return asyncio.run(fetch())
+
+    there = await asyncio.to_thread(in_another_loop)
+
+    assert there is not here
+
+
+@respx.mock
+async def test_a_client_without_a_limiter_of_its_own_uses_its_applications(
+    monkeypatch: pytest.MonkeyPatch, clock: Clock, tokens: MemoryTokenStore
+) -> None:
+    entered = 0
+
+    class Counting(RequestLimiter):
+        async def __aenter__(self) -> None:
+            nonlocal entered
+            entered += 1
+            await super().__aenter__()
+
+    application = Counting()
+    asked: list[str] = []
+
+    def application_limiter(client_id: str) -> RequestLimiter:
+        asked.append(client_id)
+        return application
+
+    monkeypatch.setattr(igdb_module, "shared_limiter", application_limiter)
+    token_route()
+    query_route()
+
+    async with httpx.AsyncClient() as client:
+        for _ in range(2):
+            igdb = IgdbClient(CREDENTIALS, client, tokens=tokens, now=clock)
+            await igdb.query(ENDPOINT, BODY)
+
+    assert asked == [CREDENTIALS.client_id, CREDENTIALS.client_id]
+    assert entered == 2

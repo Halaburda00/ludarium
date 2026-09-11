@@ -36,8 +36,10 @@ shape moves.
 
 - An IGDB client, the first piece of M2a. It authenticates through a Twitch
   application, enforces both of IGDB's documented limits — four requests a
-  second and eight open at once — in one place, and retries with backoff on an
-  outage and on 429. The app access token is kept in the database, encrypted
+  second and eight open at once — once per application however many clients
+  there are, and retries with backoff on an outage and on IGDB's own 429, though
+  not on Twitch's, whose limit is undocumented. The app access token is kept in
+  the database, encrypted
   like platform credentials, so a restart does not mint another.
   `LUDARIUM_IGDB_CLIENT_ID` and `LUDARIUM_IGDB_CLIENT_SECRET` are optional — an
   instance without them syncs libraries exactly as before — but half an

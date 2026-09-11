@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
+import httpx
+
 from ludarium.enums import ItemKind, OwnershipType
 
 
@@ -49,6 +51,33 @@ class ProviderUnavailableError(ProviderError):
 
 class MalformedResponseError(ProviderError):
     """A 200 whose body is not what the API documents. Never retried: it would not help."""
+
+
+def whole_number(value: object) -> int | None:
+    """An integer the platform actually sent.
+
+    Shared rather than written in each provider: `bool` is an `int` in Python and
+    is never a number here, and a rule spelled out once per provider is a rule
+    that holds in some of them.
+    """
+
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def retry_after_seconds(response: httpx.Response) -> float | None:
+    """The platform's own `Retry-After`, where it gave one in seconds.
+
+    A date-form header is not worth parsing: nothing here schedules a retry that
+    far out.
+    """
+
+    header = response.headers.get("retry-after", "")
+    try:
+        return float(header)
+    except ValueError:
+        return None
 
 
 @dataclass(frozen=True, slots=True)
