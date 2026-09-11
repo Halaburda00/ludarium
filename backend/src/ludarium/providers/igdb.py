@@ -261,16 +261,19 @@ class IgdbClient:
 
     async def _token(self, *, replacing: AppToken | None = None) -> AppToken:
         async with self._minting:
-            token = self._current
-            if not self._usable(token, replacing):
-                # Missing at the first request, stale later, or the one just
-                # rejected. The store may already hold its replacement — minted by
-                # another client for this application — and that is worth one read
-                # before a mint.
-                token = await self._tokens.load(self._credentials.client_id)
-            if self._usable(token, replacing):
-                self._current = token
-                return token
+            # Each candidate is judged once. Judged twice, one decision could read
+            # the clock on either side of the refresh margin and mint a replacement
+            # for a token it had just decided to keep.
+            held = self._current
+            if self._usable(held, replacing):
+                return held
+            # Missing at the first request, lapsed later, or the one just rejected.
+            # The store may already hold its replacement — minted by another client
+            # for this application — and that is worth one read before a mint.
+            stored = await self._tokens.load(self._credentials.client_id)
+            if self._usable(stored, replacing):
+                self._current = stored
+                return stored
             fresh = await self._mint()
             await self._tokens.save(self._credentials.client_id, fresh)
             self._current = fresh

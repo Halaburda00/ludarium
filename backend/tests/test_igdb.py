@@ -753,3 +753,34 @@ async def test_a_client_without_a_limiter_of_its_own_uses_its_applications(
 
     assert asked == [CREDENTIALS.client_id, CREDENTIALS.client_id]
     assert entered == 2
+
+
+@respx.mock
+async def test_one_decision_about_the_token_reads_the_clock_once() -> None:
+    """Read twice, the clock can land either side of the margin within one decision.
+
+    Measured before this was fixed: the first read found the token usable, the
+    second found it lapsed, and the client minted a replacement for a token it
+    had just decided to keep.
+    """
+
+    reads = 0
+
+    def clock() -> datetime:
+        nonlocal reads
+        reads += 1
+        # The mint reads it once and the next check once; any read after those
+        # sees the token past its margin.
+        return START if reads <= 2 else START + LIFETIME
+
+    minted = token_route()
+    query_route()
+
+    async with httpx.AsyncClient() as client:
+        igdb = IgdbClient(
+            CREDENTIALS, client, tokens=MemoryTokenStore(), limiter=generous(), now=clock
+        )
+        await igdb.query(ENDPOINT, BODY)
+        await igdb.query(ENDPOINT, BODY)
+
+    assert minted.call_count == 1
