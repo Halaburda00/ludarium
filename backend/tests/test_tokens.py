@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ludarium.crypto import CredentialCipher
 from ludarium.db import Database
 from ludarium.models import TwitchAppToken
-from ludarium.providers import AppToken, IgdbClient, IgdbCredentials
+from ludarium.providers import AppToken, IgdbClient, IgdbCredentials, RequestLimiter
 from ludarium.providers import igdb as igdb_module
 from ludarium.tokens import DatabaseTokenStore
 
@@ -94,7 +94,12 @@ async def test_a_restarted_client_presents_the_token_the_last_one_minted(db: Dat
 
     for _ in range(2):
         async with httpx.AsyncClient() as client:
-            igdb = IgdbClient(credentials, client, tokens=DatabaseTokenStore(db, cipher))
+            # A limiter of its own, so the test never spends the application's
+            # shared one — nor shares it with other tests if the loop scope widens.
+            limiter = RequestLimiter(per_second=1000, open_at_once=1000)
+            igdb = IgdbClient(
+                credentials, client, tokens=DatabaseTokenStore(db, cipher), limiter=limiter
+            )
             await igdb.query("popularity_types", "fields name;")
 
     assert minted.call_count == 1
