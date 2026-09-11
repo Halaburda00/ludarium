@@ -25,10 +25,10 @@ from ludarium.providers import (
 )
 from ludarium.providers import igdb as igdb_module
 
-# Documented examples rather than recordings: `popularity_types.json` is the
-# response IGDB's own documentation shows for that endpoint, and `token.json` is
-# the shape Twitch documents, `expires_in` included. Replace them with recorded
-# responses once there is a Twitch application to record against.
+# Recorded against Twitch and IGDB on 2026-09-11 with this project's own
+# application: a token, `popularity_types` for `BODY`, a query IGDB rejects, a
+# token it refuses, and Twitch refusing a wrong secret. The access token in
+# `token.json` is replaced; nothing else is edited.
 FIXTURES = Path(__file__).parent / "fixtures" / "igdb"
 ENDPOINT = "popularity_types"
 QUERY_URL = f"{igdb_module.IGDB_API}/{ENDPOINT}"
@@ -40,8 +40,12 @@ START = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
 CONFIGURED_BACKOFF = igdb_module.RETRY_BACKOFF_SECONDS
 
 
-def documented(name: str) -> Any:
+def recorded(name: str) -> Any:
     return json.loads((FIXTURES / name).read_text())
+
+
+# The lifetime Twitch actually issued, not its documented example of 5 011 271 s.
+LIFETIME = timedelta(seconds=recorded("token.json")["expires_in"])
 
 
 class Clock:
@@ -100,16 +104,13 @@ async def igdb(clock: Clock, tokens: MemoryTokenStore) -> AsyncIterator[IgdbClie
 
 def token_route(**kwargs: Any) -> respx.Route:
     return respx.post(TOKEN_URL).mock(
-        **(kwargs or {"return_value": httpx.Response(200, json=documented("token.json"))})
+        **(kwargs or {"return_value": httpx.Response(200, json=recorded("token.json"))})
     )
 
 
 def query_route(**kwargs: Any) -> respx.Route:
     return respx.post(QUERY_URL).mock(
-        **(
-            kwargs
-            or {"return_value": httpx.Response(200, json=documented("popularity_types.json"))}
-        )
+        **(kwargs or {"return_value": httpx.Response(200, json=recorded("popularity_types.json"))})
     )
 
 
@@ -124,7 +125,7 @@ async def test_a_query_is_posted_with_the_client_id_and_the_bearer_token(igdb: I
     assert request.content == BODY.encode()
     assert request.headers["Client-ID"] == CREDENTIALS.client_id
     assert request.headers["Authorization"] == "Bearer not-a-real-app-access-token"
-    assert rows == documented("popularity_types.json")
+    assert rows == recorded("popularity_types.json")
 
 
 @respx.mock
@@ -157,10 +158,8 @@ async def test_one_token_serves_every_query_until_it_nears_expiry(
     await igdb.query(ENDPOINT, BODY)
     assert minted.call_count == 1
 
-    # The documented lifetime, less the margin, plus a second.
-    clock.moment = (
-        START + timedelta(seconds=5011271) - igdb_module.REFRESH_MARGIN + timedelta(seconds=1)
-    )
+    # The recorded lifetime, less the margin, plus a second.
+    clock.moment = START + LIFETIME - igdb_module.REFRESH_MARGIN + timedelta(seconds=1)
     await igdb.query(ENDPOINT, BODY)
     assert minted.call_count == 2
 
@@ -207,8 +206,8 @@ async def test_a_401_replaces_the_token_and_asks_again_once(
     minted = token_route()
     route = query_route(
         side_effect=[
-            httpx.Response(401),
-            httpx.Response(200, json=documented("popularity_types.json")),
+            httpx.Response(401, json=recorded("invalid_token.json")),
+            httpx.Response(200, json=recorded("popularity_types.json")),
         ]
     )
 
@@ -219,7 +218,7 @@ async def test_a_401_replaces_the_token_and_asks_again_once(
         "Bearer revoked",
         "Bearer not-a-real-app-access-token",
     ]
-    assert rows == documented("popularity_types.json")
+    assert rows == recorded("popularity_types.json")
     assert await tokens.load(CREDENTIALS.client_id) != AppToken(
         "revoked", START + timedelta(days=30)
     )
@@ -228,7 +227,7 @@ async def test_a_401_replaces_the_token_and_asks_again_once(
 @respx.mock
 async def test_a_401_on_a_token_minted_this_moment_is_the_credentials(igdb: IgdbClient) -> None:
     minted = token_route()
-    route = query_route(return_value=httpx.Response(401))
+    route = query_route(return_value=httpx.Response(401, json=recorded("invalid_token.json")))
 
     with pytest.raises(InvalidCredentialsError, match="freshly issued token"):
         await igdb.query(ENDPOINT, BODY)
@@ -261,8 +260,8 @@ async def test_queries_that_all_meet_one_revoked_token_replace_it_once(clock: Cl
 
     def answer(request: httpx.Request) -> httpx.Response:
         if request.headers["Authorization"] == "Bearer revoked":
-            return httpx.Response(401)
-        return httpx.Response(200, json=documented("popularity_types.json"))
+            return httpx.Response(401, json=recorded("invalid_token.json"))
+        return httpx.Response(200, json=recorded("popularity_types.json"))
 
     query_route(side_effect=answer)
 
@@ -273,7 +272,9 @@ async def test_queries_that_all_meet_one_revoked_token_replace_it_once(clock: Cl
     assert minted.call_count == 1
 
 
-@pytest.mark.parametrize("status", [400, 401, 403])
+# 403 is what Twitch answered a wrong secret with, and has its own recorded test.
+# The documentation lists no refusal statuses, so 400 and 401 stay covered too.
+@pytest.mark.parametrize("status", [400, 401])
 @respx.mock
 async def test_refused_client_credentials_are_reported_as_credentials(
     igdb: IgdbClient, status: int
@@ -307,6 +308,20 @@ async def test_a_403_from_igdb_is_about_the_application_and_is_not_retried(
 
 
 @respx.mock
+async def test_a_wrong_secret_is_refused_the_way_twitch_refuses_it(igdb: IgdbClient) -> None:
+    """Recorded: Twitch answers a wrong secret with 403 and says so in the body."""
+
+    token_route(return_value=httpx.Response(403, json=recorded("invalid_client.json")))
+    route = query_route()
+
+    with pytest.raises(InvalidCredentialsError, match="403") as caught:
+        await igdb.query(ENDPOINT, BODY)
+
+    assert route.call_count == 0
+    assert CREDENTIALS.client_secret not in str(caught.value)
+
+
+@respx.mock
 async def test_an_outage_is_retried_and_then_reported_as_one(igdb: IgdbClient) -> None:
     token_route()
     route = query_route(return_value=httpx.Response(503))
@@ -336,11 +351,11 @@ async def test_a_429_is_waited_out_rather_than_given_up_on(igdb: IgdbClient) -> 
     route = query_route(
         side_effect=[
             httpx.Response(429),
-            httpx.Response(200, json=documented("popularity_types.json")),
+            httpx.Response(200, json=recorded("popularity_types.json")),
         ]
     )
 
-    assert await igdb.query(ENDPOINT, BODY) == documented("popularity_types.json")
+    assert await igdb.query(ENDPOINT, BODY) == recorded("popularity_types.json")
     assert route.call_count == 2
 
 
@@ -366,7 +381,7 @@ def test_the_first_retry_waits_out_a_whole_rate_limit_window() -> None:
 @respx.mock
 async def test_a_query_igdb_will_not_run_is_not_retried(igdb: IgdbClient) -> None:
     token_route()
-    route = query_route(return_value=httpx.Response(400, json=[{"title": "Syntax Error"}]))
+    route = query_route(return_value=httpx.Response(400, json=recorded("query_rejected.json")))
 
     with pytest.raises(QueryRejectedError, match="400"):
         await igdb.query(ENDPOINT, BODY)
@@ -471,8 +486,8 @@ async def test_no_failure_carries_the_secret_or_the_token(
     with pytest.raises(ProviderUnavailableError) as outage:
         await igdb.query(ENDPOINT, BODY)
 
-    minted.mock(return_value=httpx.Response(200, json=documented("token.json")))
-    query_route(return_value=httpx.Response(401))
+    minted.mock(return_value=httpx.Response(200, json=recorded("token.json")))
+    query_route(return_value=httpx.Response(401, json=recorded("invalid_token.json")))
     with pytest.raises(InvalidCredentialsError) as refused:
         await igdb.query(ENDPOINT, BODY)
 

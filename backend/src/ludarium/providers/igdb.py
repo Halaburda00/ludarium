@@ -45,7 +45,8 @@ MAX_LIMIT: Final = 500
 
 # Minted again this long before Twitch says the token lapses, so a batch that
 # starts on an old token does not lose it halfway. Twitch's documented example
-# lifetime is 5 011 271 seconds, about 58 days; an hour of that costs nothing.
+# lifetime is 5 011 271 seconds and a token issued to this project came with
+# 4 857 410 — eight weeks or so either way, of which an hour costs nothing.
 REFRESH_MARGIN: Final = timedelta(hours=1)
 
 # Read at call time so a test can flatten the backoff without waiting for it.
