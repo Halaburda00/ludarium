@@ -16,6 +16,21 @@ shape moves.
   response was self-consistent and the loss was invisible from this side:
   measured against a real library, one owned game of 197 was in the Steam
   client and never in Ludarium.
+- The library lists titles in the order a person expects. It was ordered by
+  the database's byte comparison, so "ARC Raiders" came before "Amnesia", an
+  accented letter sorted after every unaccented one in its place, and a
+  trademark sign split a series in two — "Batman: Arkham City" in one block,
+  "Batman™: Arkham Knight" in the next. Works now carry a folded copy of their
+  sort title that ignores case, accents, trademark signs and doubled spaces,
+  and the listing and its cursor both order by it. The title a user sets by
+  hand is kept exactly as written. A cursor handed out before the upgrade is
+  refused rather than read under the new order, so a library left open across
+  the upgrade needs a reload to carry on scrolling. On PostgreSQL the key is
+  compared byte for byte, as on SQLite, rather than by the database's locale.
+  Every start rewrites any stored key the running code would compute
+  differently — after an upgrade to a Python with a newer Unicode database, for
+  instance — and logs how many; a database that was never upgraded is refused at
+  start with the command to run.
 
 ### Added
 

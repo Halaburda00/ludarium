@@ -196,7 +196,8 @@ than a creation with a different code path.
 |---|---|---|---|---|
 | `id` | INTEGER | no | PK | |
 | `title` | TEXT | no | | Canonical title from the IGDB anchor once `is_matched`; on a stub it is a copy of the primary entitlement's `provider_title`. Store names are not a *source* here — they live on `entitlement.provider_title` |
-| `sort_title` | TEXT | no | | Leading article moved, so "The Witcher 3" files under W; drives keyset pagination. Display logic, and it stays in Ludarium |
+| `sort_title` | TEXT | no | | Leading article moved, so "The Witcher 3" files under W. Resolved and settable by hand, so it keeps the case and spelling it was given. Display logic, and it stays in Ludarium |
+| `sort_key` | TEXT | no | | `sort_title` folded for comparison — case, accents, `™`/`®`/`©`, runs of whitespace — and what the grid orders by; drives keyset pagination. Derived by the model on every assignment to `sort_title`, never assigned directly, and not a provenance field: nothing asserts it. `COLLATE "C"` on PostgreSQL so it compares by code point as SQLite does, and rewritten at startup wherever the running code would compute it differently (ADR-0018) |
 | `normalised_title` | TEXT | yes | | Matcher normalisation output: lowercased, punctuation and edition markers stripped, roman numerals folded. Nullable because it is `ludamatch`'s output (MIT, separate repository) and nothing writes it before M2 — populating it here would put matcher code in the wrong repository, to be extracted later. `sort_title` is the display-side counterpart and stays `NOT NULL` |
 | `item_kind` | TEXT | no | `'game'` | `ItemKind` |
 | `parent_work_id` | INTEGER | yes | | Self-FK. DLC folded under its parent game in the grid (M3) |
@@ -549,6 +550,7 @@ erDiagram
         int id PK
         string title "resolved"
         string sort_title
+        string sort_key
         string normalised_title
         string item_kind "ItemKind"
         int parent_work_id FK
@@ -850,7 +852,7 @@ through `EXISTS` over `entitlement_work` → `entitlement`.
 | Genre | `work_genre (genre_id, work_id)` — the reverse of the PK, for "all RPGs" |
 | Year | `work (release_year)` |
 | Playtime | `user_work_state (user_id, playtime_minutes)` |
-| `ItemKind` | `work (item_kind, sort_title)` — filter and default sort in one |
+| `ItemKind` | `work (item_kind, sort_key)` — filter and default sort in one |
 | `PlayStatus` | `user_work_state (user_id, play_status, work_id)` |
 | Ownership type | `entitlement (ownership_type) WHERE removed_at IS NULL` |
 | Removed view | `entitlement (removed_at) WHERE removed_at IS NOT NULL` |
@@ -858,7 +860,7 @@ through `EXISTS` over `entitlement_work` → `entitlement`.
 | Favourites / hidden | `user_work_state (user_id, is_favourite) WHERE is_favourite` |
 | DLC folding | `work (parent_work_id) WHERE parent_work_id IS NOT NULL` |
 | Search (M2) | SQLite: FTS5 virtual table `work_fts(title, normalised_title, summary)` over `work` columns only. PostgreSQL: `pg_trgm` GIN on `work.normalised_title`. Store titles are not in it — `provider_title` lives on `entitlement`, and searching it is a separate query against `entitlement (provider_title)`, unioned into the results |
-| Default grid order | `work (sort_title, id)` — keyset pagination for the virtualised grid |
+| Default grid order | `work (sort_key, id)` — keyset pagination for the virtualised grid (ADR-0018) |
 
 ### Structural indexes
 

@@ -958,7 +958,7 @@
     },
     "/api/works": {
       "get": {
-        "description": "One page, keyed on `(sort_title, id)` rather than an offset.\n\nAn offset re-reads and discards every row before the page, so the last page\nof a large library costs the most; and a sync landing a new title mid-scroll\nshifts every later page by one, which shows up as a duplicated or skipped\nrow. A keyset does neither: `ix_work_sort_title_id` seeks straight to the\nposition and the page is defined by content rather than by count.",
+        "description": "One page, keyed on `(sort_key, id)` rather than an offset.\n\nAn offset re-reads and discards every row before the page, so the last page\nof a large library costs the most; and a sync landing a new title mid-scroll\nshifts every later page by one, which shows up as a duplicated or skipped\nrow. A keyset does neither: `ix_work_sort_key_id` seeks straight to the\nposition and the page is defined by content rather than by count.\n\nThe key and not `sort_title` itself, because the database compares bytes:\n\"ARC Raiders\" would file ahead of \"Amnesia\", and a trademark sign would split\none series into two blocks (ADR-0018).",
         "operationId": "listing_api_works_get",
         "parameters": [
           {

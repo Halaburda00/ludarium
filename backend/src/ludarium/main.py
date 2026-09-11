@@ -12,7 +12,7 @@ from ludarium.api import sync as sync_api
 from ludarium.auth import bootstrap_user, current_session
 from ludarium.config import Settings, get_settings
 from ludarium.db import Database
-from ludarium.seed import seed_providers
+from ludarium.seed import reconcile_sort_keys, seed_providers
 
 # Bounded on purpose, and not only for the user waiting on onboarding: a run
 # that never returns is a `sync_run` row stuck at `running`, and the reclaim
@@ -50,15 +50,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     username=settings.username,
                     password=settings.password.get_secret_value(),
                 )
+                # Before the first request rather than lazily: the listing pages
+                # on these keys, and one computed by a different Unicode database
+                # would be served in the wrong place until something rewrote it.
+                await reconcile_sort_keys(session)
         except OperationalError as exc:
-            # Only the one it can actually diagnose. `BEGIN IMMEDIATE` can also
-            # fail here with `database is locked` — a second instance on the
-            # same file, or a stale writer — and telling that operator to run a
-            # migration sends them away from the real cause.
-            if "no such table" not in str(exc.orig):
+            # Only the ones it can actually diagnose: no schema at all, or one
+            # older than the code. Startup reads `work.sort_key`, so a database
+            # an upgrade was never run against fails here rather than on the
+            # first request. `BEGIN IMMEDIATE` can also fail with `database is
+            # locked` — a second instance on the same file, or a stale writer —
+            # and telling that operator to run a migration sends them away from
+            # the real cause.
+            if not any(sign in str(exc.orig) for sign in ("no such table", "no such column")):
                 raise
             raise RuntimeError(
-                "the database has no schema yet — run `uv run alembic upgrade head`"
+                "the database schema is missing or older than the code — "
+                "run `uv run alembic upgrade head`"
             ) from exc
         yield
     finally:

@@ -1018,3 +1018,28 @@ async def test_resolve_refuses_a_map_that_is_not_about_the_fields_it_was_asked_f
             fields=["item_kind", "release_year"],
             recorded=recorded,
         )
+
+
+async def test_resolving_sort_title_moves_the_key_with_it(session: AsyncSession) -> None:
+    """Rule 3's override, arriving the way every resolved value does.
+
+    A user who files a work somewhere else has to see it move in the grid. The
+    resolver assigns the column and the model derives the key, so this is what
+    notices if the resolver ever stops assigning through the ORM — a bulk
+    `UPDATE` would store the new title and leave the work where it was.
+    """
+
+    work = await make_work(session, "The Witcher 3: Wild Hunt")
+    await observe(
+        session,
+        work,
+        source_kind=SourceKind.MANUAL,
+        source_ref="user",
+        value="Witcher 3, The: Wild Hunt™",
+        field="sort_title",
+    )
+
+    await resolve(session, entity_type=EntityType.WORK, entity_id=work.id, fields=["sort_title"])
+
+    assert work.sort_title == "Witcher 3, The: Wild Hunt™"
+    assert work.sort_key == "witcher 3, the: wild hunt"

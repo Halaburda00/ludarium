@@ -36,6 +36,12 @@ from ludarium.queries import owned_by
 DEFAULT_LIMIT: Final = 100
 MAX_LIMIT: Final = 500
 MAX_CURSOR: Final = 256
+# Carried inside every cursor, so one issued under an older ordering is refused
+# rather than read under this one. The cursors before it were `[sort_title, id]`
+# — the same shape as `[sort_key, id]`, and a position in a different order.
+# Accepted, one would page from wherever its title happened to compare, which is
+# the made-up cursor `_after` exists to turn away.
+CURSOR_VERSION: Final = 2
 
 router = APIRouter(prefix="/works", tags=["works"])
 
@@ -81,7 +87,7 @@ class WorksPage(BaseModel):
 
 
 def _cursor(work: Work) -> str:
-    return urlsafe_b64encode(json.dumps([work.sort_title, work.id]).encode()).decode()
+    return urlsafe_b64encode(json.dumps([CURSOR_VERSION, work.sort_key, work.id]).encode()).decode()
 
 
 def _after(cursor: str) -> tuple[str, int]:
@@ -92,9 +98,11 @@ def _after(cursor: str) -> tuple[str, int]:
             # almost anything, and `int(3.7)` silently becomes 3 — a made-up
             # cursor would then page from somewhere nobody chose, which is worse
             # than being refused. `bool` is an `int` and is excluded by name.
-            case [str() as sort_title, int() as work_id] if not isinstance(work_id, bool):
-                return sort_title, work_id
-        raise ValueError("a cursor is a title and an id")
+            case [int() as version, str() as key, int() as work_id] if (
+                version == CURSOR_VERSION and not isinstance(work_id, bool)
+            ):
+                return key, work_id
+        raise ValueError("a cursor is a version, a key and an id")
     except (ValueError, TypeError, binascii.Error) as exc:
         # No detail about what was wrong with it: a cursor is ours, and a client
         # that made one up has nothing to learn from the answer.
@@ -137,13 +145,17 @@ async def listing(
     # before it is judged, and there is no reason to decode a megabyte first.
     cursor: Annotated[str | None, Query(max_length=MAX_CURSOR)] = None,
 ) -> WorksPage:
-    """One page, keyed on `(sort_title, id)` rather than an offset.
+    """One page, keyed on `(sort_key, id)` rather than an offset.
 
     An offset re-reads and discards every row before the page, so the last page
     of a large library costs the most; and a sync landing a new title mid-scroll
     shifts every later page by one, which shows up as a duplicated or skipped
-    row. A keyset does neither: `ix_work_sort_title_id` seeks straight to the
+    row. A keyset does neither: `ix_work_sort_key_id` seeks straight to the
     position and the page is defined by content rather than by count.
+
+    The key and not `sort_title` itself, because the database compares bytes:
+    "ARC Raiders" would file ahead of "Amnesia", and a trademark sign would split
+    one series into two blocks (ADR-0018).
     """
 
     user_id = record.user_id
@@ -165,16 +177,14 @@ async def listing(
             (UserWorkState.work_id == Work.id) & (UserWorkState.user_id == user_id),
         )
         .where(owned.exists())
-        .order_by(Work.sort_title, Work.id)
+        .order_by(Work.sort_key, Work.id)
         # One more than asked for, so "is there a next page" is answered without
         # a count and without handing the client an empty page to discover it.
         .limit(limit + 1)
     )
     if cursor is not None:
-        sort_title, work_id = _after(cursor)
-        page = page.where(
-            tuple_(Work.sort_title, Work.id) > tuple_(literal(sort_title), literal(work_id))
-        )
+        key, work_id = _after(cursor)
+        page = page.where(tuple_(Work.sort_key, Work.id) > tuple_(literal(key), literal(work_id)))
 
     rows = list(await session.execute(page))
     has_more = len(rows) > limit
