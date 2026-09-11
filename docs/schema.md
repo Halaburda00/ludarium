@@ -151,6 +151,19 @@ future local agent and a manual upload are indistinguishable downstream.
 | `items_removed` | INTEGER | no | `0` | Marked `removed_at`, never deleted |
 | `error_text` | TEXT | yes | | |
 
+#### `twitch_app_token`
+
+The app access token IGDB authenticates with, kept so that a restart does not
+mint another. Twitch app tokens cannot be refreshed, only replaced, so there is
+at most one row per application.
+
+| Column | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| `client_id` | TEXT | no | PK | The Twitch application it was minted for. A changed `LUDARIUM_IGDB_CLIENT_ID` reads as a miss rather than as a token to borrow |
+| `access_token_encrypted` | BLOB | no | | Fernet ciphertext, under the same key as `account.credentials_encrypted`. A row the current key cannot decrypt is treated as absent and overwritten (rule 7) |
+| `expires_at` | TIMESTAMP | no | | From Twitch's `expires_in`. The client replaces the token an hour before it |
+| `updated_at` | TIMESTAMP | no | `now()` | |
+
 #### Local imports and derived accounts
 
 A `galaxy-2.0.db` upload is data read off the user's own machine, which is
