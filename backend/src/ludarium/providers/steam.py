@@ -19,6 +19,8 @@ from ludarium.providers.base import (
     MalformedResponseError,
     ProviderUnavailableError,
     RateLimitedError,
+    retry_after_seconds,
+    whole_number,
 )
 
 STEAM_API = "https://api.steampowered.com"
@@ -143,7 +145,7 @@ def _check_status(response: httpx.Response, path: str) -> None:
         raise InvalidCredentialsError(f"steam rejected the API key with {status}")
     if status == 429:
         raise RateLimitedError(
-            "steam is rate limiting this key", retry_after=_retry_after(response)
+            "steam is rate limiting this key", retry_after=retry_after_seconds(response)
         )
     if status >= 500:
         raise ProviderUnavailableError(f"steam answered {status} for {path}")
@@ -165,23 +167,13 @@ def _check_against_count(games: list[Any], count: object) -> None:
     that makes a platform's own tally drift from the list it sends.
     """
 
-    promised = _whole(count)
+    promised = whole_number(count)
     if promised is not None and len(games) < promised:
         raise MalformedResponseError(f"steam said it has {promised} games and sent {len(games)}")
 
 
-def _retry_after(response: httpx.Response) -> float | None:
-    """Steam's own figure, where it gave one. A date-form header is not worth parsing."""
-
-    header = response.headers.get("retry-after", "")
-    try:
-        return float(header)
-    except ValueError:
-        return None
-
-
 def _as_item(game: dict[str, Any]) -> LibraryItem:
-    appid, name = _whole(game.get("appid")), game.get("name")
+    appid, name = whole_number(game.get("appid")), game.get("name")
     if appid is None or not isinstance(name, str):
         raise MalformedResponseError("a steam library entry has no usable appid or name")
     return LibraryItem(
@@ -193,26 +185,13 @@ def _as_item(game: dict[str, Any]) -> LibraryItem:
     )
 
 
-def _whole(value: object) -> int | None:
-    """An integer Steam actually sent.
-
-    In one place rather than at each call site: `bool` is an `int` in Python and
-    is never a number here, and a rule spelled out three times is a rule that
-    holds in two of them.
-    """
-
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value
-
-
 def _minutes(value: object) -> int | None:
     # Steam counts in minutes already.
-    minutes = _whole(value)
+    minutes = whole_number(value)
     return minutes if minutes is not None and minutes >= 0 else None
 
 
 def _moment(value: object) -> datetime | None:
-    seconds = _whole(value)
+    seconds = whole_number(value)
     # Zero is "never played", which is not the epoch.
     return datetime.fromtimestamp(seconds, UTC) if seconds is not None and seconds > 0 else None

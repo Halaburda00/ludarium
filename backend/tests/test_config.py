@@ -109,3 +109,58 @@ def test_a_blank_username_is_not_a_username(monkeypatch: pytest.MonkeyPatch) -> 
 
     with pytest.raises(ConfigurationError, match="must not be blank"):
         get_settings()
+
+
+IGDB_VARIABLES = ("LUDARIUM_IGDB_CLIENT_ID", "LUDARIUM_IGDB_CLIENT_SECRET")
+
+
+def test_igdb_is_optional(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An instance with no Twitch application still starts; it enriches nothing."""
+
+    for name in IGDB_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+
+    settings = get_settings()
+
+    assert settings.igdb_client_id is None
+    assert settings.igdb_client_secret is None
+
+
+def test_igdb_credentials_are_read_under_the_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LUDARIUM_IGDB_CLIENT_ID", "not-a-real-client-id")
+    monkeypatch.setenv("LUDARIUM_IGDB_CLIENT_SECRET", "not-a-real-secret")
+
+    settings = get_settings()
+
+    assert settings.igdb_client_id == "not-a-real-client-id"
+    assert settings.igdb_client_secret is not None
+    assert settings.igdb_client_secret.get_secret_value() == "not-a-real-secret"
+    assert "not-a-real-secret" not in f"{settings!r} {settings.model_dump()}"
+
+
+def test_blank_igdb_lines_mean_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`.env.example` ships both lines empty, which is how "unset" arrives."""
+
+    monkeypatch.setenv("LUDARIUM_IGDB_CLIENT_ID", "")
+    monkeypatch.setenv("LUDARIUM_IGDB_CLIENT_SECRET", "   ")
+
+    settings = get_settings()
+
+    assert settings.igdb_client_id is None
+    assert settings.igdb_client_secret is None
+
+
+@pytest.mark.parametrize("present", IGDB_VARIABLES)
+def test_half_an_igdb_application_stops_the_instance(
+    monkeypatch: pytest.MonkeyPatch, present: str
+) -> None:
+    """At start, where whoever set it is still looking, not at the first enrichment."""
+
+    for name in IGDB_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(present, "not-a-real-value-for-this-half")
+
+    with pytest.raises(ConfigurationError, match="set both LUDARIUM_IGDB_CLIENT_ID") as caught:
+        get_settings()
+
+    assert "not-a-real-value-for-this-half" not in str(caught.value)

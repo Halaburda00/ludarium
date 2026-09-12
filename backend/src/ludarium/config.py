@@ -2,7 +2,7 @@ from functools import lru_cache
 from typing import Literal
 
 from cryptography.fernet import Fernet
-from pydantic import SecretStr, ValidationError, field_validator
+from pydantic import SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     password: SecretStr
     database_url: str = "sqlite+aiosqlite:///./data/ludarium.db"
     log_level: LogLevel = "INFO"
+    # IGDB authenticates through a Twitch application (M2a). Optional: without
+    # one the instance still syncs libraries and simply enriches nothing.
+    igdb_client_id: str | None = None
+    igdb_client_secret: SecretStr | None = None
 
     # `LUDARIUM_USERNAME=` and `LUDARIUM_PASSWORD=` in a .env are the way "unset"
     # actually reaches us, and pydantic would take the empty string for an answer.
@@ -49,6 +53,23 @@ class Settings(BaseSettings):
         if not value.get_secret_value().strip():
             raise ValueError("must not be blank")
         return value
+
+    # Blank is unset here too, and for the same reason as above — but optional,
+    # so it becomes None rather than an error.
+    @field_validator("igdb_client_id", "igdb_client_secret", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @model_validator(mode="after")
+    def _igdb_needs_both_halves(self) -> "Settings":
+        # Half an application fails on the first enrichment, hours after start;
+        # at start it fails where the person who set it is still looking.
+        if (self.igdb_client_id is None) != (self.igdb_client_secret is None):
+            raise ValueError(
+                "set both LUDARIUM_IGDB_CLIENT_ID and LUDARIUM_IGDB_CLIENT_SECRET, or neither"
+            )
+        return self
 
     @field_validator("encryption_key")
     @classmethod

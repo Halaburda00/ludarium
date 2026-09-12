@@ -5,6 +5,7 @@ from ludarium.models.ownership import Entitlement, EntitlementWork
 from ludarium.models.provenance import FieldProvenance
 from ludarium.models.provider import Account, Provider, SyncRun
 from ludarium.models.state import UserWorkState
+from ludarium.models.tokens import TwitchAppToken
 
 __all__ = [
     "Account",
@@ -16,6 +17,7 @@ __all__ = [
     "FieldProvenance",
     "Provider",
     "SyncRun",
+    "TwitchAppToken",
     "UserSession",
     "UserWorkState",
     "Work",
