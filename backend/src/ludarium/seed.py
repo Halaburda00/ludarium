@@ -41,6 +41,15 @@ PROVIDER_SEED: tuple[ProviderSpec, ...] = (
         store_url_template="https://store.steampowered.com/app/{id}",
     ),
     ProviderSpec(
+        key="igdb",
+        kind=ProviderKind.METADATA,
+        source_kind=SourceKind.METADATA_PROVIDER,
+        display_name="IGDB",
+        # "Free for non-commercial usage", and never redistributed: whatever it
+        # supplied is dropped from every export.
+        licence_class=LicenceClass.RUNTIME_ONLY,
+    ),
+    ProviderSpec(
         key="manual",
         kind=ProviderKind.MANUAL,
         source_kind=SourceKind.MANUAL,

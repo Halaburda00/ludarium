@@ -140,16 +140,21 @@ future local agent and a manual upload are indistinguishable downstream.
 |---|---|---|---|---|
 | `id` | INTEGER | no | PK | |
 | `provider_id` | INTEGER | no | | FK → `provider` |
-| `account_id` | INTEGER | yes | | Null for metadata providers |
+| `account_id` | INTEGER | yes | | Null for enrichment runs, which sync no account (ADR-0019) |
 | `trigger` | TEXT | no | | `SyncTrigger` |
 | `status` | TEXT | no | `'running'` | `SyncStatus` |
 | `started_at` | TIMESTAMP | no | `now()` | |
 | `finished_at` | TIMESTAMP | yes | | |
-| `items_seen` | INTEGER | no | `0` | |
+| `items_seen` | INTEGER | no | `0` | For an enrichment run, the distinct keys asked about |
 | `items_added` | INTEGER | no | `0` | |
-| `items_updated` | INTEGER | no | `0` | |
+| `items_updated` | INTEGER | no | `0` | For an enrichment run, the keys that went to the provider rather than to the cache |
 | `items_removed` | INTEGER | no | `0` | Marked `removed_at`, never deleted |
 | `error_text` | TEXT | yes | | |
+
+One open run per account (`UNIQUE (account_id) WHERE status = 'running' AND
+account_id IS NOT NULL`), and one open enrichment run per provider (`UNIQUE
+(provider_id) WHERE status = 'running' AND account_id IS NULL`). The two never
+collide, so a Steam sync and a Steam enrichment can run at once.
 
 #### `twitch_app_token`
 
@@ -163,6 +168,30 @@ at most one row per application.
 | `access_token_encrypted` | BLOB | no | | Fernet ciphertext, under the same key as `account.credentials_encrypted`. A row the current key cannot decrypt is treated as absent and overwritten (rule 7) |
 | `expires_at` | TIMESTAMP | no | | From Twitch's `expires_in`. The client replaces the token an hour before it |
 | `updated_at` | TIMESTAMP | no | `now()` | |
+
+#### `fetch_cache`
+
+What a provider answered when enrichment asked it something, so that it is not
+asked again (ADR-0019). A cache, not a source: the step that asked reads it and
+records provenance from the answer, and emptying the table loses nothing but
+the requests needed to fill it again. Most of it is IGDB and RAWG data, so the
+table is left out of every export whole.
+
+| Column | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| `id` | INTEGER | no | PK | |
+| `provider_id` | INTEGER | no | | FK → `provider` |
+| `resource` | TEXT | no | | What was asked, in the provider's own terms: `games`, `external_games/steam` |
+| `key` | TEXT | no | | Which one: an IGDB id, a Steam appid |
+| `payload` | JSON | yes | | The answer. SQL null means the provider was asked and has nothing under this key, which is kept so that it is not asked again |
+| `fetched_at` | TIMESTAMP | no | | A step passes a `max_age`, and older rows are fetched again |
+
+`UNIQUE (provider_id, resource, key)`.
+
+Binary files are not cached here. Cover art lives under the data directory,
+beside the database, and `image_asset.local_path` points at it. The data
+directory is excluded from git and from the Docker build context, and a test
+checks both against the default database path.
 
 #### Local imports and derived accounts
 
@@ -813,7 +842,8 @@ which returns the field to normal resolution — here, back to Steam's `game`.
 
 `provider.licence_class = 'runtime_only'` marks IGDB and RAWG. Any export or
 backup walks `field_provenance` and drops values whose effective source is
-`runtime_only`, along with the images those providers supplied. Nothing from
+`runtime_only`, along with the images those providers supplied. `fetch_cache`
+is dropped whole. Nothing from
 IGDB or RAWG ships inside the repository or the Docker image; the alias dataset
 (`title_alias`, CC0) is the only bundled catalogue data.
 
@@ -894,6 +924,7 @@ through `EXISTS` over `entitlement_work` → `entitlement`.
 | `work` | `UNIQUE (igdb_id) WHERE igdb_id IS NOT NULL` | |
 | `title_alias` | `(normalised_alias)`, `(work_id)` | Matching layer 2 |
 | `sync_run` | `(provider_id, started_at DESC)`, `(account_id, status, started_at DESC)` | Per-provider status panel |
+| `fetch_cache` | `UNIQUE (provider_id, resource, key)` + `(provider_id, resource, fetched_at)` | The lookup by key, and finding what has gone stale |
 | `match_candidate` | `(status, score DESC) WHERE status = 'pending'` | The review queue |
 | `image_asset` | `(entity_type, entity_id, kind)` | |
 | `session` | `(token_hash)` unique, `(expires_at)` | Lookup and cleanup |

@@ -103,6 +103,17 @@ class SyncRun(Base):
                 f"status = '{SyncStatus.RUNNING.value}' AND account_id IS NOT NULL"
             ),
         ),
+        # The same rule for runs that sync no account — enrichment (ADR-0019).
+        # Two at once would ask the provider the same questions twice and spend
+        # its rate limit doing it. Per provider, so an IGDB run never waits on a
+        # RAWG one (rule 4).
+        Index(
+            "uq_sync_run_provider_id_running_unattached",
+            "provider_id",
+            unique=True,
+            sqlite_where=text(f"status = '{SyncStatus.RUNNING.value}' AND account_id IS NULL"),
+            postgresql_where=text(f"status = '{SyncStatus.RUNNING.value}' AND account_id IS NULL"),
+        ),
         Index("ix_sync_run_provider_id_started_at", "provider_id", text("started_at DESC")),
         Index(
             "ix_sync_run_account_id_status_started_at",

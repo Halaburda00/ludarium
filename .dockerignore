@@ -1,0 +1,24 @@
+# The build context, for whichever Dockerfile is built from this directory.
+#
+# The data directory is the instance's runtime state: the database, and in it
+# the fetch cache of IGDB and RAWG responses neither may be redistributed. An
+# image that carried it would be a licence breach, not an oversized layer
+# (ADR-0019). `**/` because Docker anchors a bare `data/` at the context root,
+# and the default database lives in `backend/data/`.
+**/data/
+**/*.db
+**/*.db-*
+**/*.sqlite3
+
+# Secrets (rule 7). The example carries no values and documents the variables.
+**/.env
+**/.env.*
+!**/.env.example
+
+.git
+**/node_modules
+**/.venv
+**/__pycache__
+**/.mypy_cache
+**/.pytest_cache
+**/.ruff_cache

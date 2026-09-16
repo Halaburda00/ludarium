@@ -1071,22 +1071,27 @@ async def test_one_account_syncing_does_not_block_another(session: AsyncSession)
     assert run.status is SyncStatus.SUCCESS
 
 
-async def test_metadata_runs_carry_no_account_and_never_collide(session: AsyncSession) -> None:
-    """IGDB and RAWG sync no account, so several of their runs are open by design.
+async def test_a_run_without_an_account_never_collides_with_an_accounts(
+    session: AsyncSession, account: Account
+) -> None:
+    """Enrichment runs sync no account, and the per-account rule is not theirs.
+
+    They have a rule of their own — one open per provider (ADR-0019) — and a
+    Steam enrichment must not wait on a Steam sync, nor the other way round.
 
     The `account_id IS NOT NULL` half of the index predicate cannot be tested
     apart from this: both SQLite and PostgreSQL already treat nulls in a unique
     index as distinct, so dropping it changes nothing either dialect does. It is
-    written anyway, because "metadata providers are outside this rule" should be
-    readable in the predicate rather than deduced from two dialects agreeing.
+    written anyway, because "runs without an account are outside this rule"
+    should be readable in the predicate rather than deduced from two dialects
+    agreeing.
     """
 
-    provider = await make_provider(session, key="igdb")
-    for _ in range(2):
+    for account_id in (account.id, None):
         session.add(
             sync_module.SyncRun(
-                provider_id=provider.id,
-                account_id=None,
+                provider_id=account.provider_id,
+                account_id=account_id,
                 trigger=SyncTrigger.SCHEDULED,
                 status=SyncStatus.RUNNING,
             )

@@ -1,4 +1,5 @@
 from ludarium.models.base import Base
+from ludarium.models.cache import FetchCache
 from ludarium.models.catalogue import Edition, Work
 from ludarium.models.identity import AppUser, UserSession
 from ludarium.models.ownership import Entitlement, EntitlementWork
@@ -14,6 +15,7 @@ __all__ = [
     "Edition",
     "Entitlement",
     "EntitlementWork",
+    "FetchCache",
     "FieldProvenance",
     "Provider",
     "SyncRun",

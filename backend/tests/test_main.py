@@ -24,7 +24,7 @@ def test_startup_seeds_the_providers(client: TestClient, settings: Settings) -> 
     finally:
         engine.dispose()
 
-    assert keys == {"steam", "manual"}
+    assert keys == {"steam", "igdb", "manual"}
 
 
 def test_startup_without_a_schema_says_what_to_run(settings: Settings) -> None:
