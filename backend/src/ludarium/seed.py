@@ -50,6 +50,15 @@ PROVIDER_SEED: tuple[ProviderSpec, ...] = (
         licence_class=LicenceClass.RUNTIME_ONLY,
     ),
     ProviderSpec(
+        key="steam_store",
+        kind=ProviderKind.METADATA,
+        # Steam describing its own apps, so it sits where Steam does on the
+        # ladder rather than with the metadata providers. A row of its own so
+        # that a store outage is not reported as the library's (ADR-0020).
+        source_kind=SourceKind.PLATFORM_API,
+        display_name="Steam Store",
+    ),
+    ProviderSpec(
         key="manual",
         kind=ProviderKind.MANUAL,
         source_kind=SourceKind.MANUAL,
