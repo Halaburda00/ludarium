@@ -25,17 +25,22 @@ def test_every_provider_column_is_either_seeded_or_runtime() -> None:
     assert columns == set(ProviderSpec.__dataclass_fields__) | runtime
 
 
-async def test_seeds_steam_and_manual(session: AsyncSession) -> None:
+async def test_seeds_steam_igdb_and_manual(session: AsyncSession) -> None:
     await seed_providers(session)
 
     providers = {provider.key: provider for provider in await session.scalars(select(Provider))}
 
-    assert set(providers) == {"steam", "manual"}
+    assert set(providers) == {"steam", "igdb", "manual"}
     steam = providers["steam"]
     assert steam.kind is ProviderKind.PLATFORM
     assert steam.source_kind is SourceKind.PLATFORM_API
     assert steam.licence_class is LicenceClass.REDISTRIBUTABLE
     assert steam.store_url_template == "https://store.steampowered.com/app/{id}"
+    igdb = providers["igdb"]
+    assert igdb.kind is ProviderKind.METADATA
+    assert igdb.source_kind is SourceKind.METADATA_PROVIDER
+    # What keeps IGDB's data out of every export.
+    assert igdb.licence_class is LicenceClass.RUNTIME_ONLY
     manual = providers["manual"]
     assert manual.kind is ProviderKind.MANUAL
     assert manual.source_kind is SourceKind.MANUAL
@@ -122,7 +127,7 @@ async def test_a_second_instance_seeds_behind_the_first(db: Database) -> None:
 
     async with db.session_factory() as reader:
         providers = {row.key: row.display_name for row in await reader.scalars(select(Provider))}
-    assert providers == {"steam": "Steam", "manual": "Manual entry"}
+    assert providers == {"steam": "Steam", "igdb": "IGDB", "manual": "Manual entry"}
 
 
 async def test_a_key_the_running_code_would_not_compute_is_rewritten(

@@ -34,6 +34,18 @@ shape moves.
 
 ### Added
 
+- The enrichment pipeline that M2a's metadata, covers and classification will
+  fetch through. What a provider answers is cached in the database, including
+  "nothing under this key", so a second run over an unchanged library asks the
+  provider nothing. Keys are asked about in batches, and each batch is committed
+  as it arrives: a run that fails halfway keeps what it fetched, and the next
+  run asks only for the rest. Enrichment never runs inside a sync's
+  transaction. Each run is recorded like a sync, with the provider's own health,
+  one open run per provider, and an outage reported as a failed run rather than
+  an error. IGDB is now a seeded provider, marked as data that may not leave the
+  instance. The data directory is excluded from the Docker build context as
+  well as from git, and a test checks both. Nothing triggers enrichment yet:
+  that arrives with the first step to run in it.
 - An IGDB client, the first piece of M2a. It authenticates through a Twitch
   application, enforces both of IGDB's documented limits — four requests a
   second and eight open at once — once per application however many clients
