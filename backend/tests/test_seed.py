@@ -30,12 +30,16 @@ async def test_seeds_steam_igdb_and_manual(session: AsyncSession) -> None:
 
     providers = {provider.key: provider for provider in await session.scalars(select(Provider))}
 
-    assert set(providers) == {"steam", "igdb", "manual"}
+    assert set(providers) == {"steam", "steam_store", "igdb", "manual"}
     steam = providers["steam"]
     assert steam.kind is ProviderKind.PLATFORM
     assert steam.source_kind is SourceKind.PLATFORM_API
     assert steam.licence_class is LicenceClass.REDISTRIBUTABLE
     assert steam.store_url_template == "https://store.steampowered.com/app/{id}"
+    store = providers["steam_store"]
+    assert store.kind is ProviderKind.METADATA
+    # Steam's word about its own apps, ranked with Steam's rather than below it.
+    assert store.source_kind is SourceKind.PLATFORM_API
     igdb = providers["igdb"]
     assert igdb.kind is ProviderKind.METADATA
     assert igdb.source_kind is SourceKind.METADATA_PROVIDER
@@ -127,7 +131,12 @@ async def test_a_second_instance_seeds_behind_the_first(db: Database) -> None:
 
     async with db.session_factory() as reader:
         providers = {row.key: row.display_name for row in await reader.scalars(select(Provider))}
-    assert providers == {"steam": "Steam", "igdb": "IGDB", "manual": "Manual entry"}
+    assert providers == {
+        "steam": "Steam",
+        "steam_store": "Steam Store",
+        "igdb": "IGDB",
+        "manual": "Manual entry",
+    }
 
 
 async def test_a_key_the_running_code_would_not_compute_is_rewritten(

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ludarium import steps as steps_module
 from ludarium.api import works as works_module
 from ludarium.enums import EntitlementOrigin, WorkLinkRole
 from ludarium.models import (
@@ -36,6 +37,13 @@ LIBRARY = ["Dota 2", "Portal 2", "The Witcher 3: Wild Hunt"]
 
 def recorded(name: str) -> Any:
     return json.loads((FIXTURES / name).read_text())
+
+
+@pytest.fixture(autouse=True)
+def no_enrichment_after_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    """What a sync triggers is `test_enrichment_api`'s subject, and it asks the store."""
+
+    monkeypatch.setattr(steps_module, "FOLLOWS", {})
 
 
 @pytest.fixture

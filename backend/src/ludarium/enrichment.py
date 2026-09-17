@@ -62,12 +62,16 @@ class _Progress:
 
 
 class EnrichmentRun:
-    """One open run: its id for the provenance rows a step writes, and a cached fetch."""
+    """One open run: its id for the provenance rows a step writes, and a cached fetch.
+
+    `database` is the step's too. A step reads what to ask about and writes what
+    it learned in sessions of its own, never one held open across `fetch`.
+    """
 
     def __init__(
         self, database: Database, *, run_id: int, provider_id: int, progress: _Progress
     ) -> None:
-        self._database = database
+        self.database = database
         self.id = run_id
         self.provider_id = provider_id
         self._progress = progress
@@ -124,7 +128,7 @@ class EnrichmentRun:
     ) -> dict[str, Payload | None]:
         oldest = None if max_age is None else utcnow() - max_age
         found: dict[str, Payload | None] = {}
-        async with self._database.reading_session_factory() as session:
+        async with self.database.reading_session_factory() as session:
             for batch in in_batches(keys):
                 rows = await session.execute(
                     select(FetchCache.key, FetchCache.payload, FetchCache.fetched_at).where(
@@ -143,7 +147,7 @@ class EnrichmentRun:
         # IMMEDIATE transaction and the unique constraint are the backstop if
         # that ever stops being true (ADR-0017).
         moment = utcnow()
-        async with self._database.writing_session_factory() as session:
+        async with self.database.writing_session_factory() as session:
             existing: dict[str, FetchCache] = {}
             for batch in in_batches(list(records)):
                 for cached in await session.scalars(
