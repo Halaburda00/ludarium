@@ -18,6 +18,7 @@ from ludarium.providers.igdb import (
     TokenStore,
 )
 from ludarium.providers.steam import SteamCredentials, SteamProvider
+from ludarium.providers.steam_store import SteamStoreClient
 
 __all__ = [
     "AppToken",
@@ -36,5 +37,6 @@ __all__ = [
     "RequestLimiter",
     "SteamCredentials",
     "SteamProvider",
+    "SteamStoreClient",
     "TokenStore",
 ]
