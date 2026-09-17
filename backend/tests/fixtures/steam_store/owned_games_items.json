@@ -1,0 +1,155 @@
+{
+  "response": {
+    "store_items": [
+      {
+        "item_type": 0,
+        "id": 292030,
+        "success": 1,
+        "visible": true,
+        "name": "The Witcher 3: Wild Hunt - Complete Edition",
+        "store_url_path": "app/292030/The_Witcher_3_Wild_Hunt_Complete_Edition",
+        "store_url_slug": "The_Witcher_3_Wild_Hunt_Complete_Edition",
+        "appid": 292030,
+        "type": 0,
+        "content_descriptorids": [
+          1,
+          5
+        ],
+        "categories": {
+          "supported_player_categoryids": [
+            2
+          ],
+          "feature_categoryids": [
+            22,
+            29,
+            30,
+            64,
+            66,
+            67,
+            68,
+            69,
+            70,
+            74,
+            78,
+            79,
+            23,
+            42,
+            43,
+            61,
+            62
+          ],
+          "controller_categoryids": [
+            18
+          ]
+        },
+        "best_purchase_option": {
+          "packageid": 68476,
+          "purchase_option_name": "The Witcher 3: Wild Hunt - Complete Edition",
+          "final_price_in_cents": "4999",
+          "formatted_final_price": "$49.99",
+          "user_can_purchase_as_gift": true,
+          "hide_discount_pct_for_compliance": false,
+          "included_game_count": 1,
+          "must_purchase_as_set": false,
+          "package_group": "default",
+          "price_cannot_be_displayed_as_discount": false
+        }
+      },
+      {
+        "item_type": 0,
+        "id": 620,
+        "success": 1,
+        "visible": true,
+        "name": "Portal 2",
+        "store_url_path": "app/620/Portal_2",
+        "store_url_slug": "Portal_2",
+        "appid": 620,
+        "type": 0,
+        "categories": {
+          "supported_player_categoryids": [
+            2,
+            1,
+            9,
+            38,
+            39,
+            24
+          ],
+          "feature_categoryids": [
+            22,
+            29,
+            13,
+            30,
+            51,
+            67,
+            68,
+            69,
+            70,
+            74,
+            79,
+            23,
+            15,
+            17,
+            14,
+            41,
+            42,
+            43,
+            44,
+            62
+          ],
+          "controller_categoryids": [
+            28,
+            55,
+            56,
+            57,
+            58,
+            59
+          ]
+        },
+        "best_purchase_option": {
+          "packageid": 7877,
+          "purchase_option_name": "Portal 2",
+          "final_price_in_cents": "999",
+          "formatted_final_price": "$9.99",
+          "user_can_purchase_as_gift": true,
+          "hide_discount_pct_for_compliance": false,
+          "included_game_count": 1,
+          "must_purchase_as_set": false,
+          "package_group": "default",
+          "price_cannot_be_displayed_as_discount": false
+        }
+      },
+      {
+        "item_type": 0,
+        "id": 570,
+        "success": 1,
+        "visible": true,
+        "name": "Dota 2",
+        "store_url_path": "app/570/Dota_2",
+        "store_url_slug": "Dota_2",
+        "appid": 570,
+        "type": 0,
+        "is_free": true,
+        "content_descriptorids": [
+          5
+        ],
+        "categories": {
+          "supported_player_categoryids": [
+            1,
+            9
+          ],
+          "feature_categoryids": [
+            29,
+            30,
+            40,
+            35,
+            66,
+            67,
+            68,
+            8,
+            63
+          ]
+        }
+      }
+    ]
+  }
+}

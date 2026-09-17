@@ -96,7 +96,7 @@ rows too, so that every entitlement has a source and no FK needs to be nullable.
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
 | `id` | INTEGER | no | PK | |
-| `key` | TEXT | no | | `UNIQUE`. `steam`, `gog`, `epic`, `ea`, `ubisoft`, `battlenet`, `igdb`, `rawg`, `galaxy`, `agent`, `manual` |
+| `key` | TEXT | no | | `UNIQUE`. `steam`, `steam_store`, `gog`, `epic`, `ea`, `ubisoft`, `battlenet`, `igdb`, `rawg`, `galaxy`, `agent`, `manual` |
 | `kind` | TEXT | no | | `ProviderKind` |
 | `source_kind` | TEXT | no | | `SourceKind` this provider writes with |
 | `licence_class` | TEXT | no | `'redistributable'` | `runtime_only` rows are excluded from every export |

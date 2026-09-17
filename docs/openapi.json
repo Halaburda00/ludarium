@@ -831,6 +831,65 @@
         ]
       }
     },
+    "/api/enrichment/{provider}": {
+      "post": {
+        "description": "Run the provider's step and report the run, which may have failed.\n\nA failure is a status, as a sync's is, so the answer is 200 either way. 409\nis kept for the one thing the caller did: asking while a run is open.",
+        "operationId": "run_api_enrichment__provider__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run",
+        "tags": [
+          "enrichment"
+        ]
+      }
+    },
     "/api/health": {
       "get": {
         "operationId": "health_api_health_get",
@@ -903,7 +962,7 @@
     },
     "/api/sync/{provider}": {
       "post": {
-        "description": "Sync every account of one provider and report each run.\n\nA list rather than one run because a platform may have several accounts\n(M4), and one of them failing is not the others' problem \u2014 `sync_account`\nturns a provider failure into a run status precisely so this loop does not\nhave to catch anything to keep rule 4.\n\n`SyncInProgressError` is the only exception, and it is the caller's answer\nrather than a run's: the double-click that produced it wants 409, not a\nsecond run. Everything else \u2014 including a credential that will not decrypt \u2014\nreaches `library_for` and comes back as a failed run, so one broken account\ncannot end a request that the others were about to complete.",
+        "description": "Sync every account of one provider and report each run.\n\nA list rather than one run because a platform may have several accounts\n(M4), and one of them failing is not the others' problem \u2014 `sync_account`\nturns a provider failure into a run status precisely so this loop does not\nhave to catch anything to keep rule 4.\n\n`SyncInProgressError` is the only exception, and it is the caller's answer\nrather than a run's: the double-click that produced it wants 409, not a\nsecond run. Everything else \u2014 including a credential that will not decrypt \u2014\nreaches `library_for` and comes back as a failed run, so one broken account\ncannot end a request that the others were about to complete.\n\nEnrichment follows once any account synced, after the response has gone:\nthe store is asked about what the sync added, and a store that is slow or\ndown neither delays nor fails the sync that already landed (rule 4). A sync\nwhere every account failed stored nothing new, and triggers nothing.",
         "operationId": "run_api_sync__provider__post",
         "parameters": [
           {

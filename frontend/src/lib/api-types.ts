@@ -71,6 +71,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/enrichment/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run
+         * @description Run the provider's step and report the run, which may have failed.
+         *
+         *     A failure is a status, as a sync's is, so the answer is 200 either way. 409
+         *     is kept for the one thing the caller did: asking while a run is open.
+         */
+        post: operations["run_api_enrichment__provider__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -128,6 +151,11 @@ export interface paths {
          *     second run. Everything else — including a credential that will not decrypt —
          *     reaches `library_for` and comes back as a failed run, so one broken account
          *     cannot end a request that the others were about to complete.
+         *
+         *     Enrichment follows once any account synced, after the response has gone:
+         *     the store is asked about what the sync added, and a store that is slow or
+         *     down neither delays nor fails the sync that already landed (rule 4). A sync
+         *     where every account failed stored nothing new, and triggers nothing.
          */
         post: operations["run_api_sync__provider__post"];
         delete?: never;
@@ -529,6 +557,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_api_enrichment__provider__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncRunResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
