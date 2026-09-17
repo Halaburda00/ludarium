@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from conftest import make_provider, make_work
+from conftest import make_account, make_provider, make_work
 from sqlalchemy import event, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -436,6 +436,35 @@ async def test_an_abandoned_run_stops_blocking_the_provider(
     assert run.status is SyncStatus.SUCCESS
     assert orphan.status is SyncStatus.FAILED
     assert orphan.error_text == "abandoned; no process was left to finish it"
+
+
+async def test_only_the_provider_s_own_unattached_orphans_are_reclaimed(
+    db: Database, session: AsyncSession, igdb: Provider
+) -> None:
+    """An abandoned sync of an account, or another provider's run, is not this run's to close."""
+
+    rawg = await make_provider(session, key="rawg")
+    account = await make_account(session, key="igdb")
+    long_ago = utcnow() - ORPHAN_AFTER - timedelta(minutes=1)
+    others = [
+        SyncRun(
+            provider_id=rawg.id, account_id=None, trigger=SyncTrigger.MANUAL, started_at=long_ago
+        ),
+        SyncRun(
+            provider_id=igdb.id,
+            account_id=account.id,
+            trigger=SyncTrigger.MANUAL,
+            started_at=long_ago,
+        ),
+    ]
+    session.add_all(others)
+    await session.commit()
+
+    await enrich(db, provider="igdb", step=fetching(FakeProvider({}), ["1"]))
+
+    for run in others:
+        await session.refresh(run)
+    assert [run.status for run in others] == [SyncStatus.RUNNING, SyncStatus.RUNNING]
 
 
 async def test_a_recent_open_run_is_not_taken_for_an_orphan(

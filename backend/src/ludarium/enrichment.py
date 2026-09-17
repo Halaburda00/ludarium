@@ -22,7 +22,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from ludarium.db import Database
 from ludarium.enums import SyncStatus, SyncTrigger
@@ -31,7 +31,7 @@ from ludarium.models.cache import Payload
 from ludarium.models.types import utcnow
 from ludarium.providers import ProviderError
 from ludarium.queries import in_batches
-from ludarium.sync import ORPHAN_AFTER
+from ludarium.sync import reclaim_orphans
 
 # Every key the batch was asked about that the provider knows, and nothing else.
 # A key left out is recorded as absent, so a fetch that truncates its answer —
@@ -205,23 +205,10 @@ async def _open(database: Database, *, provider: str, trigger: SyncTrigger) -> S
         reporter = await session.scalar(select(Provider).where(Provider.key == provider))
         if reporter is None:
             raise EnrichmentError(f"no provider row for `{provider}`; the seed is out of step")
-        unattached = (
-            SyncRun.provider_id == reporter.id,
-            SyncRun.account_id.is_(None),
-            SyncRun.status == SyncStatus.RUNNING,
-        )
-        # The orphan a killed process leaves, closed as `sync._reclaim` closes
-        # one, and on the same threshold.
-        await session.execute(
-            update(SyncRun)
-            .where(*unattached, SyncRun.started_at < utcnow() - ORPHAN_AFTER)
-            .values(
-                status=SyncStatus.FAILED,
-                finished_at=utcnow(),
-                error_text="abandoned; no process was left to finish it",
-            )
-        )
-        if await session.scalar(select(SyncRun.id).where(*unattached)) is not None:
+        unattached = (SyncRun.provider_id == reporter.id, SyncRun.account_id.is_(None))
+        await reclaim_orphans(session, *unattached)
+        open_run = select(SyncRun.id).where(*unattached, SyncRun.status == SyncStatus.RUNNING)
+        if await session.scalar(open_run) is not None:
             raise EnrichmentInProgressError(f"`{provider}` is already enriching")
         run = SyncRun(provider_id=reporter.id, account_id=None, trigger=trigger)
         session.add(run)

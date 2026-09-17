@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from typing import Final
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import ColumnElement, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -246,6 +246,17 @@ async def _open_run(session: AsyncSession, account_id: int) -> SyncRun | None:
 async def _reclaim(session: AsyncSession, *, account_id: int) -> None:
     """Close an orphan so one killed process does not lock the account out for good.
 
+    Flushed, not committed. The update rides on the insert that follows it, so a
+    sync costs one transaction rather than two — and the reclaim survives
+    exactly when the run it made room for does.
+    """
+
+    await reclaim_orphans(session, SyncRun.account_id == account_id)
+
+
+async def reclaim_orphans(session: AsyncSession, *which: ColumnElement[bool]) -> None:
+    """Close every open run among `which` that no process is left to finish.
+
     `_close` covers cancellation and every exception, so what is left is a hard
     kill between the first commit and the second — the row says `running` and
     nothing is left alive to finish it. Marked `failed`, never `success`, so it
@@ -257,15 +268,14 @@ async def _reclaim(session: AsyncSession, *, account_id: int) -> None:
     could then race the run that replaced it. That is what makes the number
     generous rather than tight.
 
-    Flushed, not committed. The update rides on the insert that follows it, so a
-    sync costs one transaction rather than two — and the reclaim survives
-    exactly when the run it made room for does.
+    One definition for syncs and enrichment runs alike, which differ only in
+    what they claim — an account, or a provider with no account.
     """
 
     await session.execute(
         update(SyncRun)
         .where(
-            SyncRun.account_id == account_id,
+            *which,
             SyncRun.status == SyncStatus.RUNNING,
             SyncRun.started_at < utcnow() - ORPHAN_AFTER,
         )
