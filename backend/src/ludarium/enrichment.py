@@ -89,6 +89,11 @@ class EnrichmentRun:
 
         The provider is asked `batch_size` keys at a time, and each batch is
         committed before the next is asked for.
+
+        Calls may overlap, within a run as across runs: each store is its own
+        IMMEDIATE transaction, so the later one updates the rows the earlier
+        one inserted. Keys still in flight are not shared between calls,
+        though, so overlapping calls over the same keys ask the provider twice.
         """
 
         if batch_size < 1:

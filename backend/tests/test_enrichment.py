@@ -244,6 +244,37 @@ async def test_providers_and_resources_are_cached_apart(
     assert provider.batches == [["72"], ["72"], ["72"]]
 
 
+async def test_overlapping_fetches_in_one_run_store_each_key_once(
+    db: Database, igdb: Provider
+) -> None:
+    """Both look the keys up before either stores them, and neither fails.
+
+    The second store waits at `BEGIN IMMEDIATE` until the first commits, and
+    then finds the rows to update rather than inserting beside them
+    (ADR-0017). What overlap does cost is the request: the provider is asked
+    twice, because nothing deduplicates keys that are still in flight.
+    """
+
+    asked: list[list[str]] = []
+
+    async def slow(keys: Sequence[str]) -> Mapping[str, Payload]:
+        asked.append(list(keys))
+        # Long enough that both calls are past the cache lookup before either stores.
+        await asyncio.sleep(0.05)
+        return {key: {"id": key} for key in keys}
+
+    async def overlapping(run: EnrichmentRun) -> None:
+        await asyncio.gather(
+            *(run.fetch(RESOURCE, ["1", "2", "3"], fetch=slow, batch_size=10) for _ in range(2))
+        )
+
+    run = await enrich(db, provider="igdb", step=overlapping)
+
+    assert run.status is SyncStatus.SUCCESS
+    assert asked == [["1", "2", "3"], ["1", "2", "3"]]
+    assert await cached(db) == {key: {"id": key} for key in ("1", "2", "3")}
+
+
 async def test_a_failed_batch_keeps_the_batches_before_it(db: Database, igdb: Provider) -> None:
     """Nothing enrichment does removes anything, so partial progress is simply progress."""
 
