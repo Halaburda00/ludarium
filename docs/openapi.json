@@ -217,6 +217,7 @@
           "game",
           "dlc",
           "demo",
+          "playtest",
           "soundtrack",
           "video",
           "tool",
@@ -534,7 +535,14 @@
             "type": "boolean"
           },
           "item_kind": {
-            "$ref": "#/components/schemas/ItemKind"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ItemKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "last_played_at": {
             "anyOf": [

@@ -35,7 +35,7 @@ where nothing writes them yet.
 | Enum | Values |
 |---|---|
 | `OwnershipType` | `owned`, `subscription`, `free`, `family_shared`, `trial`, `physical` |
-| `ItemKind` | `game`, `dlc`, `demo`, `soundtrack`, `video`, `tool`, `mod` |
+| `ItemKind` | `game`, `dlc`, `demo`, `playtest`, `soundtrack`, `video`, `tool`, `mod` |
 | `PlayStatus` | `not_started`, `playing`, `completed`, `mastered`, `dropped`, `on_hold`, `wishlist` |
 
 Supporting enums introduced by this document:
@@ -241,7 +241,7 @@ than a creation with a different code path.
 | `sort_title` | TEXT | no | | Leading article moved, so "The Witcher 3" files under W. Resolved and settable by hand, so it keeps the case and spelling it was given. Display logic, and it stays in Ludarium |
 | `sort_key` | TEXT | no | | `sort_title` folded for comparison — case, accents, `™`/`®`/`©`, runs of whitespace — and what the grid orders by; drives keyset pagination. Derived by the model on every assignment to `sort_title`, never assigned directly, and not a provenance field: nothing asserts it. `COLLATE "C"` on PostgreSQL so it compares by code point as SQLite does, and rewritten at startup wherever the running code would compute it differently (ADR-0018) |
 | `normalised_title` | TEXT | yes | | Matcher normalisation output: lowercased, punctuation and edition markers stripped, roman numerals folded. Nullable because it is `ludamatch`'s output (MIT, separate repository) and nothing writes it before M2 — populating it here would put matcher code in the wrong repository, to be extracted later. `sort_title` is the display-side counterpart and stays `NOT NULL` |
-| `item_kind` | TEXT | no | `'game'` | `ItemKind` |
+| `item_kind` | TEXT | yes | | `ItemKind`. Null until a source has classified the work: an unclassified stub is not a game, and the matcher takes only what is known to be one (ADR-0020) |
 | `parent_work_id` | INTEGER | yes | | Self-FK. DLC folded under its parent game in the grid (M3) |
 | `release_year` | INTEGER | yes | | Year only; day-level precision is noise for filtering |
 | `release_date` | DATE | yes | | Kept when known |

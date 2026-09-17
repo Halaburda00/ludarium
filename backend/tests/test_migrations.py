@@ -389,3 +389,84 @@ def test_the_revision_gives_postgresql_the_collation_the_model_declares(settings
     modelled = Work.__table__.c.sort_key.type.compile(dialect=dialect)
 
     assert migrated == modelled == 'TEXT COLLATE "C"'
+
+
+SEED_BEFORE_UNCLASSIFIED = (
+    "INSERT INTO app_user (id, username, password_hash) VALUES (1, 'owner', 'x')",
+    "INSERT INTO provider (id, key, kind, source_kind, display_name) "
+    "VALUES (1, 'steam', 'platform', 'platform_api', 'Steam')",
+    "INSERT INTO account (id, provider_id, label) VALUES (1, 1, 'Main')",
+    # The default nobody chose, a kind nobody asserted, and a `game` a source did.
+    "INSERT INTO work (id, title, sort_title, sort_key) VALUES (1, 'Stub', 'Stub', 'stub')",
+    "INSERT INTO work (id, title, sort_title, sort_key, item_kind) "
+    "VALUES (2, 'Blood and Wine', 'Blood and Wine', 'blood and wine', 'dlc')",
+    "INSERT INTO work (id, title, sort_title, sort_key) VALUES (3, 'Prey', 'Prey', 'prey')",
+    "INSERT INTO field_provenance (entity_type, entity_id, field, source_kind, source_ref, "
+    "value, is_effective, observed_at) VALUES ('work', 3, 'item_kind', 'metadata_provider', "
+    "'igdb', '\"game\"', 1, CURRENT_TIMESTAMP)",
+)
+
+
+def run_sql(url: str, *statements: str) -> None:
+    engine = create_engine(sync_url(url))
+    try:
+        with engine.begin() as connection:
+            for statement in statements:
+                connection.execute(text(statement))
+    finally:
+        engine.dispose()
+
+
+def query(url: str, statement: str) -> list[tuple[object, ...]]:
+    engine = create_engine(sync_url(url))
+    try:
+        with engine.connect() as connection:
+            return [tuple(row) for row in connection.execute(text(statement))]
+    finally:
+        engine.dispose()
+
+
+def test_only_the_default_nobody_asserted_becomes_unclassified(settings: Settings) -> None:
+    """`game` was the column's default, so on a stub it says nothing and becomes null.
+
+    A `game` some source asserted is an answer and stays one, which is the half
+    a blanket `UPDATE` would get wrong.
+    """
+
+    config = alembic_config(settings.database_url)
+    command.upgrade(config, "870cd4b67e0c")
+    run_sql(settings.database_url, *SEED_BEFORE_UNCLASSIFIED)
+
+    command.upgrade(config, "head")
+
+    kinds = query(settings.database_url, "SELECT id, item_kind FROM work ORDER BY id")
+    assert kinds == [(1, None), (2, "dlc"), (3, "game")]
+
+
+def test_a_playtest_is_accepted_and_a_downgrade_takes_it_back_out(settings: Settings) -> None:
+    """The downgrade is lossy, and the older schema must still accept what it leaves."""
+
+    config = alembic_config(settings.database_url)
+    command.upgrade(config, "870cd4b67e0c")
+    run_sql(settings.database_url, *SEED_BEFORE_UNCLASSIFIED)
+    command.upgrade(config, "head")
+    run_sql(
+        settings.database_url,
+        "UPDATE work SET item_kind = 'playtest' WHERE id = 2",
+        "INSERT INTO entitlement (id, account_id, provider_item_id, provider_title, item_kind) "
+        "VALUES (1, 1, '1611740', 'BattleBit Remastered Playtest', 'playtest')",
+        "INSERT INTO field_provenance (entity_type, entity_id, field, source_kind, source_ref, "
+        "value, is_effective, observed_at) VALUES ('work', 2, 'item_kind', 'platform_api', "
+        "'steam_store', '\"playtest\"', 1, CURRENT_TIMESTAMP)",
+    )
+
+    command.downgrade(config, "870cd4b67e0c")
+
+    url = settings.database_url
+    assert query(url, "SELECT id, item_kind FROM work ORDER BY id") == [
+        (1, "game"),
+        (2, "game"),
+        (3, "game"),
+    ]
+    assert query(url, "SELECT item_kind FROM entitlement") == [(None,)]
+    assert query(url, "SELECT source_ref FROM field_provenance") == [("igdb",)]

@@ -257,7 +257,7 @@ export interface components {
          * ItemKind
          * @enum {string}
          */
-        ItemKind: "game" | "dlc" | "demo" | "soundtrack" | "video" | "tool" | "mod";
+        ItemKind: "game" | "dlc" | "demo" | "playtest" | "soundtrack" | "video" | "tool" | "mod";
         /**
          * LoginRequest
          * @description Bounded, because this is the one endpoint that answers before authenticating.
@@ -384,7 +384,7 @@ export interface components {
             is_hidden: boolean;
             /** Is Matched */
             is_matched: boolean;
-            item_kind: components["schemas"]["ItemKind"];
+            item_kind: components["schemas"]["ItemKind"] | null;
             /** Last Played At */
             last_played_at: string | null;
             play_status: components["schemas"]["PlayStatus"];
