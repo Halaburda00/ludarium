@@ -1,0 +1,244 @@
+{
+  "response": {
+    "store_items": [
+      {
+        "item_type": 0,
+        "id": 1611740,
+        "success": 1,
+        "visible": true,
+        "name": "BattleBit Remastered Playtest",
+        "store_url_path": "app/1611740/BattleBit_Remastered_Playtest",
+        "store_url_slug": "BattleBit_Remastered_Playtest",
+        "appid": 1611740,
+        "type": 12,
+        "related_items": {
+          "parent_appid": 671860
+        },
+        "categories": {}
+      },
+      {
+        "item_type": 0,
+        "id": 35420,
+        "success": 1,
+        "visible": true,
+        "name": "Defence Alliance 2",
+        "store_url_path": "app/35420/Defence_Alliance_2",
+        "store_url_slug": "Defence_Alliance_2",
+        "appid": 35420,
+        "type": 2,
+        "related_items": {
+          "parent_appid": 1250
+        },
+        "categories": {
+          "supported_player_categoryids": [
+            2,
+            1,
+            9
+          ],
+          "feature_categoryids": [
+            62
+          ]
+        },
+        "unlisted": true
+      },
+      {
+        "item_type": 0,
+        "id": 235900,
+        "success": 1,
+        "visible": true,
+        "name": "RPG Maker XP",
+        "store_url_path": "app/235900/RPG_Maker_XP",
+        "store_url_slug": "RPG_Maker_XP",
+        "appid": 235900,
+        "type": 6,
+        "categories": {
+          "supported_player_categoryids": [
+            2
+          ]
+        },
+        "best_purchase_option": {
+          "packageid": 35505,
+          "purchase_option_name": "RPG Maker XP",
+          "final_price_in_cents": "2499",
+          "formatted_final_price": "$24.99",
+          "user_can_purchase_as_gift": true,
+          "hide_discount_pct_for_compliance": false,
+          "included_game_count": 0,
+          "must_purchase_as_set": false,
+          "package_group": "default",
+          "price_cannot_be_displayed_as_discount": false
+        }
+      },
+      {
+        "item_type": 0,
+        "id": 594650,
+        "success": 1,
+        "visible": true,
+        "name": "Hunt: Showdown 1896",
+        "store_url_path": "app/594650/Hunt_Showdown_1896",
+        "store_url_slug": "Hunt_Showdown_1896",
+        "appid": 594650,
+        "type": 0,
+        "content_descriptorids": [
+          2,
+          5
+        ],
+        "categories": {
+          "supported_player_categoryids": [
+            1,
+            49,
+            36,
+            9,
+            38
+          ],
+          "feature_categoryids": [
+            22,
+            29,
+            35,
+            25,
+            42,
+            43
+          ],
+          "controller_categoryids": [
+            28
+          ]
+        },
+        "best_purchase_option": {
+          "packageid": 155279,
+          "purchase_option_name": "Hunt: Showdown 1896",
+          "final_price_in_cents": "1199",
+          "original_price_in_cents": "2999",
+          "formatted_final_price": "$11.99",
+          "formatted_original_price": "$29.99",
+          "discount_pct": 60,
+          "active_discounts": [
+            {
+              "discount_amount": "1800",
+              "discount_description": "#discount_desc_preset_special",
+              "discount_end_date": 1790010000
+            }
+          ],
+          "user_can_purchase_as_gift": true,
+          "hide_discount_pct_for_compliance": false,
+          "included_game_count": 1,
+          "must_purchase_as_set": false,
+          "package_group": "default",
+          "price_cannot_be_displayed_as_discount": false
+        }
+      },
+      {
+        "item_type": 0,
+        "id": 770720,
+        "success": 1,
+        "visible": true,
+        "name": "Hunt: Showdown 1896 (Test Server)",
+        "store_url_path": "app/770720/Hunt_Showdown_1896_Test_Server",
+        "store_url_slug": "Hunt_Showdown_1896_Test_Server",
+        "appid": 770720,
+        "type": 0,
+        "content_descriptorids": [
+          5
+        ],
+        "categories": {
+          "feature_categoryids": [
+            62
+          ]
+        },
+        "unlisted": true
+      },
+      {
+        "item_type": 0,
+        "id": 378649,
+        "success": 1,
+        "visible": true,
+        "name": "The Witcher 3: Wild Hunt - Hearts of Stone",
+        "store_url_path": "app/378649/The_Witcher_3_Wild_Hunt_Hearts_of_Stone",
+        "store_url_slug": "The_Witcher_3_Wild_Hunt_Hearts_of_Stone",
+        "appid": 378649,
+        "type": 4,
+        "related_items": {
+          "parent_appid": 292030
+        },
+        "content_descriptorids": [
+          1,
+          5
+        ],
+        "categories": {
+          "supported_player_categoryids": [
+            2
+          ],
+          "feature_categoryids": [
+            22,
+            29,
+            64,
+            66,
+            67,
+            68,
+            69,
+            70,
+            74,
+            78,
+            79,
+            23,
+            61,
+            62
+          ],
+          "controller_categoryids": [
+            28
+          ]
+        },
+        "unlisted": true
+      },
+      {
+        "item_type": 0,
+        "id": 323180,
+        "success": 1,
+        "visible": true,
+        "name": "Portal 2 Soundtrack",
+        "store_url_path": "app/323180/Portal_2_Soundtrack",
+        "store_url_slug": "Portal_2_Soundtrack",
+        "appid": 323180,
+        "type": 11,
+        "is_free": true,
+        "related_items": {
+          "parent_appid": 620
+        },
+        "categories": {
+          "feature_categoryids": [
+            50
+          ]
+        }
+      },
+      {
+        "item_type": 0,
+        "id": 35020,
+        "success": 1,
+        "visible": true,
+        "name": "Batman: Arkham Asylum Demo",
+        "store_url_path": "app/35020/Batman_Arkham_Asylum_Demo",
+        "store_url_slug": "Batman_Arkham_Asylum_Demo",
+        "appid": 35020,
+        "type": 1,
+        "is_free": true,
+        "related_items": {
+          "parent_appid": 35140
+        },
+        "categories": {
+          "supported_player_categoryids": [
+            2
+          ]
+        }
+      },
+      {
+        "item_type": 0,
+        "id": 227700,
+        "success": 15,
+        "visible": false,
+        "name": "",
+        "store_url_path": "app/0/",
+        "store_url_slug": "",
+        "appid": 0
+      }
+    ]
+  }
+}

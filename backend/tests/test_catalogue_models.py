@@ -11,7 +11,6 @@ from sqlalchemy.schema import CreateTable
 from ludarium.enums import (
     EntitlementOrigin,
     EntityType,
-    ItemKind,
     OwnershipType,
     PlayStatus,
     SourceKind,
@@ -45,7 +44,8 @@ async def test_round_trip_with_defaults(session: AsyncSession) -> None:
     stored_state = (await session.scalars(select(UserWorkState))).one()
 
     assert stored_work.sort_title == "Witcher 3: Wild Hunt, The"
-    assert stored_work.item_kind is ItemKind.GAME
+    # Unclassified rather than a game: nothing has said what it is yet.
+    assert stored_work.item_kind is None
     assert stored_work.is_matched is False
     # Nothing in M1 writes it; ludamatch does, in M2.
     assert stored_work.normalised_title is None

@@ -65,7 +65,8 @@ class WorkSummary(BaseModel):
     title: str
     sort_title: str
     is_matched: bool
-    item_kind: ItemKind
+    # None until something has classified it; not the same answer as `game`.
+    item_kind: ItemKind | None
     release_year: int | None
     play_status: PlayStatus
     is_favourite: bool

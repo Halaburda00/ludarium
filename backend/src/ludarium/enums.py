@@ -21,6 +21,7 @@ class ItemKind(StrEnum):
     GAME = "game"
     DLC = "dlc"
     DEMO = "demo"
+    PLAYTEST = "playtest"
     SOUNDTRACK = "soundtrack"
     VIDEO = "video"
     TOOL = "tool"

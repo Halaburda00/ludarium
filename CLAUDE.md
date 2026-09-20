@@ -149,7 +149,7 @@ Work         The Witcher 3: Wild Hunt          canonical, IGDB-anchored
 Key enums, all present from day one even if unused:
 
 - `OwnershipType`: `owned | subscription | free | family_shared | trial | physical`
-- `ItemKind`: `game | dlc | demo | soundtrack | video | tool | mod`
+- `ItemKind`: `game | dlc | demo | playtest | soundtrack | video | tool | mod`
 - `PlayStatus`: `not_started | playing | completed | mastered | dropped | on_hold | wishlist`
 
 `Provider` → `Account` (many) → `Entitlement`. A user may connect several

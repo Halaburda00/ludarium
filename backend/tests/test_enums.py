@@ -8,7 +8,7 @@ from ludarium import enums
 # document, so this list is written out rather than derived from the enums.
 EXPECTED: dict[type[StrEnum], list[str]] = {
     enums.OwnershipType: ["owned", "subscription", "free", "family_shared", "trial", "physical"],
-    enums.ItemKind: ["game", "dlc", "demo", "soundtrack", "video", "tool", "mod"],
+    enums.ItemKind: ["game", "dlc", "demo", "playtest", "soundtrack", "video", "tool", "mod"],
     enums.PlayStatus: [
         "not_started",
         "playing",

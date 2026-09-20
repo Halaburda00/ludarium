@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ludarium import steps as steps_module
 from ludarium import sync as sync_module
 from ludarium.crypto import get_cipher
 from ludarium.enums import SyncStatus, SyncTrigger
@@ -33,6 +34,13 @@ def instant_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(steam_module, "RETRY_BACKOFF_SECONDS", 0.0)
     monkeypatch.setattr(steam_module, "RETRY_MAX_WAIT_SECONDS", 0.0)
+
+
+@pytest.fixture(autouse=True)
+def no_enrichment_after_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    """What a sync triggers is `test_enrichment_api`'s subject, and it asks the store."""
+
+    monkeypatch.setattr(steps_module, "FOLLOWS", {})
 
 
 @pytest.fixture

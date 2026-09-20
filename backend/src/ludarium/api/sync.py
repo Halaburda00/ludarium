@@ -8,7 +8,7 @@ its own last runs rather than as one number for the instance.
 from datetime import datetime
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,7 @@ from ludarium.db import SessionDep
 from ludarium.enums import SyncStatus, SyncTrigger
 from ludarium.models import Account, Provider, SyncRun
 from ludarium.providers.registry import supports
+from ludarium.steps import enrich_after_sync
 from ludarium.sync import SyncInProgressError, library_for, sync_account
 
 RECENT_RUNS = 50
@@ -61,7 +62,7 @@ class SyncOverviewResponse(BaseModel):
     runs: list[SyncRunResponse]
 
 
-def _describe(run: SyncRun, provider_key: str) -> SyncRunResponse:
+def describe_run(run: SyncRun, provider_key: str) -> SyncRunResponse:
     return SyncRunResponse(
         id=run.id,
         provider=provider_key,
@@ -107,7 +108,11 @@ async def _syncable(
 
 @router.post("/{provider}")
 async def run(
-    provider: str, request: Request, session: SessionDep, record: CurrentSession
+    provider: str,
+    request: Request,
+    background: BackgroundTasks,
+    session: SessionDep,
+    record: CurrentSession,
 ) -> list[SyncRunResponse]:
     """Sync every account of one provider and report each run.
 
@@ -121,6 +126,11 @@ async def run(
     second run. Everything else — including a credential that will not decrypt —
     reaches `library_for` and comes back as a failed run, so one broken account
     cannot end a request that the others were about to complete.
+
+    Enrichment follows once any account synced, after the response has gone:
+    the store is asked about what the sync added, and a store that is slow or
+    down neither delays nor fails the sync that already landed (rule 4). A sync
+    where every account failed stored nothing new, and triggers nothing.
     """
 
     reporter, accounts = await _syncable(session, provider, record.user_id)
@@ -132,7 +142,15 @@ async def run(
             runs.append(await sync_account(session, account=account, library=library))
         except SyncInProgressError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    return [_describe(finished, reporter.key) for finished in runs]
+    if any(finished.status is SyncStatus.SUCCESS for finished in runs):
+        background.add_task(
+            enrich_after_sync,
+            request.app.state.database,
+            client,
+            library=reporter.key,
+            trigger=SyncTrigger.MANUAL,
+        )
+    return [describe_run(finished, reporter.key) for finished in runs]
 
 
 @router.get("/runs")
@@ -156,5 +174,5 @@ async def overview(session: SessionDep, record: CurrentSession) -> SyncOverviewR
             )
             for provider in providers
         ],
-        runs=[_describe(run, key) for run, key in rows],
+        runs=[describe_run(run, key) for run, key in rows],
     )

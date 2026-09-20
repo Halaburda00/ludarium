@@ -46,6 +46,17 @@ shape moves.
   instance. The data directory is excluded from the Docker build context as
   well as from git, and a test checks both. Nothing triggers enrichment yet:
   that arrives with the first step to run in it.
+- Steam items are classified by what Steam's store says they are: game, demo,
+  playtest, mod, DLC, tool or soundtrack. `GetOwnedGames` says nothing about it,
+  and the store endpoint usually used for it calls every playtest a game. The
+  store is asked after every successful Steam sync, 200 apps per request, and
+  can be asked again by hand with `POST /api/enrichment/steam_store`. A store
+  outage is reported as its own failed run and never fails the sync. A label
+  set by hand still wins. `playtest` is a new kind. A work nothing has classified
+  now reads as unclassified rather than as a game, and an upgrade clears the old
+  `game` default wherever no source asserted it. Two kinds of entry are still
+  called games, because the store has no word for them: test servers and public
+  beta clients.
 - An IGDB client, the first piece of M2a. It authenticates through a Twitch
   application, enforces both of IGDB's documented limits — four requests a
   second and eight open at once — once per application however many clients

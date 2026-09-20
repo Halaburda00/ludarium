@@ -55,11 +55,10 @@ class Work(Base):
     # Matcher logic, `ludamatch`'s (MIT, M2). Nullable because nothing in M1
     # writes it, and writing it here would put matcher code in the wrong repo.
     normalised_title: Mapped[str | None]
-    item_kind: Mapped[ItemKind] = mapped_column(
-        enum_column(ItemKind, "item_kind"),
-        default=ItemKind.GAME,
-        server_default=text(f"'{ItemKind.GAME.value}'"),
-    )
+    # Null until a source has classified the work (#41). A default of `game`
+    # made "nobody has looked" and "a game" the same value, and the matcher
+    # must be able to skip the first: a playtest is not what a stub looks like.
+    item_kind: Mapped[ItemKind | None] = mapped_column(enum_column(ItemKind, "item_kind"))
     # DLC folded under its parent game in the grid (M3).
     parent_work_id: Mapped[int | None] = mapped_column(ForeignKey("work.id", ondelete="RESTRICT"))
     # Year separately from the date: day-level precision is noise for filtering.
