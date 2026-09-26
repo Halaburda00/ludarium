@@ -707,9 +707,10 @@ guess would be a false positive, and a false positive is worse than a false
 negative (rule 6).
 
 The practical consequence: hard-ID deduplication starts in **M2** with cascade
-layer 1, alongside the IGDB client that gives stubs their anchors; alias-based
-deduplication follows in **M4** with layer 2 and the second and third platform.
-Before M2 there is one platform connected and nothing to deduplicate anyway.
+layer 1, alongside the IGDB client that gives stubs their anchors, and meets its
+second platform in **M2b** with Epic; alias-based deduplication follows in
+**M4** with layer 2 and GOG. Before M2 there is one platform connected and
+nothing to deduplicate anyway.
 
 ### Merging stubs
 
