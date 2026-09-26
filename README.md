@@ -87,7 +87,7 @@ Three artefacts, three licences, chosen by what each one is for.
 | Artefact | Licence | Repository |
 |---|---|---|
 | Ludarium (this application) | [AGPL-3.0-or-later](LICENSE) | this one |
-| `ludamatch` — the matching library | MIT | separate repository, created in M2 |
+| `ludamatch` — the matching library | MIT | [separate repository](https://github.com/Halaburda00/ludamatch) |
 | `ludamatch-data` — the alias dataset | CC0 | separate repository |
 
 The application is AGPL because network use is exactly how someone would take it

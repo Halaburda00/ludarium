@@ -102,7 +102,7 @@ The list is in build order, and the order is load-bearing twice over.
       a test of. Rule 6 makes that worse than leaving them unmatched, which is
       the whole reason this moved; running the matcher first would keep the
       milestone and lose the point of it
-- [ ] Create `ludamatch` as a separate MIT repository, seeded with what layer 1
+- [x] Create `ludamatch` as a separate MIT repository, seeded with what layer 1
       needs: title normalisation, the `external_games` lookup, and the mapping
       types. Ludarium depends on it from this milestone onward and keeps no
       matcher logic of its own
@@ -226,6 +226,8 @@ refreshes itself without being asked.
       first release is the moment that promise has to hold
 - [ ] mkdocs-material on GitHub Pages, `ludarium.dev`
 - [ ] Screenshots — the single biggest factor in whether anyone tries it
+- [ ] Publish `ludamatch` to PyPI and replace the git dependency on it. A
+      compose file a stranger runs cannot be made to resolve a git URL
 - [ ] release-please, CHANGELOG, tag **v0.1.0**
 
 **Done when:** a stranger can run Ludarium from one compose file.

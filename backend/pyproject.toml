@@ -16,6 +16,7 @@ dependencies = [
     "cryptography>=50.0.0",
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
+    "ludamatch",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
     "python-multipart>=0.0.32",
@@ -74,3 +75,9 @@ addopts = "--cov=src/ludarium --cov-report=term-missing"
 # after the first such await in an endpoint reads as unexecuted. Without this,
 # `api/auth.py` measures 71% while its tests exercise all of it.
 concurrency = ["thread", "greenlet"]
+
+# A git dependency while `ludamatch` is a handful of functions, pinned to a tag
+# so a push to its main cannot change what this lockfile resolves. It has to be
+# a PyPI release by M5: a stranger's `docker compose up` should not fetch from git.
+[tool.uv.sources]
+ludamatch = { git = "https://github.com/Halaburda00/ludamatch", tag = "v0.1.0" }

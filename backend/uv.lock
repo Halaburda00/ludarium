@@ -596,6 +596,11 @@ wheels = [
 ]
 
 [[package]]
+name = "ludamatch"
+version = "0.1.0"
+source = { git = "https://github.com/Halaburda00/ludamatch?tag=v0.1.0#73fe06a05f2898cbfafe48bdf6e3959ecad13d85" }
+
+[[package]]
 name = "ludarium"
 version = "0.1.0"
 source = { editable = "." }
@@ -607,6 +612,7 @@ dependencies = [
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "ludamatch" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
@@ -636,6 +642,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=50.0.0" },
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "ludamatch", git = "https://github.com/Halaburda00/ludamatch?tag=v0.1.0" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "python-multipart", specifier = ">=0.0.32" },
