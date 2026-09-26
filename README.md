@@ -65,9 +65,10 @@ Vertical slices — every milestone ends with something that runs end to end.
 | M0 | Documentation and decisions | Schema, ADRs, README, CI |
 | M1 | Steam → database → an ugly list | Sync, login, a plain table of your real library |
 | M2a | Metadata and matching | IGDB and RAWG, matching layer 1, `ItemKind`, covers |
-| M2b | A real grid | Virtualised grid, search, detail view, dark mode |
+| M2b | Epic and review scores | Epic library, Steam review scores beside Metacritic |
+| M2c | A real grid | Virtualised grid, search, detail view, dark mode |
 | M3 | Filters, statuses, backlog | Filter registry, `PlayStatus`, manual entries, saved views |
-| M4 | GOG, Epic, local import | More providers, `galaxy-2.0.db` import, ingest contract, scheduled sync |
+| M4 | GOG, local import | GOG, Steam Family Sharing, `galaxy-2.0.db` import, ingest contract, scheduled sync |
 | M5 | Docker, docs, first public release | Multi-arch image, export/backup, `v0.1.0` |
 | M6 | Matching layers 3–5 | Retrieval, classifier, LLM adjudication, the alias dataset |
 
