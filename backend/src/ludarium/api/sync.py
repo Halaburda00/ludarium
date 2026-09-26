@@ -19,7 +19,7 @@ from ludarium.db import SessionDep
 from ludarium.enums import SyncStatus, SyncTrigger
 from ludarium.models import Account, Provider, SyncRun
 from ludarium.providers.registry import supports
-from ludarium.steps import enrich_after_sync
+from ludarium.steps import StepContext, enrich_after_sync
 from ludarium.sync import SyncInProgressError, library_for, sync_account
 
 RECENT_RUNS = 50
@@ -145,8 +145,7 @@ async def run(
     if any(finished.status is SyncStatus.SUCCESS for finished in runs):
         background.add_task(
             enrich_after_sync,
-            request.app.state.database,
-            client,
+            StepContext(client, request.app.state.database, request.app.state.settings),
             library=reporter.key,
             trigger=SyncTrigger.MANUAL,
         )

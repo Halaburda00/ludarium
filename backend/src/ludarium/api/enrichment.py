@@ -12,7 +12,7 @@ from ludarium.api.sync import SyncRunResponse, describe_run
 from ludarium.auth import CurrentSession
 from ludarium.db import Database, SessionDep
 from ludarium.enrichment import EnrichmentInProgressError, enrich
-from ludarium.steps import STEPS
+from ludarium.steps import STEPS, StepContext
 
 router = APIRouter(prefix="/enrichment", tags=["enrichment"])
 
@@ -39,8 +39,11 @@ async def run(
 
     database: Database = request.app.state.database
     client: httpx.AsyncClient = request.app.state.http
+    step = builder(StepContext(client, database, request.app.state.settings))
+    if step is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"`{provider}` is not configured")
     try:
-        finished = await enrich(database, provider=key, step=builder(client))
+        finished = await enrich(database, provider=key, step=step)
     except EnrichmentInProgressError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     return describe_run(finished, key)
