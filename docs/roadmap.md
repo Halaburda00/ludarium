@@ -80,7 +80,9 @@ The data half of what was one milestone. Split because the two halves are
 different work with different failure modes, and because the view half cannot
 start until the ordering underneath it is correct.
 
-References elsewhere in the docs to "M2" mean both halves and stay true.
+M2b is not a third half: it is Epic and review scores, pulled forward from M4
+into the gap between the two. References elsewhere in the docs to "M2" mean
+M2a and M2c and stay true.
 
 The list is in build order, and the order is load-bearing twice over.
 
