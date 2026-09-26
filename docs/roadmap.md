@@ -85,7 +85,7 @@ References elsewhere in the docs to "M2" mean both halves and stay true.
 The list is in build order, and the order is load-bearing twice over.
 
 - [ ] Fix the works ordering and the cursor that depends on it. First, because
-      the grid in M2b is built on both, and fixing them afterwards means
+      the grid in M2c is built on both, and fixing them afterwards means
       migrating the column twice
 - [ ] IGDB client (Twitch OAuth, token cache, rate limiting)
 - [ ] Enrichment pipeline with local caching — never re-fetch what we have.
@@ -126,7 +126,30 @@ classified — even though it still looks like a table.
 
 ---
 
-## M2b — A real grid · ~3 days
+## M2b — Epic and review scores · ~3 days
+
+Pulled forward from M4, because it is the outcome most wanted from the whole
+project and nothing in it waits on presentation: the provider protocol and the
+sync already exist, and what a score on an Epic game depends on — matching
+layer 1 and RAWG — finishes in M2a. Leaving it in M4 would hold it behind two
+milestones of grid and filters. The scores show in the M1 table until M2c
+replaces it.
+
+- [ ] `EpicProvider` (auth flow modelled on legendary). Epic has no public
+      library API; the flow is the launcher's own and can change without
+      notice, so the provider must fail as itself (rule 4). What it holds is a
+      refresh token that is replaced on every refresh — encrypted like the
+      Steam key, and written back each time, or the second sync is logged out
+- [ ] Steam review scores for every work with a Steam appid, Epic-only works
+      included: layer 1 finds their appid in IGDB `external_games`, and the
+      appid is all the score needs
+
+**Done when:** an Epic game shows its Metacritic and Steam review scores, and
+an Epic outage leaves the Steam sync untouched.
+
+---
+
+## M2c — A real grid · ~3 days
 
 The view half, and it follows M2a because three of its four items are useless
 until there is metadata to show. It is not purely a consumer, and the estimate
@@ -160,10 +183,14 @@ platform's own UI.
 
 ---
 
-## M4 — GOG, Epic, local import · ~5 days
+## M4 — GOG, local import · ~5 days
+
+Epic moved to M2b.
 
 - [ ] `GogProvider`
-- [ ] `EpicProvider` (auth flow modelled on legendary)
+- [ ] Steam Family Sharing: titles lent by a family group arrive as
+      `family_shared` entitlements naming the lender. `GetOwnedGames` never
+      returns them, so this is a second source rather than a flag on the first
 - [ ] `POST /api/ingest` as a public contract: one payload shape carrying the
       reporting provider, the account it describes, and a list of items
       (`provider_item_id`, `title`, `ownership_type`, `playtime_minutes`,
