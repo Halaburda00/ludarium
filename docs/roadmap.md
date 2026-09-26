@@ -106,7 +106,7 @@ The list is in build order, and the order is load-bearing twice over.
       needs: title normalisation, the `external_games` lookup, and the mapping
       types. Ludarium depends on it from this milestone onward and keeps no
       matcher logic of its own
-- [ ] Matching layer 1: hard IDs from IGDB `external_games`. It belongs here,
+- [x] Matching layer 1: hard IDs from IGDB `external_games`. It belongs here,
       not in M4 — a stub has to acquire its IGDB anchor before there is
       anything to enrich, and the IGDB client is already in this milestone
 - [ ] `merge_work(source, target)` and the orphan-stub cleanup job, both
