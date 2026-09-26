@@ -4,7 +4,7 @@ from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from ludarium import titles
-from ludarium.enums import ItemKind
+from ludarium.enums import EntityType, ItemKind
 from ludarium.models.base import Base
 from ludarium.models.types import CreatedAt, UpdatedAt, enum_column
 
@@ -101,3 +101,34 @@ class Edition(Base):
     created_at: Mapped[CreatedAt]
 
     work: Mapped[Work] = relationship(lazy="raise_on_sql")
+
+
+class ExternalId(Base):
+    """An id another system gives a work or an edition: the backbone of matching layer 1.
+
+    The one place such an id is authoritative. `work.igdb_id` is a copy of the
+    `igdb` row kept for lookups, and never the other way round (ADR-0021).
+    """
+
+    __tablename__ = "external_id"
+    __table_args__ = (
+        # One owner per id: IGDB game 1942 is one work, whatever else claims it.
+        # A second claimant is a merge waiting to happen, not a second row.
+        UniqueConstraint("namespace", "value", "entity_type"),
+        # The other direction: every id an entity carries.
+        Index("ix_external_id_entity_type_entity_id", "entity_type", "entity_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Polymorphic like `field_provenance`, so no foreign key.
+    entity_type: Mapped[EntityType] = mapped_column(enum_column(EntityType, "entity_type"))
+    entity_id: Mapped[int]
+    # `igdb`, `steam`, `gog`, `epic`, `rawg`, `wikidata`.
+    namespace: Mapped[str]
+    # Text, because the ids are: an Epic id is 32 hex characters.
+    value: Mapped[str]
+    # True when IGDB `external_games` said so, false when a matcher inferred it.
+    is_authoritative: Mapped[bool] = mapped_column(default=False, server_default=false())
+    # The provider key that asserted it.
+    source_ref: Mapped[str | None]
+    created_at: Mapped[CreatedAt]

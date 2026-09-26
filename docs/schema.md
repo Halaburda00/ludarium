@@ -248,8 +248,8 @@ than a creation with a different code path.
 | `summary` | TEXT | yes | | |
 | `metacritic_score` | INTEGER | yes | | 0–100, RAWG-sourced, `runtime_only` |
 | `metacritic_url` | TEXT | yes | | Required for the attribution link |
-| `igdb_id` | INTEGER | yes | | Denormalised anchor for fast lookups; authoritative copy lives in `external_id` |
-| `is_matched` | BOOLEAN | no | `false` | True once an IGDB anchor exists |
+| `igdb_id` | INTEGER | yes | | Denormalised anchor for fast lookups; authoritative copy lives in `external_id`, and the two are written together, not resolved (ADR-0021) |
+| `is_matched` | BOOLEAN | no | `false` | True once an IGDB anchor exists; written with it, like `igdb_id` |
 | `enriched_at` | TIMESTAMP | yes | | Enrichment pipeline skips anything fresher than the TTL (M2) |
 | `created_at` | TIMESTAMP | no | `now()` | |
 | `updated_at` | TIMESTAMP | no | `now()` | |
@@ -286,6 +286,11 @@ authoritative.
 | `created_at` | TIMESTAMP | no | `now()` | |
 
 `UNIQUE (namespace, value, entity_type)`.
+
+Layer 1 writes the `igdb` row for a work and, in the same transaction, the
+`work.igdb_id` and `work.is_matched` copies of it. A second work naming the same
+IGDB game is left a stub for `merge_work` rather than given a second row
+(ADR-0021).
 
 #### `genre`, `work_genre`
 

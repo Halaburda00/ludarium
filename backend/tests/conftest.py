@@ -137,7 +137,10 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
+    # No `.env`: a developer's own, with a real IGDB application in it, would
+    # otherwise turn on steps these tests expect to be off.
     return Settings(
+        _env_file=None,
         secret_key=SecretStr(TEST_SECRET_KEY),
         encryption_key=SecretStr(TEST_ENCRYPTION_KEY),
         username=TEST_USERNAME,

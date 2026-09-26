@@ -7,11 +7,14 @@ import pytest
 import respx
 from conftest import TEST_PASSWORD, TEST_USERNAME
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from test_matching import Igdb
 
 from ludarium.enums import ItemKind, SyncStatus, SyncTrigger
 from ludarium.models import Provider, SyncRun, Work
+from ludarium.providers import igdb as igdb_module
 from ludarium.providers import steam as steam_module
 from ludarium.providers import steam_store as store_module
 
@@ -36,7 +39,7 @@ def store() -> httpx.Response:
 
 @pytest.fixture(autouse=True)
 def instant_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
-    for module in (steam_module, store_module):
+    for module in (steam_module, store_module, igdb_module):
         monkeypatch.setattr(module, "RETRY_BACKOFF_SECONDS", 0.0)
         monkeypatch.setattr(module, "RETRY_MAX_WAIT_SECONDS", 0.0)
 
@@ -61,14 +64,30 @@ def connected(client: TestClient) -> TestClient:
     return client
 
 
-async def store_runs(session: AsyncSession) -> list[SyncRun]:
+async def runs_of(session: AsyncSession, key: str) -> list[SyncRun]:
     return list(
         await session.scalars(
             select(SyncRun)
             .join(Provider, Provider.id == SyncRun.provider_id)
-            .where(Provider.key == "steam_store")
+            .where(Provider.key == key)
             .order_by(SyncRun.id)
         )
+    )
+
+
+async def store_runs(session: AsyncSession) -> list[SyncRun]:
+    return await runs_of(session, "steam_store")
+
+
+def with_igdb(client: TestClient) -> None:
+    """The app as an instance with an IGDB application configured."""
+
+    settings = client.app.state.settings  # type: ignore[attr-defined]
+    client.app.state.settings = settings.model_copy(  # type: ignore[attr-defined]
+        update={
+            "igdb_client_id": "not-a-real-client-id",
+            "igdb_client_secret": SecretStr("not-a-real-secret"),
+        }
     )
 
 
@@ -180,6 +199,55 @@ async def test_a_run_already_open_is_a_409(connected: TestClient, session: Async
 
     assert response.status_code == 409
     assert "already enriching" in response.json()["detail"]
+
+
+@respx.mock
+async def test_with_igdb_configured_a_sync_is_classified_and_then_matched(
+    connected: TestClient, session: AsyncSession
+) -> None:
+    with_igdb(connected)
+    respx.get(OWNED_GAMES_URL).mock(return_value=library())
+    respx.get(GET_ITEMS_URL).mock(return_value=store())
+    Igdb(
+        [{"game": 1942, "uid": "292030"}, {"game": 72, "uid": "620"}],
+        {1942: "The Witcher 3: Wild Hunt", 72: "Portal 2"},
+    ).mount()
+
+    assert connected.post("/api/sync/steam").status_code == 200
+
+    (classified,) = await store_runs(session)
+    (matched,) = await runs_of(session, "igdb")
+    # After, not beside: matching takes only what classification called a game.
+    assert classified.finished_at is not None and matched.started_at >= classified.finished_at
+    assert matched.status is SyncStatus.SUCCESS
+    anchors = await session.execute(select(Work.title, Work.igdb_id).order_by(Work.id))
+    assert anchors.tuples().all() == [
+        ("The Witcher 3: Wild Hunt", 1942),
+        ("Portal 2", 72),
+        ("Dota 2", None),
+    ]
+
+
+@respx.mock
+async def test_without_an_igdb_application_matching_is_skipped_rather_than_failed(
+    connected: TestClient, session: AsyncSession
+) -> None:
+    respx.get(OWNED_GAMES_URL).mock(return_value=library())
+    respx.get(GET_ITEMS_URL).mock(return_value=store())
+
+    assert connected.post("/api/sync/steam").status_code == 200
+
+    assert len(await store_runs(session)) == 1
+    assert await runs_of(session, "igdb") == []
+    igdb = await session.scalar(select(Provider.status).where(Provider.key == "igdb"))
+    assert igdb is not SyncStatus.FAILED
+
+
+def test_matching_by_hand_without_an_igdb_application_is_a_400(connected: TestClient) -> None:
+    response = connected.post("/api/enrichment/igdb")
+
+    assert response.status_code == 400
+    assert "not configured" in response.json()["detail"]
 
 
 def test_a_provider_with_no_step_is_a_400(connected: TestClient) -> None:
