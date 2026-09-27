@@ -57,6 +57,15 @@ shape moves.
   `game` default wherever no source asserted it. Two kinds of entry are still
   called games, because the store has no word for them: test servers and public
   beta clients.
+- The library says when it is still being updated after a sync. Classification,
+  IGDB matching and RAWG scores run after the sync has answered and can take a
+  few minutes; until now the button came back within seconds and nothing said
+  more was on its way, so the new titles and scores appeared only on a reload.
+  The library now names the step that is running, holds the sync button back
+  meanwhile — another sync would have skipped the steps already underway — and
+  reloads itself when the last one ends. A step that fails is reported with its
+  reason. `POST /api/sync/{provider}` now answers `{runs, enriching}` rather than
+  a bare list of runs, and `GET /api/sync/runs` gains `enriching`.
 - Metacritic scores, from RAWG, in a column of the library. Set
   `LUDARIUM_RAWG_API_KEY` to a key registered at rawg.io; without one nothing
   is fetched. Only games IGDB has matched are looked up, by IGDB's name, and a
