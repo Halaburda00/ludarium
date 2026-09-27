@@ -103,7 +103,12 @@ class Scheduled:
             del self._queued[provider]
 
     def __iter__(self) -> Iterator[str]:
-        return iter(list(self._queued))
+        # In the order the steps run, which is the order `STEPS` names them,
+        # rather than the order they were queued: a step queued again by a
+        # second sync would otherwise read as the last one, and a client naming
+        # the first as "running" would name the wrong one.
+        order = {provider: position for position, provider in enumerate(STEPS)}
+        return iter(sorted(self._queued, key=lambda provider: order.get(provider, len(order))))
 
 
 def plan_after_sync(context: StepContext, *, library: str) -> list[tuple[str, Step]]:

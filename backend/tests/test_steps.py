@@ -46,3 +46,15 @@ async def test_a_step_that_breaks_takes_the_rest_of_the_queue_with_it(
         )
 
     assert list(scheduled) == []
+
+
+def test_the_queue_reads_in_the_order_the_steps_run() -> None:
+    """Not the order they were queued in: the first one named is the one said to be running."""
+
+    scheduled = Scheduled()
+    scheduled.add(["steam_store", "igdb", "rawg"])
+    scheduled.done("steam_store")
+    # A second sync queues the pipeline again while the first is on IGDB.
+    scheduled.add(["steam_store", "igdb", "rawg"])
+
+    assert list(scheduled) == ["steam_store", "igdb", "rawg"]
