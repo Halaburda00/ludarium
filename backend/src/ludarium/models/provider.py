@@ -3,7 +3,14 @@ from datetime import datetime
 from sqlalchemy import ForeignKey, Index, false, text, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ludarium.enums import LicenceClass, ProviderKind, SourceKind, SyncStatus, SyncTrigger
+from ludarium.enums import (
+    LicenceClass,
+    ProviderKind,
+    SourceKind,
+    SyncErrorKind,
+    SyncStatus,
+    SyncTrigger,
+)
 from ludarium.models.base import Base
 from ludarium.models.types import CreatedAt, enum_column
 
@@ -141,6 +148,10 @@ class SyncRun(Base):
     # Marked with `removed_at`, never deleted (rule 1).
     items_removed: Mapped[int] = mapped_column(default=0, server_default=text("0"))
     error_text: Mapped[str | None]
+    # Who can fix it, where `error_text` says what happened. Null on success.
+    error_kind: Mapped[SyncErrorKind | None] = mapped_column(
+        enum_column(SyncErrorKind, "sync_error_kind")
+    )
 
     provider: Mapped[Provider] = relationship(lazy="raise_on_sql")
     account: Mapped[Account | None] = relationship(lazy="raise_on_sql")

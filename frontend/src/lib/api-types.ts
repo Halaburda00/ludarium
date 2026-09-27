@@ -18,6 +18,11 @@ export interface paths {
          * Connect
          * @description Validate first, then store. A rejected key leaves nothing behind.
          *
+         *     An account already connected is connected again rather than refused: its
+         *     credential is replaced and it is active once more, answered 200. That is
+         *     how an Epic account whose sign-in ended comes back, and how a Steam key is
+         *     rotated, without losing the account's history.
+         *
          *     The four provider errors are three different answers, because they are three
          *     different jobs: a wrong key and a private profile are the user's to fix and
          *     say so now, while an outage is nobody's fault and must not be reported as a
@@ -253,7 +258,10 @@ export interface components {
              * Format: password
              */
             credentials: string;
-            /** External Account Id */
+            /**
+             * External Account Id
+             * @default
+             */
             external_account_id: string;
             /**
              * Label
@@ -386,6 +394,12 @@ export interface components {
             username: string;
         };
         /**
+         * SyncErrorKind
+         * @description Why a run failed, in the terms of who can fix it.
+         * @enum {string}
+         */
+        SyncErrorKind: "credentials" | "not_visible" | "rate_limited" | "unavailable" | "malformed" | "other";
+        /**
          * SyncOverviewResponse
          * @description Both halves in one call, because the panel shows them together.
          *
@@ -411,6 +425,7 @@ export interface components {
         SyncRunResponse: {
             /** Account Id */
             account_id: number | null;
+            error_kind: components["schemas"]["SyncErrorKind"] | null;
             /** Error Text */
             error_text: string | null;
             /** Finished At */

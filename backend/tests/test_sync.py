@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium import queries
 from ludarium import sync as sync_module
+from ludarium.crypto import get_cipher
 from ludarium.db import Database
 from ludarium.enums import (
     EntitlementOrigin,
@@ -23,6 +24,7 @@ from ludarium.enums import (
     ItemKind,
     OwnershipType,
     SourceKind,
+    SyncErrorKind,
     SyncStatus,
     SyncTrigger,
     WorkLinkRole,
@@ -33,11 +35,13 @@ from ludarium.models import (
     Entitlement,
     EntitlementWork,
     FieldProvenance,
+    SyncRun,
     UserWorkState,
     Work,
 )
 from ludarium.models.types import ScalarValue, utcnow
 from ludarium.providers import (
+    InvalidCredentialsError,
     LibraryItem,
     ProviderUnavailableError,
     SteamCredentials,
@@ -65,8 +69,10 @@ class FakeLibrary:
         *,
         key: str = "steam",
         error: Exception | None = None,
+        renewed_secret: str | None = None,
     ) -> None:
         self.key = key
+        self.renewed_secret = renewed_secret
         self.calls = 0
         self._items = items or []
         self._error = error
@@ -1415,3 +1421,85 @@ async def test_more_works_than_one_in_clause_holds_still_get_their_totals(
         )
     }
     assert totals == {"The Witcher 3: Wild Hunt": 3247, "Portal 2": 0, "Dota 2": 12}
+
+
+@pytest.mark.parametrize(
+    "error",
+    [None, ProviderUnavailableError("epic answered 503 for the library")],
+    ids=["success", "failure"],
+)
+async def test_a_credential_the_platform_replaced_is_kept_whether_the_run_worked_or_not(
+    session: AsyncSession, account: Account, error: Exception | None
+) -> None:
+    """Epic spends its refresh token on every use; keeping the old one signs the next sync out."""
+
+    library = FakeLibrary(THREE_GAMES, error=error, renewed_secret="eg1~the-new-refresh-token")
+
+    await sync_account(session, account=account, library=library)
+
+    await session.refresh(account)
+    assert account.credentials_encrypted is not None
+    assert get_cipher().decrypt(account.credentials_encrypted) == "eg1~the-new-refresh-token"
+    assert account.credentials_updated_at is not None
+
+
+async def test_a_credential_nothing_replaced_is_left_alone(
+    session: AsyncSession, account: Account
+) -> None:
+    account.credentials_encrypted = get_cipher().encrypt("a-key-that-never-changes")
+    await session.commit()
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    await session.refresh(account)
+    assert get_cipher().decrypt(account.credentials_encrypted or b"") == "a-key-that-never-changes"
+
+
+async def test_a_kind_the_platform_states_is_asserted_about_the_work(
+    session: AsyncSession,
+) -> None:
+    """Epic says what an item is in the library itself; the matcher needs it on the work."""
+
+    epic = await make_account(session, key="epic", external_account_id="0123456789abcdef")
+    items = [
+        owned("48171393707541359f3a7dd7257b2757", "Gone Home", item_kind=ItemKind.GAME),
+        owned("279c2ab64eb54a8d812b0c78198a382c", "Rise and Fall", item_kind=ItemKind.DLC),
+        owned("f1d1779e3b434d429d954b49349bb4bb", "Unknown to the catalogue"),
+    ]
+
+    await sync_account(session, account=epic, library=FakeLibrary(items, key="epic"))
+
+    kinds = await session.execute(select(Work.title, Work.item_kind).order_by(Work.id))
+    assert kinds.tuples().all() == [
+        ("Gone Home", ItemKind.GAME),
+        ("Rise and Fall", ItemKind.DLC),
+        ("Unknown to the catalogue", None),
+    ]
+    sources = await session.scalars(
+        select(FieldProvenance.source_ref).where(FieldProvenance.field == "item_kind").distinct()
+    )
+    assert sources.all() == ["epic"]
+
+
+@pytest.mark.parametrize(
+    ("error", "kind"),
+    [
+        (InvalidCredentialsError("epic has ended this sign-in"), SyncErrorKind.CREDENTIALS),
+        (ProviderUnavailableError("epic answered 503"), SyncErrorKind.UNAVAILABLE),
+        (RuntimeError("a bug"), SyncErrorKind.OTHER),
+    ],
+    ids=["ended sign-in", "outage", "bug"],
+)
+async def test_a_failed_run_says_who_can_fix_it(
+    session: AsyncSession, account: Account, error: Exception, kind: SyncErrorKind
+) -> None:
+    """An ended sign-in is the user's to fix; an outage is nobody's (#64)."""
+
+    library = FakeLibrary(error=error)
+    try:
+        run = await sync_account(session, account=account, library=library)
+    except RuntimeError:
+        run = await session.scalar(select(SyncRun))
+        assert run is not None
+
+    assert (run.status, run.error_kind) == (SyncStatus.FAILED, kind)

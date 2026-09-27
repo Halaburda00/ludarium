@@ -2,6 +2,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
+import { EPIC_LOGIN_URL } from '@/lib/epic'
 import Onboarding from '@/routes/Onboarding'
 import { renderApp, stubFetch } from '@/test/render'
 
@@ -77,5 +78,40 @@ describe('onboarding', () => {
     expect(await screen.findByRole('alert')).not.toHaveTextContent(KEY)
     expect(localStorage.length).toBe(0)
     expect(sessionStorage.length).toBe(0)
+  })
+})
+
+describe('connecting Epic', () => {
+  it('sends Epic to its own sign-in and posts the code it shows', async () => {
+    const calls = stubFetch({
+      'POST /api/accounts': { status: 201, body: { id: 2, provider: 'epic' } },
+    })
+    renderApp(<Onboarding />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Epic Games' }))
+    const signIn = screen.getByRole('link', { name: 'Sign in on epicgames.com' })
+    expect(signIn).toHaveAttribute('href', EPIC_LOGIN_URL)
+    expect(signIn).toHaveAttribute('target', '_blank')
+    await userEvent.type(screen.getByLabelText('Authorization code'), 'not-a-real-code')
+    await userEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+    await waitFor(() => expect(calls).toHaveLength(1))
+    expect(calls[0].body).toEqual({
+      provider: 'epic',
+      external_account_id: '',
+      label: 'Main',
+      credentials: 'not-a-real-code',
+    })
+  })
+
+  it('opens on Epic when a failed sync sent the user here to sign in again', () => {
+    stubFetch({})
+    renderApp(<Onboarding />, { route: '/onboarding?provider=epic' })
+
+    expect(screen.getByRole('heading', { name: 'Connect Epic Games' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Epic Games' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
   })
 })

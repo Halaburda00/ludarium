@@ -13,7 +13,7 @@ from typing import Any, Protocol
 
 import httpx
 
-from ludarium.enums import ItemKind, OwnershipType
+from ludarium.enums import ItemKind, OwnershipType, SyncErrorKind
 
 
 class ProviderError(Exception):
@@ -51,6 +51,25 @@ class ProviderUnavailableError(ProviderError):
 
 class MalformedResponseError(ProviderError):
     """A 200 whose body is not what the API documents. Never retried: it would not help."""
+
+
+def error_kind(exc: BaseException) -> SyncErrorKind:
+    """Who can fix a failed run, read off the error that ended it.
+
+    Stored with the run so a client can say "sign in again" for an ended
+    sign-in and "try later" for an outage without parsing a message.
+    """
+
+    for kind, types in (
+        (SyncErrorKind.CREDENTIALS, InvalidCredentialsError),
+        (SyncErrorKind.NOT_VISIBLE, LibraryNotVisibleError),
+        (SyncErrorKind.RATE_LIMITED, RateLimitedError),
+        (SyncErrorKind.UNAVAILABLE, ProviderUnavailableError),
+        (SyncErrorKind.MALFORMED, MalformedResponseError),
+    ):
+        if isinstance(exc, types):
+            return kind
+    return SyncErrorKind.OTHER
 
 
 def whole_number(value: object) -> int | None:
@@ -109,6 +128,10 @@ class LibraryProvider(Protocol):
     """A connected account, ready to be asked what it owns."""
 
     key: str
+    # A credential the platform replaced while being asked, to be stored in
+    # place of the old one. Epic's refresh token is spent by every use; a key
+    # that never changes, like Steam's, leaves this None.
+    renewed_secret: str | None
 
     async def validate_credentials(self) -> None:
         """Return if the credentials work, raise the reason if they do not.

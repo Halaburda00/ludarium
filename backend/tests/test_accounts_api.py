@@ -14,6 +14,7 @@ from ludarium.api.accounts import MASK
 from ludarium.config import Settings
 from ludarium.crypto import get_cipher
 from ludarium.models import Account, AppUser, Provider
+from ludarium.providers import epic as epic_module
 from ludarium.providers import steam as steam_module
 
 FIXTURES = Path(__file__).parent / "fixtures" / "steam"
@@ -157,19 +158,28 @@ def test_the_mask_says_nothing_about_the_key() -> None:
 
 
 @respx.mock
-def test_the_same_account_cannot_be_connected_twice(signed_in: TestClient) -> None:
+def test_connecting_an_account_again_replaces_its_key_and_keeps_the_account(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    """How a Steam key is rotated, and how an Epic sign-in that ended comes back."""
+
     respx.get(OWNED_GAMES_URL).mock(
         return_value=httpx.Response(200, json=recorded("owned_games.json"))
     )
-    assert connect(signed_in).status_code == 201
+    first = connect(signed_in)
+    assert first.status_code == 201
 
-    response = connect(signed_in)
+    again = connect(signed_in, credentials="FEDCBA9876543210-another-key")
 
-    assert response.status_code == 409
+    assert again.status_code == 200
+    assert again.json()["id"] == first.json()["id"]
+    ((_, stored),) = stored_accounts(settings)
+    assert stored is not None
+    assert get_cipher().decrypt(stored) == "FEDCBA9876543210-another-key"
 
 
 def test_an_unknown_provider_is_a_404(signed_in: TestClient) -> None:
-    response = connect(signed_in, provider="epic")
+    response = connect(signed_in, provider="gog")
 
     assert response.status_code == 404
 
@@ -265,3 +275,39 @@ def test_the_platforms_own_backoff_reaches_the_caller(signed_in: TestClient) -> 
 
     assert response.status_code == 429
     assert response.headers["retry-after"] == "42"
+
+
+@respx.mock
+def test_an_epic_account_is_connected_by_the_code_its_sign_in_page_showed(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    """The code is spent on the way in; what is kept is the refresh token it bought."""
+
+    oauth = json.loads((FIXTURES.parent / "epic" / "oauth_token.json").read_text())
+    respx.post(epic_module.OAUTH).mock(return_value=httpx.Response(200, json=oauth))
+
+    response = connect(
+        signed_in, provider="epic", external_account_id="", credentials="not-a-real-code"
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert (body["provider"], body["external_account_id"]) == ("epic", oauth["account_id"])
+    ((_, stored),) = stored_accounts(settings)
+    assert stored is not None
+    assert get_cipher().decrypt(stored) == oauth["refresh_token"]
+    assert oauth["refresh_token"] not in response.text
+
+
+@respx.mock
+def test_a_spent_epic_code_is_a_400_that_says_to_sign_in_again(signed_in: TestClient) -> None:
+    respx.post(epic_module.OAUTH).mock(
+        return_value=httpx.Response(400, json={"error": "invalid_grant"})
+    )
+
+    response = connect(
+        signed_in, provider="epic", external_account_id="", credentials="not-a-real-code"
+    )
+
+    assert response.status_code == 400
+    assert "fresh one" in response.json()["detail"]

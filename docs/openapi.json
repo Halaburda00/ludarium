@@ -83,6 +83,7 @@
             "writeOnly": true
           },
           "external_account_id": {
+            "default": "",
             "maxLength": 256,
             "title": "External Account Id",
             "type": "string"
@@ -101,7 +102,6 @@
         },
         "required": [
           "provider",
-          "external_account_id",
           "credentials"
         ],
         "title": "ConnectRequest",
@@ -394,6 +394,19 @@
         "title": "SessionResponse",
         "type": "object"
       },
+      "SyncErrorKind": {
+        "description": "Why a run failed, in the terms of who can fix it.",
+        "enum": [
+          "credentials",
+          "not_visible",
+          "rate_limited",
+          "unavailable",
+          "malformed",
+          "other"
+        ],
+        "title": "SyncErrorKind",
+        "type": "string"
+      },
       "SyncOverviewResponse": {
         "description": "Both halves in one call, because the panel shows them together.\n\nA provider's health without its runs cannot say *what* failed, and the runs\nwithout the provider row cannot say whether it has ever worked.",
         "properties": {
@@ -463,6 +476,16 @@
               }
             ],
             "title": "Account Id"
+          },
+          "error_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SyncErrorKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "error_text": {
             "anyOf": [
@@ -535,7 +558,8 @@
           "items_added",
           "items_updated",
           "items_removed",
-          "error_text"
+          "error_text",
+          "error_kind"
         ],
         "title": "SyncRunResponse",
         "type": "object"
@@ -803,7 +827,7 @@
         ]
       },
       "post": {
-        "description": "Validate first, then store. A rejected key leaves nothing behind.\n\nThe four provider errors are three different answers, because they are three\ndifferent jobs: a wrong key and a private profile are the user's to fix and\nsay so now, while an outage is nobody's fault and must not be reported as a\nbad credential \u2014 told that, someone rotates a key that was working.",
+        "description": "Validate first, then store. A rejected key leaves nothing behind.\n\nAn account already connected is connected again rather than refused: its\ncredential is replaced and it is active once more, answered 200. That is\nhow an Epic account whose sign-in ended comes back, and how a Steam key is\nrotated, without losing the account's history.\n\nThe four provider errors are three different answers, because they are three\ndifferent jobs: a wrong key and a private profile are the user's to fix and\nsay so now, while an outage is nobody's fault and must not be reported as a\nbad credential \u2014 told that, someone rotates a key that was working.",
         "operationId": "connect_api_accounts_post",
         "parameters": [
           {

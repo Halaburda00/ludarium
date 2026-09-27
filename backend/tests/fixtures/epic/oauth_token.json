@@ -1,0 +1,23 @@
+{
+ "access_token": "eg1~not-a-real-access-token",
+ "expires_in": 129600,
+ "expires_at": "2026-09-29T10:07:45.147Z",
+ "token_type": "bearer",
+ "refresh_token": "eg1~not-a-real-refresh-token",
+ "refresh_expires": 31540000,
+ "refresh_expires_at": "2027-09-27T23:14:25.147Z",
+ "account_id": "0123456789abcdef0123456789abcdef",
+ "client_id": "34a02cf8f4414e29b15921876da36f9a",
+ "internal_client": true,
+ "client_service": "42c61cfdc3d24af5a8333b3284d47240",
+ "scope": [],
+ "displayName": "Someone",
+ "app": "42c61cfdc3d24af5a8333b3284d47240",
+ "in_app_id": "0123456789abcdef0123456789abcdef",
+ "product_id": "42c61cfdc3d24af5a8333b3284d47240",
+ "application_id": "fghi4567KEIkE93BQjKGjnyql0oI6X1a",
+ "country": "PL",
+ "platform": "other",
+ "acr": "urn:epic:loa:aal2",
+ "auth_time": "2026-09-27T22:07:16.726Z"
+}

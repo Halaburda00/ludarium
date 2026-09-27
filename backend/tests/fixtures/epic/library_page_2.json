@@ -1,0 +1,54 @@
+{
+ "responseMetadata": {
+  "stateToken": "00000000-0000-0000-0000-000000000000"
+ },
+ "records": [
+  {
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "catalogItemId": "279c2ab64eb54a8d812b0c78198a382c",
+   "appName": "KingletRiseAndFall",
+   "country": "PL",
+   "platform": [
+    "Windows"
+   ],
+   "productId": "831ad738547e46e195f87d54e98b8e79",
+   "sandboxName": "Sid Meier's Civilization VI",
+   "sandboxType": "PUBLIC",
+   "recordType": "APPLICATION",
+   "acquisitionDate": "2025-07-17T17:37:41.277Z",
+   "dependencies": []
+  },
+  {
+   "namespace": "ue",
+   "catalogItemId": "971660b9efb0475f929ccd9770061fe9",
+   "appName": "UE_5.1",
+   "country": "PL",
+   "platform": [
+    "Windows",
+    "Mac"
+   ],
+   "productId": "prod-ue",
+   "sandboxName": "UE Marketplace",
+   "sandboxType": "PUBLIC",
+   "recordType": "APPLICATION",
+   "acquisitionDate": "2024-09-24T00:35:19.031Z",
+   "dependencies": []
+  },
+  {
+   "namespace": "43605e89e49d438485298819a7ef17b4",
+   "catalogItemId": "f1d1779e3b434d429d954b49349bb4bb",
+   "appName": "Petrel",
+   "country": "PL",
+   "platform": [
+    "Windows",
+    "Mac"
+   ],
+   "productId": "d8ad0bf6065a46539604eee86510c9b9",
+   "sandboxName": "Minit",
+   "sandboxType": "PUBLIC",
+   "recordType": "APPLICATION",
+   "acquisitionDate": "2019-10-04T14:06:19.600Z",
+   "dependencies": []
+  }
+ ]
+}

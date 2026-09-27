@@ -41,6 +41,14 @@ PROVIDER_SEED: tuple[ProviderSpec, ...] = (
         store_url_template="https://store.steampowered.com/app/{id}",
     ),
     ProviderSpec(
+        key="epic",
+        kind=ProviderKind.PLATFORM,
+        source_kind=SourceKind.PLATFORM_API,
+        display_name="Epic Games",
+        # No store link: Epic's store pages are keyed by a slug the library
+        # does not carry, and a guessed one would be a broken link.
+    ),
+    ProviderSpec(
         key="igdb",
         kind=ProviderKind.METADATA,
         source_kind=SourceKind.METADATA_PROVIDER,

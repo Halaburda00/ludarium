@@ -27,6 +27,7 @@ from ludarium.crypto import CredentialDecryptionError, get_cipher
 from ludarium.enums import (
     EntitlementOrigin,
     EntityType,
+    SyncErrorKind,
     SyncStatus,
     SyncTrigger,
     WorkLinkRole,
@@ -43,6 +44,7 @@ from ludarium.models import (
 )
 from ludarium.models.types import ScalarValue, utcnow
 from ludarium.providers import LibraryItem, LibraryProvider, ProviderError
+from ludarium.providers.base import error_kind
 from ludarium.providers.registry import build_library
 from ludarium.queries import in_batches
 from ludarium.resolver import record_many, resolve, resolve_work_aggregates_many
@@ -74,6 +76,8 @@ class _Unusable:
     history, counted in the provider's health, and visible in the status panel,
     which is where every other failure already is.
     """
+
+    renewed_secret: str | None = None
 
     def __init__(self, key: str, reason: str) -> None:
         self.key = key
@@ -163,7 +167,17 @@ async def sync_account(
     except ProviderError as exc:
         # Safe to store: `ProviderError` never carries a credential, which is
         # the contract `providers.base` states rather than a hope (rule 7).
-        await _close(session, run, reporter, account, seen, SyncStatus.FAILED, error=str(exc))
+        await _close(
+            session,
+            run,
+            reporter,
+            account,
+            seen,
+            SyncStatus.FAILED,
+            error=str(exc),
+            kind=error_kind(exc),
+            renewed=library.renewed_secret,
+        )
         return run
     except BaseException as exc:
         # `BaseException`, not `Exception`, for one reason: `CancelledError` has
@@ -176,10 +190,20 @@ async def sync_account(
         # and the caller sees `TimeoutError` from `wait_for` regardless, so a
         # loop over several accounts carries on either way (rule 4).
         await _close(
-            session, run, reporter, account, seen, SyncStatus.FAILED, error=type(exc).__name__
+            session,
+            run,
+            reporter,
+            account,
+            seen,
+            SyncStatus.FAILED,
+            error=type(exc).__name__,
+            kind=error_kind(exc),
+            renewed=library.renewed_secret,
         )
         raise
-    await _close(session, run, reporter, account, seen, SyncStatus.SUCCESS)
+    await _close(
+        session, run, reporter, account, seen, SyncStatus.SUCCESS, renewed=library.renewed_secret
+    )
     return run
 
 
@@ -312,6 +336,8 @@ async def _close(
     status: SyncStatus,
     *,
     error: str | None = None,
+    kind: SyncErrorKind | None = None,
+    renewed: str | None = None,
 ) -> None:
     """Finish the run and report the provider's health. Anything short of success rolls back.
 
@@ -326,6 +352,11 @@ async def _close(
 
     `items_seen` is set here for the same reason — it describes the provider's
     answer rather than anything this run wrote.
+
+    So is a credential the platform replaced (`renewed`). Epic spends its
+    refresh token on every use: the old one is gone whether the library then
+    arrived or not, and a failed run that rolled the new one back would leave
+    the account holding a spent token and the next sync signed out.
     """
 
     if status is not SyncStatus.SUCCESS:
@@ -340,6 +371,10 @@ async def _close(
     run.status = status
     run.finished_at = moment
     run.error_text = error
+    run.error_kind = kind
+    if renewed is not None:
+        account.credentials_encrypted = get_cipher().encrypt(renewed)
+        account.credentials_updated_at = moment
     _report(reporter, account, status, error, moment)
     await session.commit()
 
@@ -431,6 +466,7 @@ async def _apply(
         )
 
     await _stub(session, run=run, account=account, entitlements=fresh)
+    await _classify(session, run=run, reporter=reporter, entitlements=seen, items=items)
     # Counted rather than incremented: a counter touched inside the loop is
     # dirty at every flush in it, which was an `UPDATE sync_run` per item.
     run.items_added = len(fresh)
@@ -679,6 +715,62 @@ async def _stub(
     # No flush after the last phase: nothing between here and `_apply`'s own
     # asks the database anything, and it flushes before the aggregates read
     # these rows back.
+
+
+async def _classify(
+    session: AsyncSession,
+    *,
+    run: SyncRun,
+    reporter: Provider,
+    entitlements: list[Entitlement],
+    items: list[LibraryItem],
+) -> None:
+    """What the platform says each item is, asserted about the work it belongs to.
+
+    Epic's catalogue says so in the library it hands over; Steam's owned-games
+    answer does not, and its items say nothing here — a separate step asks the
+    store (ADR-0020). Provenance like any other, so a user's own label still
+    wins (rules 3 and 9), and the matcher, which takes only works known to be
+    games, can take Epic's.
+    """
+
+    kinds = {
+        entitlement.id: item.item_kind
+        for entitlement, item in zip(entitlements, items, strict=True)
+        if item.item_kind is not None
+    }
+    if not kinds:
+        return
+    works: dict[int, int] = {}
+    for batch in in_batches(list(kinds)):
+        rows = await session.execute(
+            select(EntitlementWork.entitlement_id, EntitlementWork.work_id).where(
+                EntitlementWork.entitlement_id.in_(batch),
+                EntitlementWork.role == WorkLinkRole.PRIMARY,
+            )
+        )
+        for entitlement_id, work_id in rows:
+            works[entitlement_id] = work_id
+    for entitlement_id, kind in kinds.items():
+        work_id = works.get(entitlement_id)
+        if work_id is None:
+            continue
+        recorded = await record_many(
+            session,
+            entity_type=EntityType.WORK,
+            entity_id=work_id,
+            source_kind=reporter.source_kind,
+            source_ref=reporter.key,
+            values={"item_kind": kind.value},
+            run_id=run.id,
+        )
+        await resolve(
+            session,
+            entity_type=EntityType.WORK,
+            entity_id=work_id,
+            fields=["item_kind"],
+            recorded=recorded,
+        )
 
 
 def _nameless(entitlement: Entitlement) -> str:

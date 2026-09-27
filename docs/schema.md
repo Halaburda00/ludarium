@@ -53,6 +53,7 @@ Supporting enums introduced by this document:
 | `SyncTrigger` | `manual`, `scheduled`, `ingest`, `import` | What started a run |
 | `MatchLayer` | `hard_id`, `alias`, `fuzzy`, `llm`, `manual` | Which cascade layer produced a match |
 | `MatchStatus` | `pending`, `accepted`, `rejected`, `superseded` | Review queue state |
+| `SyncErrorKind` | `credentials`, `not_visible`, `rate_limited`, `unavailable`, `malformed`, `other` | Who can fix a failed run |
 | `MatchAction` | `linked`, `unlinked`, `relinked`, `merged`, `unmerged` | What a `match_audit` row records; `unmerged` is the undo of a `merged` row, which stays in the trail |
 | `MatchActor` | `auto`, `user` | Who took a matcher decision |
 | `ImageKind` | `cover`, `hero`, `logo`, `screenshot` | |
@@ -124,7 +125,7 @@ labelled (M4).
 | `external_account_id` | TEXT | yes | | SteamID64, GOG user id. Null for `manual` |
 | `label` | TEXT | no | | "Main Steam", "Old account" |
 | `is_derived` | BOOLEAN | no | `false` | The account was discovered inside an import rather than connected by the user. Has no credentials and is never synced directly — data reaches it only through whatever produced it |
-| `credentials_encrypted` | BLOB | yes | | Fernet ciphertext. Never returned to the frontend, masked in the UI, excluded from logs and exports (rule 7) |
+| `credentials_encrypted` | BLOB | yes | | Fernet ciphertext. Never returned to the frontend, masked in the UI, excluded from logs and exports (rule 7). Steam: the user's Web API key. Epic: the refresh token the sign-in bought, **replaced on every sync** — written when the run closes, whether or not it succeeded, because the old one is spent (ADR-0025) |
 | `credentials_updated_at` | TIMESTAMP | yes | | |
 | `is_active` | BOOLEAN | no | `true` | |
 | `created_at` | TIMESTAMP | no | `now()` | |
@@ -151,7 +152,8 @@ future local agent and a manual upload are indistinguishable downstream.
 | `items_added` | INTEGER | no | `0` | |
 | `items_updated` | INTEGER | no | `0` | For an enrichment run, the keys that went to the provider rather than to the cache |
 | `items_removed` | INTEGER | no | `0` | Marked `removed_at`, never deleted |
-| `error_text` | TEXT | yes | | |
+| `error_text` | TEXT | yes | | What went wrong. Never a credential (rule 7) |
+| `error_kind` | TEXT | yes | | `SyncErrorKind`: who can fix it. `credentials` is the user's (sign in again, a new key); `unavailable` and `rate_limited` are nobody's. Null on success and on runs from before it |
 
 One open run per account (`UNIQUE (account_id) WHERE status = 'running' AND
 account_id IS NOT NULL`), and one open enrichment run per provider (`UNIQUE

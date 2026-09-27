@@ -32,7 +32,7 @@ async def test_seeds_the_libraries_the_metadata_providers_and_manual(
 
     providers = {provider.key: provider for provider in await session.scalars(select(Provider))}
 
-    assert set(providers) == {"steam", "steam_store", "igdb", "rawg", "manual"}
+    assert set(providers) == {"steam", "epic", "steam_store", "igdb", "rawg", "manual"}
     steam = providers["steam"]
     assert steam.kind is ProviderKind.PLATFORM
     assert steam.source_kind is SourceKind.PLATFORM_API
@@ -47,6 +47,10 @@ async def test_seeds_the_libraries_the_metadata_providers_and_manual(
     assert igdb.source_kind is SourceKind.METADATA_PROVIDER
     # What keeps IGDB's data out of every export.
     assert igdb.licence_class is LicenceClass.RUNTIME_ONLY
+    epic = providers["epic"]
+    assert (epic.kind, epic.source_kind) == (ProviderKind.PLATFORM, SourceKind.PLATFORM_API)
+    # No slug in the library to build a store link from, so none rather than a broken one.
+    assert epic.store_url_template is None
     rawg = providers["rawg"]
     assert rawg.source_kind is SourceKind.METADATA_PROVIDER
     # RAWG: "no data redistribution".
@@ -140,6 +144,7 @@ async def test_a_second_instance_seeds_behind_the_first(db: Database) -> None:
         providers = {row.key: row.display_name for row in await reader.scalars(select(Provider))}
     assert providers == {
         "steam": "Steam",
+        "epic": "Epic Games",
         "steam_store": "Steam Store",
         "igdb": "IGDB",
         "rawg": "RAWG",
