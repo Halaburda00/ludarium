@@ -1,0 +1,108 @@
+{
+ "52326e805bac4619a4a8fac165363a42": {
+  "48171393707541359f3a7dd7257b2757": {
+   "id": "48171393707541359f3a7dd7257b2757",
+   "title": "Gone Home",
+   "namespace": "52326e805bac4619a4a8fac165363a42",
+   "categories": [
+    {
+     "path": "public"
+    },
+    {
+     "path": "games"
+    },
+    {
+     "path": "applications"
+    }
+   ],
+   "status": "ACTIVE"
+  }
+ },
+ "cd14dcaa4f3443f19f7169a980559c62": {
+  "42ac1ee840304cb1807172a9b47dc8e3": {
+   "id": "42ac1ee840304cb1807172a9b47dc8e3",
+   "title": "Sid Meier's Civilization VI",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "categories": [
+    {
+     "path": "public"
+    },
+    {
+     "path": "games"
+    },
+    {
+     "path": "applications"
+    }
+   ],
+   "status": "ACTIVE"
+  },
+  "279c2ab64eb54a8d812b0c78198a382c": {
+   "id": "279c2ab64eb54a8d812b0c78198a382c",
+   "title": "Civilization VI : Rise and Fall",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "categories": [
+    {
+     "path": "addons"
+    }
+   ],
+   "status": "ACTIVE",
+   "mainGameItem": {
+    "id": "42ac1ee840304cb1807172a9b47dc8e3",
+    "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+    "title": "Sid Meier's Civilization VI"
+   }
+  }
+ },
+ "ue": {
+  "782b3262cb3a4d35bddbba22f1a651b7": {
+   "id": "782b3262cb3a4d35bddbba22f1a651b7",
+   "title": "Customizable Interaction Plugin",
+   "namespace": "ue",
+   "categories": [
+    {
+     "path": "plugins/engine"
+    },
+    {
+     "path": "plugins"
+    }
+   ],
+   "status": "ACTIVE"
+  },
+  "971660b9efb0475f929ccd9770061fe9": {
+   "id": "971660b9efb0475f929ccd9770061fe9",
+   "title": "Unreal Engine",
+   "namespace": "ue",
+   "categories": [
+    {
+     "path": "engines/ue5"
+    },
+    {
+     "path": "engines"
+    }
+   ],
+   "status": "ACTIVE"
+  }
+ },
+ "43605e89e49d438485298819a7ef17b4": {
+  "f1d1779e3b434d429d954b49349bb4bb": {
+   "id": "f1d1779e3b434d429d954b49349bb4bb",
+   "title": "Minit",
+   "namespace": "43605e89e49d438485298819a7ef17b4",
+   "categories": [
+    {
+     "path": "public"
+    },
+    {
+     "path": "freegames"
+    },
+    {
+     "path": "games"
+    },
+    {
+     "path": "applications"
+    }
+   ],
+   "status": "ACTIVE"
+  }
+ }
+}

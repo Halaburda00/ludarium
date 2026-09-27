@@ -1,0 +1,71 @@
+{
+ "responseMetadata": {
+  "nextCursor": "cursor-for-page-2",
+  "stateToken": "00000000-0000-0000-0000-000000000000"
+ },
+ "records": [
+  {
+   "namespace": "52326e805bac4619a4a8fac165363a42",
+   "catalogItemId": "48171393707541359f3a7dd7257b2757",
+   "appName": "Flier",
+   "country": "PL",
+   "platform": [
+    "Windows",
+    "Mac",
+    "Win32"
+   ],
+   "productId": "eba09c7a2ff0495c932bb9205b7d486d",
+   "sandboxName": "Gone Home",
+   "sandboxType": "PUBLIC",
+   "recordType": "APPLICATION",
+   "acquisitionDate": "2020-04-06T22:14:19.083Z",
+   "dependencies": []
+  },
+  {
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "catalogItemId": "42ac1ee840304cb1807172a9b47dc8e3",
+   "appName": "Kinglet",
+   "country": "PL",
+   "platform": [
+    "Windows"
+   ],
+   "productId": "831ad738547e46e195f87d54e98b8e79",
+   "sandboxName": "Sid Meier's Civilization VI",
+   "sandboxType": "PUBLIC",
+   "recordType": "APPLICATION",
+   "acquisitionDate": "2020-05-21T21:02:16.619Z",
+   "dependencies": []
+  },
+  {
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "catalogItemId": "42ac1ee840304cb1807172a9b47dc8e3",
+   "appName": "Kinglet",
+   "country": "PL",
+   "platform": [
+    "Windows"
+   ],
+   "productId": "831ad738547e46e195f87d54e98b8e79",
+   "sandboxName": "Sid Meier's Civilization VI",
+   "sandboxType": "PUBLIC",
+   "recordType": "APPLICATION",
+   "acquisitionDate": "2025-07-17T17:37:41.277Z",
+   "dependencies": []
+  },
+  {
+   "namespace": "ue",
+   "catalogItemId": "782b3262cb3a4d35bddbba22f1a651b7",
+   "appName": "CustomizableInteractionPlugin_5.1",
+   "country": "PL",
+   "platform": [
+    "Win32",
+    "Windows"
+   ],
+   "productId": "prod-ue",
+   "sandboxName": "UE Marketplace",
+   "sandboxType": "PUBLIC",
+   "recordType": "APPLICATION",
+   "acquisitionDate": "2024-09-23T16:13:00.682Z",
+   "dependencies": []
+  }
+ ]
+}
