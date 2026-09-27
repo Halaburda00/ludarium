@@ -70,6 +70,7 @@
     "noScore": "No score",
     "scoresCredit": "Metacritic scores from <credit>{{source}}</credit>.",
     "connectAnother": "Connect another account",
+    "connectAccount": "Connect an account",
     "loadMore": "Load more",
     "count_partial_one": "{{count}} game so far",
     "count_partial_other": "{{count}} games so far"

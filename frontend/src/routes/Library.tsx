@@ -75,6 +75,14 @@ export default function Library() {
                 ? t('library.updating')
                 : t('library.sync')}
           </Button>
+          {/* Always here, not only over an empty library: a second platform
+              is connected from a library that already has the first. */}
+          <Link
+            to="/onboarding"
+            className="px-2 text-sm text-primary underline-offset-4 hover:underline"
+          >
+            {t('library.connectAccount')}
+          </Link>
           <Button
             variant="ghost"
             onClick={() =>
