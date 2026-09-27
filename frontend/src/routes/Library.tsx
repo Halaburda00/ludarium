@@ -5,6 +5,7 @@ import { WorksTable } from '@/components/WorksTable'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/field'
 import {
+  useAccounts,
   useEnrichment,
   useLogout,
   useSync,
@@ -18,11 +19,21 @@ export default function Library() {
   const works = useWorks()
   const sync = useSync()
   const overview = useEnrichment()
+  const accounts = useAccounts()
+  // Every platform with an account to sync, once each: the endpoint syncs all
+  // of a platform's accounts.
+  const platforms = [
+    ...new Set(
+      (accounts.data ?? [])
+        .filter((account) => account.is_active)
+        .map((account) => account.provider),
+    ),
+  ].filter((provider) => SYNCABLE.has(provider))
   const logout = useLogout()
   const navigate = useNavigate()
 
   const runs = sync.data?.runs ?? []
-  const failed = runs.find((run) => run.status === 'failed')
+  const failed = runs.filter((run) => run.status === 'failed')
   // Its own answer, not a shade of success: a partial run means part of the
   // library did not come through, and reporting "Synced 40 games" over it tells
   // the user everything arrived when it did not.
@@ -53,7 +64,10 @@ export default function Library() {
           {/* Not offered while the steps after a sync are running: another
               sync would skip every step already underway, and the scores the
               user is waiting for arrive on their own when they finish. */}
-          <Button onClick={() => sync.mutate('steam')} disabled={sync.isPending || step !== null}>
+          <Button
+            onClick={() => sync.mutate(platforms)}
+            disabled={sync.isPending || step !== null || platforms.length === 0}
+          >
             {sync.isPending
               ? t('library.syncing')
               : step !== null
@@ -83,13 +97,28 @@ export default function Library() {
           {sync.error.status === 409 ? t('library.alreadyRunning') : sync.error.detail}
         </Notice>
       ) : null}
-      {failed ? (
-        <Notice>{t('library.runFailed', { reason: failed.error_text ?? t('error.unexpected') })}</Notice>
-      ) : null}
-      {partial && !failed ? (
+      {failed.map((run) => (
+        <Notice key={run.id}>
+          {t('library.runFailed', {
+            provider: providerName(overview.data, run.provider),
+            reason: run.error_text ?? t('error.unexpected'),
+          })}{' '}
+          {/* The user's to fix, so the way to fix it is here. An outage gets
+              no link: signing in again would not help, and would suggest it. */}
+          {run.error_kind === 'credentials' ? (
+            <Link
+              to={`/onboarding?provider=${run.provider}`}
+              className="underline underline-offset-4"
+            >
+              {t('library.signInAgain')}
+            </Link>
+          ) : null}
+        </Notice>
+      ))}
+      {partial && failed.length === 0 ? (
         <Notice tone="warn">{t('library.partial', { count: landed })}</Notice>
       ) : null}
-      {runs.length > 0 && !failed && !partial ? (
+      {runs.length > 0 && failed.length === 0 && !partial ? (
         <Notice tone="ok">{t('library.synced', { count: landed })}</Notice>
       ) : null}
       {step !== null ? <Notice tone="ok">{t('library.enriching', { step })}</Notice> : null}
@@ -154,6 +183,9 @@ export default function Library() {
     </main>
   )
 }
+
+/** The platforms `POST /api/sync/{provider}` can sync. */
+const SYNCABLE = new Set(['steam', 'epic'])
 
 function providerName(overview: SyncOverview | undefined, key: string): string {
   return overview?.providers.find((provider) => provider.key === key)?.display_name ?? key

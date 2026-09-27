@@ -96,8 +96,8 @@ export function useConnect() {
 
 export function useSync() {
   const client = useQueryClient()
-  return useMutation<SyncResult, ApiError, string>({
-    mutationFn: (provider) => api<SyncResult>(`/api/sync/${provider}`, { method: 'POST' }),
+  return useMutation<SyncResult, ApiError, string[]>({
+    mutationFn: syncEach,
     // Not awaited. `invalidateQueries` resolves only once the refetch is done,
     // and refetching an infinite query replays every loaded page in sequence —
     // each page param comes out of the page before it, so five loaded pages are
@@ -121,6 +121,33 @@ export function useSync() {
       void client.invalidateQueries({ queryKey: syncOverviewKey })
     },
   })
+}
+
+/**
+ * Every platform in turn, as one answer.
+ *
+ * One at a time rather than at once: each sync writes the library, and the
+ * database takes one writer. A platform that fails does so as a failed run in
+ * the answer (rule 4); an error here — another sync already running on one —
+ * does not stop the others, and is raised only if nothing synced at all.
+ */
+async function syncEach(providers: string[]): Promise<SyncResult> {
+  const merged: SyncResult = { runs: [], enriching: [] }
+  let refused: ApiError | null = null
+  let answered = false
+  for (const provider of providers) {
+    try {
+      const result = await api<SyncResult>(`/api/sync/${provider}`, { method: 'POST' })
+      merged.runs.push(...result.runs)
+      merged.enriching = [...new Set([...merged.enriching, ...result.enriching])]
+      answered = true
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error
+      refused ??= error
+    }
+  }
+  if (!answered && refused) throw refused
+  return merged
 }
 
 /**

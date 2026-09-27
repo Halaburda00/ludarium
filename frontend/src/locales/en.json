@@ -17,17 +17,31 @@
     "failed": "Wrong username or password."
   },
   "onboarding": {
-    "title": "Connect Steam",
-    "intro": "Ludarium reads your library with your own Steam Web API key. The key is stored encrypted and never leaves this server.",
     "apiKey": "Steam Web API key",
     "apiKeyHint": "Get one at steamcommunity.com/dev/apikey",
     "steamId": "SteamID64",
     "steamIdHint": "The 17-digit number, not your profile name",
     "label": "Name for this account",
     "submit": "Connect",
-    "working": "Checking with Steam…",
     "connected": "Connected. Your library is syncing.",
-    "privateProfile": "Steam accepted the key, but this profile's game details are private. Change it in Steam privacy settings and try again."
+    "privateProfile": "Steam accepted the key, but this profile's game details are private. Change it in Steam privacy settings and try again.",
+    "platform": "Platform",
+    "steam": {
+      "name": "Steam",
+      "title": "Connect Steam",
+      "intro": "Ludarium reads your library with your own Steam Web API key. The key is stored encrypted and never leaves this server.",
+      "working": "Checking with Steam…"
+    },
+    "epic": {
+      "name": "Epic Games",
+      "title": "Connect Epic Games",
+      "intro": "Ludarium reads your Epic library the way the Epic Games Launcher does. You sign in on Epic's own page; the sign-in is stored encrypted and never leaves this server.",
+      "signIn": "Sign in on epicgames.com",
+      "copyCode": "Copy the authorizationCode the page shows, without the quotes, and paste it below. It works once, for a few minutes.",
+      "code": "Authorization code",
+      "codeHint": "32 letters and digits",
+      "working": "Signing in to Epic…"
+    }
   },
   "library": {
     "title": "Library",
@@ -39,7 +53,8 @@
     "stepFailed": "{{step}} did not finish: {{reason}}",
     "synced_one": "Synced {{count}} game.",
     "synced_other": "Synced {{count}} games.",
-    "runFailed": "The last sync failed: {{reason}}",
+    "runFailed": "{{provider}} did not sync: {{reason}}",
+    "signInAgain": "Sign in again",
     "alreadyRunning": "A sync is already running for this account.",
     "count_one": "{{count}} game",
     "count_other": "{{count}} games",
