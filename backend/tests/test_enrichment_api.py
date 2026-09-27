@@ -276,7 +276,7 @@ def test_a_provider_with_no_step_is_a_400(connected: TestClient) -> None:
 
 
 def test_an_unknown_provider_is_a_404(connected: TestClient) -> None:
-    assert connected.post("/api/enrichment/epic").status_code == 404
+    assert connected.post("/api/enrichment/gog").status_code == 404
 
 
 def test_enrichment_needs_a_session(client: TestClient) -> None:
