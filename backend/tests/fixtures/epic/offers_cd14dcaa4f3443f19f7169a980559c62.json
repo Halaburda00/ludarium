@@ -1,0 +1,93 @@
+{
+ "elements": [
+  {
+   "id": "fe74b3dad04846e5a58f62aebd3858b6",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Sid Meier\u2019s Civilization\u00ae VI",
+   "offerType": "BASE_GAME"
+  },
+  {
+   "id": "f301fd4611f240da87cdc7baf1b67f44",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Sid Meier\u2019s Civilization\u00ae VI Anthology",
+   "offerType": "EDITION"
+  },
+  {
+   "id": "cff61f3179e447b2a0a5570cb259dff7",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Sid Meier\u2019s Civilization\u00ae VI: Leader Pass",
+   "offerType": "DLC"
+  },
+  {
+   "id": "05e562bfa54247e88b8217454810471f",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Sid Meier\u2019s Civilization\u00ae VI Anthology Upgrade",
+   "offerType": "DLC"
+  },
+  {
+   "id": "2fda269f419c41b1b98a9ece0fe5cd66",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Civilization VI \u2013 Portugal Pack",
+   "offerType": "DLC"
+  },
+  {
+   "id": "882cd9fbf0f74b65a3a70313660d764d",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Civilization VI \u2013 Vietnam & Kublai Khan Pack",
+   "offerType": "DLC"
+  },
+  {
+   "id": "61435f4c18cf47559159fb39fd4dada9",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Civilization VI : Babylon Pack",
+   "offerType": "DLC"
+  },
+  {
+   "id": "82ef6950b16440aa99b8e26b37bbe793",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Civilization VI Byzantium & Gaul Pack",
+   "offerType": "DLC"
+  },
+  {
+   "id": "94b148c52ce8427d845c00859014e15b",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Civilization VI : Ethiopia Pack",
+   "offerType": "DLC"
+  },
+  {
+   "id": "dc04085806054c1b927147e55fe7f4ac",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Civilization VI : Civilization & Scenario Pack",
+   "offerType": "DLC"
+  },
+  {
+   "id": "ead2024942c444b9a2299fdd3245e807",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Civilization VI : Gathering Storm",
+   "offerType": "DLC"
+  },
+  {
+   "id": "381e69b45bb246f89c09997af99b76a3",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Civilization VI : Rise and Fall",
+   "offerType": "DLC"
+  },
+  {
+   "id": "9121007a819c42729376fa7ba6ee50a9",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Civilization VI : Maya & Gran Colombia Pack",
+   "offerType": "DLC"
+  },
+  {
+   "id": "7ff6822cac9a4be28989ec64fa0ea57d",
+   "namespace": "cd14dcaa4f3443f19f7169a980559c62",
+   "title": "Civilization VI : New Frontier Pack",
+   "offerType": "DLC"
+  }
+ ],
+ "paging": {
+  "count": 14,
+  "start": 0,
+  "total": 14
+ }
+}

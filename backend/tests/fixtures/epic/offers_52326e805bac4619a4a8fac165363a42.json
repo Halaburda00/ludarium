@@ -1,0 +1,21 @@
+{
+ "elements": [
+  {
+   "id": "56b3f851cc664490a9911040da23a611",
+   "namespace": "52326e805bac4619a4a8fac165363a42",
+   "title": "Gone Home",
+   "offerType": "BASE_GAME"
+  },
+  {
+   "id": "821771a9abe24c1181c7bd5f38d95b5a",
+   "namespace": "52326e805bac4619a4a8fac165363a42",
+   "title": "FlierDevAudience",
+   "offerType": "OTHERS"
+  }
+ ],
+ "paging": {
+  "count": 2,
+  "start": 0,
+  "total": 2
+ }
+}
