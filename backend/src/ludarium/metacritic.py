@@ -172,6 +172,18 @@ async def _matched(database: Database) -> list[Target]:
             )
         ):
             appids.setdefault(work_id, set()).add(str(appid))
+        # And the appids IGDB gives a game owned elsewhere, which layer 1 keeps
+        # for exactly this: an Epic-only game has no Steam copy to read one from.
+        for work_id, appid in await session.execute(
+            select(ExternalId.entity_id, ExternalId.value)
+            .join(Work, Work.id == ExternalId.entity_id)
+            .where(
+                ExternalId.entity_type == EntityType.WORK,
+                ExternalId.namespace == LIBRARY,
+                Work.is_matched.is_(True),
+            )
+        ):
+            appids.setdefault(work_id, set()).add(appid)
         titles = await _titles(session, sorted(appids))
         return [
             Target(work_id, titles[work_id], frozenset(owned))

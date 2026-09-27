@@ -307,3 +307,30 @@ async def test_a_candidate_rawg_has_since_removed_is_passed_over(
 
     assert (await scored(db, prey.id))[0] == 79
     assert (await scored(db, portal.id))[0] == 95
+
+
+@respx.mock
+async def test_a_game_owned_only_elsewhere_is_confirmed_by_igdb_s_steam_appid(
+    db: Database, session: AsyncSession, steam_account: Account, client: RawgClient
+) -> None:
+    """An Epic-only game has no Steam copy; layer 1 keeps IGDB's appid for it (#74)."""
+
+    Rawg(
+        {"Gone Home": [9]}, {9: [steam("237930")]}, {9: {"slug": "gone-home", "metacritic": 86}}
+    ).mount()
+    work = await make_work(session, "Gone Home")
+    work.is_matched = True
+    session.add(
+        ExternalId(
+            entity_type=EntityType.WORK,
+            entity_id=work.id,
+            namespace="steam",
+            value="237930",
+            is_authoritative=True,
+        )
+    )
+    await session.commit()
+
+    assert await score(db, client) is SyncStatus.SUCCESS
+
+    assert (await scored(db, work.id))[0] == 86
