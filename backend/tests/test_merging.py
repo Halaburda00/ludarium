@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.enums import (
     EntityType,
+    ImageKind,
     ItemKind,
     MatchAction,
     MatchActor,
@@ -30,6 +31,7 @@ from ludarium.models import (
     EntitlementWork,
     ExternalId,
     FieldProvenance,
+    ImageAsset,
     MatchAudit,
     UserWorkState,
     Work,
@@ -124,6 +126,18 @@ async def assert_(
         row.observed_at = at
     await resolve(session, entity_type=EntityType.WORK, entity_id=work.id, fields=[field])
     return row
+
+
+def cover(work: Work, checksum: str, width: int) -> ImageAsset:
+    return ImageAsset(
+        entity_type=EntityType.WORK,
+        entity_id=work.id,
+        kind=ImageKind.COVER,
+        source_ref="igdb",
+        local_path=f"covers/igdb/{checksum}.jpg",
+        checksum=checksum,
+        width=width,
+    )
 
 
 async def merge(session: AsyncSession, source: Work, target: Work) -> MatchAudit:
@@ -427,6 +441,10 @@ async def world(session: AsyncSession, rename: dict[int, int] | None = None) -> 
             )
             for row in await fresh(session, select(FieldProvenance))
         },
+        "images": {
+            (w(image.entity_id), image.kind, image.source_ref, image.checksum, image.width)
+            for image in await fresh(session, select(ImageAsset))
+        },
         "external_ids": {
             (w(row.entity_id), row.namespace, row.value)
             for row in await fresh(session, select(ExternalId))
@@ -490,6 +508,14 @@ async def test_an_undo_puts_back_everything_the_merge_moved(
     )
     session.add(
         ExternalId(entity_type=EntityType.WORK, entity_id=source.id, namespace="gog", value="14")
+    )
+    session.add_all(
+        [
+            cover(target, "same-file", 264),
+            # One file the target already has, and one it does not.
+            cover(source, "same-file", 264),
+            cover(source, "own-file", 528),
+        ]
     )
     (await state_of(session, source)).rating = 7
     (await state_of(session, target)).notes = "Replay"
@@ -613,3 +639,34 @@ async def test_a_merge_whose_target_was_merged_since_waits_for_that_merge_to_be_
 
     await undo_merge(session, audit_id=second.id, actor=MatchActor.USER)
     await undo_merge(session, audit_id=first.id, actor=MatchActor.USER)
+
+
+async def test_a_cover_the_target_already_has_is_not_moved_twice(
+    session: AsyncSession, steam: Account
+) -> None:
+    target = await anchored(session, steam, "292030", "The Witcher 3: Wild Hunt")
+    source = await stub(session, steam, "499450", "The Witcher 3 GOTY")
+    session.add_all(
+        [cover(target, "same", 264), cover(source, "same", 264), cover(source, "x", 528)]
+    )
+    await session.flush()
+
+    await merge(session, source, target)
+
+    images = await fresh(session, select(ImageAsset))
+    assert sorted((image.entity_id, image.checksum) for image in images) == [
+        (target.id, "same"),
+        (target.id, "x"),
+    ]
+
+
+async def test_an_orphan_stub_takes_its_image_rows_with_it(
+    session: AsyncSession, steam: Account
+) -> None:
+    orphan = await stub(session, steam, None, "Nobody owns this")
+    session.add(cover(orphan, "gone", 264))
+    await session.flush()
+
+    await collect_orphan_stubs(session)
+
+    assert await session.scalar(select(func.count()).select_from(ImageAsset)) == 0
