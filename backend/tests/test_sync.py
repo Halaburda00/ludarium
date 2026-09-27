@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium import queries
 from ludarium import sync as sync_module
+from ludarium.crypto import get_cipher
 from ludarium.db import Database
 from ludarium.enums import (
     EntitlementOrigin,
@@ -65,8 +66,10 @@ class FakeLibrary:
         *,
         key: str = "steam",
         error: Exception | None = None,
+        renewed_secret: str | None = None,
     ) -> None:
         self.key = key
+        self.renewed_secret = renewed_secret
         self.calls = 0
         self._items = items or []
         self._error = error
@@ -1415,3 +1418,35 @@ async def test_more_works_than_one_in_clause_holds_still_get_their_totals(
         )
     }
     assert totals == {"The Witcher 3: Wild Hunt": 3247, "Portal 2": 0, "Dota 2": 12}
+
+
+@pytest.mark.parametrize(
+    "error",
+    [None, ProviderUnavailableError("epic answered 503 for the library")],
+    ids=["success", "failure"],
+)
+async def test_a_credential_the_platform_replaced_is_kept_whether_the_run_worked_or_not(
+    session: AsyncSession, account: Account, error: Exception | None
+) -> None:
+    """Epic spends its refresh token on every use; keeping the old one signs the next sync out."""
+
+    library = FakeLibrary(THREE_GAMES, error=error, renewed_secret="eg1~the-new-refresh-token")
+
+    await sync_account(session, account=account, library=library)
+
+    await session.refresh(account)
+    assert account.credentials_encrypted is not None
+    assert get_cipher().decrypt(account.credentials_encrypted) == "eg1~the-new-refresh-token"
+    assert account.credentials_updated_at is not None
+
+
+async def test_a_credential_nothing_replaced_is_left_alone(
+    session: AsyncSession, account: Account
+) -> None:
+    account.credentials_encrypted = get_cipher().encrypt("a-key-that-never-changes")
+    await session.commit()
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    await session.refresh(account)
+    assert get_cipher().decrypt(account.credentials_encrypted or b"") == "a-key-that-never-changes"

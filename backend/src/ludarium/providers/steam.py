@@ -48,6 +48,7 @@ class SteamProvider:
     """One connected Steam account."""
 
     key: str = "steam"
+    renewed_secret: str | None = None
 
     def __init__(self, credentials: SteamCredentials, client: httpx.AsyncClient) -> None:
         self._credentials = credentials

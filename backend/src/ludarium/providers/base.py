@@ -109,6 +109,10 @@ class LibraryProvider(Protocol):
     """A connected account, ready to be asked what it owns."""
 
     key: str
+    # A credential the platform replaced while being asked, to be stored in
+    # place of the old one. Epic's refresh token is spent by every use; a key
+    # that never changes, like Steam's, leaves this None.
+    renewed_secret: str | None
 
     async def validate_credentials(self) -> None:
         """Return if the credentials work, raise the reason if they do not.

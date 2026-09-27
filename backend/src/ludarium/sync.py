@@ -75,6 +75,8 @@ class _Unusable:
     which is where every other failure already is.
     """
 
+    renewed_secret: str | None = None
+
     def __init__(self, key: str, reason: str) -> None:
         self.key = key
         self._reason = reason
@@ -163,7 +165,16 @@ async def sync_account(
     except ProviderError as exc:
         # Safe to store: `ProviderError` never carries a credential, which is
         # the contract `providers.base` states rather than a hope (rule 7).
-        await _close(session, run, reporter, account, seen, SyncStatus.FAILED, error=str(exc))
+        await _close(
+            session,
+            run,
+            reporter,
+            account,
+            seen,
+            SyncStatus.FAILED,
+            error=str(exc),
+            renewed=library.renewed_secret,
+        )
         return run
     except BaseException as exc:
         # `BaseException`, not `Exception`, for one reason: `CancelledError` has
@@ -176,10 +187,19 @@ async def sync_account(
         # and the caller sees `TimeoutError` from `wait_for` regardless, so a
         # loop over several accounts carries on either way (rule 4).
         await _close(
-            session, run, reporter, account, seen, SyncStatus.FAILED, error=type(exc).__name__
+            session,
+            run,
+            reporter,
+            account,
+            seen,
+            SyncStatus.FAILED,
+            error=type(exc).__name__,
+            renewed=library.renewed_secret,
         )
         raise
-    await _close(session, run, reporter, account, seen, SyncStatus.SUCCESS)
+    await _close(
+        session, run, reporter, account, seen, SyncStatus.SUCCESS, renewed=library.renewed_secret
+    )
     return run
 
 
@@ -312,6 +332,7 @@ async def _close(
     status: SyncStatus,
     *,
     error: str | None = None,
+    renewed: str | None = None,
 ) -> None:
     """Finish the run and report the provider's health. Anything short of success rolls back.
 
@@ -326,6 +347,11 @@ async def _close(
 
     `items_seen` is set here for the same reason — it describes the provider's
     answer rather than anything this run wrote.
+
+    So is a credential the platform replaced (`renewed`). Epic spends its
+    refresh token on every use: the old one is gone whether the library then
+    arrived or not, and a failed run that rolled the new one back would leave
+    the account holding a spent token and the next sync signed out.
     """
 
     if status is not SyncStatus.SUCCESS:
@@ -340,6 +366,9 @@ async def _close(
     run.status = status
     run.finished_at = moment
     run.error_text = error
+    if renewed is not None:
+        account.credentials_encrypted = get_cipher().encrypt(renewed)
+        account.credentials_updated_at = moment
     _report(reporter, account, status, error, moment)
     await session.commit()
 
