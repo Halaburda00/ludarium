@@ -66,10 +66,22 @@ async def test_stores_and_the_full_record_are_read(rawg: RawgClient) -> None:
 
 
 @respx.mock
-async def test_a_game_rawg_no_longer_has_is_none(rawg: RawgClient) -> None:
+async def test_a_game_rawg_no_longer_has_is_none_and_sold_nowhere(rawg: RawgClient) -> None:
     respx.get(f"{GAMES_URL}/3328").mock(return_value=httpx.Response(404, json={}))
+    respx.get(f"{GAMES_URL}/3328/stores").mock(return_value=httpx.Response(404, json={}))
 
     assert await rawg.game(3328) is None
+    assert await rawg.stores(3328) == []
+
+
+@respx.mock
+async def test_a_404_on_a_search_is_still_malformed(rawg: RawgClient) -> None:
+    """Only a lookup by id can find its game gone; the search endpoint itself cannot be."""
+
+    respx.get(GAMES_URL).mock(return_value=httpx.Response(404, json={}))
+
+    with pytest.raises(MalformedResponseError, match="404"):
+        await rawg.search("Prey")
 
 
 @respx.mock

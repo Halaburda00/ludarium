@@ -82,10 +82,16 @@ class RawgClient:
         return _results(payload, "games")
 
     async def stores(self, game_id: int) -> list[dict[str, Any]]:
-        """Every store RAWG lists the game under, each with its link."""
+        """Every store RAWG lists the game under, each with its link.
 
-        payload = await self._get(f"games/{game_id}/stores", {"page_size": str(STORES_PAGE)})
-        return _results(payload, "stores")
+        Empty where RAWG no longer has the game, for the reason `game` gives:
+        a search cached for a month can name one RAWG has since dropped.
+        """
+
+        payload = await self._get(
+            f"games/{game_id}/stores", {"page_size": str(STORES_PAGE)}, missing_ok=True
+        )
+        return [] if payload is None else _results(payload, "stores")
 
     async def game(self, game_id: int) -> dict[str, Any] | None:
         """The game's full record, which is the only one carrying `metacritic_url`.

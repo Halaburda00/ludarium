@@ -285,3 +285,25 @@ async def test_a_rawg_outage_fails_the_run_as_rawg_s(
     assert await score(db, client) is SyncStatus.FAILED
 
     assert await scored(db, work.id) == (None, None, None)
+
+
+@respx.mock
+async def test_a_candidate_rawg_has_since_removed_is_passed_over(
+    db: Database, session: AsyncSession, steam_account: Account, client: RawgClient
+) -> None:
+    """A search cached for a month can name a game RAWG has since dropped or merged."""
+
+    respx.get(f"{GAMES}/11/stores").mock(return_value=httpx.Response(404, json={}))
+    Rawg(
+        {"Prey": [11, 22], "Portal 2": [33]},
+        {22: [steam("480490")], 33: [steam("620")]},
+        {22: {"slug": "prey", "metacritic": 79}, 33: {"slug": "portal-2", "metacritic": 95}},
+    ).mount()
+    prey = await matched(session, steam_account, "480490", "Prey")
+    portal = await matched(session, steam_account, "620", "Portal 2")
+    await session.commit()
+
+    assert await score(db, client) is SyncStatus.SUCCESS
+
+    assert (await scored(db, prey.id))[0] == 79
+    assert (await scored(db, portal.id))[0] == 95
