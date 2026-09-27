@@ -17,6 +17,7 @@ from ludarium.providers.igdb import (
     RequestLimiter,
     TokenStore,
 )
+from ludarium.providers.rawg import RawgClient
 from ludarium.providers.steam import SteamCredentials, SteamProvider
 from ludarium.providers.steam_store import SteamStoreClient
 
@@ -34,6 +35,7 @@ __all__ = [
     "ProviderUnavailableError",
     "QueryRejectedError",
     "RateLimitedError",
+    "RawgClient",
     "RequestLimiter",
     "SteamCredentials",
     "SteamProvider",
