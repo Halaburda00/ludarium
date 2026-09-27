@@ -25,12 +25,14 @@ def test_every_provider_column_is_either_seeded_or_runtime() -> None:
     assert columns == set(ProviderSpec.__dataclass_fields__) | runtime
 
 
-async def test_seeds_steam_igdb_and_manual(session: AsyncSession) -> None:
+async def test_seeds_the_libraries_the_metadata_providers_and_manual(
+    session: AsyncSession,
+) -> None:
     await seed_providers(session)
 
     providers = {provider.key: provider for provider in await session.scalars(select(Provider))}
 
-    assert set(providers) == {"steam", "steam_store", "igdb", "manual"}
+    assert set(providers) == {"steam", "steam_store", "igdb", "rawg", "manual"}
     steam = providers["steam"]
     assert steam.kind is ProviderKind.PLATFORM
     assert steam.source_kind is SourceKind.PLATFORM_API
@@ -45,6 +47,11 @@ async def test_seeds_steam_igdb_and_manual(session: AsyncSession) -> None:
     assert igdb.source_kind is SourceKind.METADATA_PROVIDER
     # What keeps IGDB's data out of every export.
     assert igdb.licence_class is LicenceClass.RUNTIME_ONLY
+    rawg = providers["rawg"]
+    assert rawg.source_kind is SourceKind.METADATA_PROVIDER
+    # RAWG: "no data redistribution".
+    assert rawg.licence_class is LicenceClass.RUNTIME_ONLY
+    assert rawg.store_url_template == "https://rawg.io/games/{id}"
     manual = providers["manual"]
     assert manual.kind is ProviderKind.MANUAL
     assert manual.source_kind is SourceKind.MANUAL
@@ -135,6 +142,7 @@ async def test_a_second_instance_seeds_behind_the_first(db: Database) -> None:
         "steam": "Steam",
         "steam_store": "Steam Store",
         "igdb": "IGDB",
+        "rawg": "RAWG",
         "manual": "Manual entry",
     }
 
