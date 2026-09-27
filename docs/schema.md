@@ -335,16 +335,23 @@ from. Platform overlap is a matcher feature.
 
 #### `image_asset`
 
+One row per **file**, not per picture: IGDB's cover is fetched at two sizes,
+`cover_big` (264×374) and `cover_big_2x` (528×748), and each is its own row,
+told apart by `width` (ADR-0024). A changed cover is new rows rather than
+rewritten ones, and `GET /api/images/{id}` serves a row's file with an
+`immutable` cache header — which is why the id is `AUTOINCREMENT` on SQLite: a
+reused id would be a new picture under a URL browsers keep for good.
+
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
-| `id` | INTEGER | no | PK | |
+| `id` | INTEGER | no | PK | `AUTOINCREMENT` on SQLite: never reused |
 | `entity_type` | TEXT | no | | `work` or `edition` |
-| `entity_id` | INTEGER | no | | |
+| `entity_id` | INTEGER | no | | Indexed with `entity_type` |
 | `kind` | TEXT | no | | `ImageKind` |
 | `source_ref` | TEXT | no | | Provider key; also decides whether the file may be exported |
-| `remote_url` | TEXT | yes | | |
-| `local_path` | TEXT | yes | | Relative to the data volume |
-| `checksum` | TEXT | yes | | Deduplicates identical covers across providers |
+| `remote_url` | TEXT | yes | | Where it was fetched from |
+| `local_path` | TEXT | yes | | Relative to `LUDARIUM_DATA_DIR`, e.g. `covers/igdb/co1wyy_2x.jpg` |
+| `checksum` | TEXT | yes | | SHA-256 of the file. Deduplicates identical covers when works merge |
 | `width` / `height` | INTEGER | yes | | Lets the grid reserve space before load |
 | `fetched_at` | TIMESTAMP | yes | | Null means queued, not yet downloaded |
 

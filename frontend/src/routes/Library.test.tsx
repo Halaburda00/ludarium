@@ -49,6 +49,7 @@ function work(
     playtime_minutes: 0,
     last_played_at: null,
     metacritic: null,
+    cover: null,
     entitlements,
   }
 }

@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from cryptography.fernet import Fernet
@@ -32,6 +33,10 @@ class Settings(BaseSettings):
     username: str = "ludarium"
     password: SecretStr
     database_url: str = "sqlite+aiosqlite:///./data/ludarium.db"
+    # Where files the instance fetches live — cover art today. Beside the
+    # default database, so the one directory to back up and to keep out of git
+    # and the image stays one directory (ADR-0019).
+    data_dir: Path = Path("./data")
     log_level: LogLevel = "INFO"
     # IGDB authenticates through a Twitch application (M2a). Optional: without
     # one the instance still syncs libraries and simply enriches nothing.

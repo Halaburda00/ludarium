@@ -784,3 +784,53 @@ async def test_one_decision_about_the_token_reads_the_clock_once() -> None:
         await igdb.query(ENDPOINT, BODY)
 
     assert minted.call_count == 1
+
+
+COVER = f"{igdb_module.IGDB_IMAGES}/t_cover_big/co1wyy.jpg"
+# A JPEG's first bytes, then filler: the client checks the magic, not the picture.
+JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+
+
+@respx.mock
+async def test_a_cover_comes_from_the_cdn_without_a_token(igdb: IgdbClient) -> None:
+    route = respx.get(COVER).mock(return_value=httpx.Response(200, content=JPEG))
+
+    assert await igdb.image("co1wyy", "t_cover_big") == JPEG
+    assert "authorization" not in route.calls.last.request.headers
+
+
+@respx.mock
+async def test_a_cover_igdb_no_longer_has_is_none(igdb: IgdbClient) -> None:
+    respx.get(COVER).mock(return_value=httpx.Response(404))
+
+    assert await igdb.image("co1wyy", "t_cover_big") is None
+
+
+@respx.mock
+async def test_a_cdn_outage_is_retried_then_reported(igdb: IgdbClient) -> None:
+    route = respx.get(COVER).mock(return_value=httpx.Response(503))
+
+    with pytest.raises(ProviderUnavailableError):
+        await igdb.image("co1wyy", "t_cover_big")
+    assert route.call_count == igdb_module.RETRY_ATTEMPTS
+
+
+@pytest.mark.parametrize(
+    "body", [b"<html>not a picture</html>", JPEG + b"\x00" * igdb_module.MAX_IMAGE_BYTES]
+)
+@respx.mock
+async def test_what_is_not_a_cover_is_refused(igdb: IgdbClient, body: bytes) -> None:
+    respx.get(COVER).mock(return_value=httpx.Response(200, content=body))
+
+    with pytest.raises(MalformedResponseError):
+        await igdb.image("co1wyy", "t_cover_big")
+
+
+@pytest.mark.parametrize(
+    ("image_id", "size"), [("../../etc/passwd", "t_cover_big"), ("co1wyy", "t_original")]
+)
+async def test_an_id_or_a_size_that_would_not_be_a_plain_path_is_refused(
+    igdb: IgdbClient, image_id: str, size: str
+) -> None:
+    with pytest.raises(ValueError):
+        await igdb.image(image_id, size)

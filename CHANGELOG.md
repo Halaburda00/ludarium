@@ -57,6 +57,16 @@ shape moves.
   `game` default wherever no source asserted it. Two kinds of entry are still
   called games, because the store has no word for them: test servers and public
   beta clients.
+- Cover art for every game IGDB has matched, fetched in the same run as the
+  match and kept on this server under the data directory
+  (`LUDARIUM_DATA_DIR`, `./data` by default). Two sizes of each, 264×374 and
+  528×748, so a sharp screen gets a sharp cover and an ordinary one downloads a
+  third as much: about 96 KB a game, some 19 MB for a library of two hundred.
+  Covers are served by Ludarium itself, so the library does not go blank when
+  IGDB is down and IGDB does not see what you browse. A cover IGDB changes is
+  fetched again within a month and the old files are removed. The files are
+  IGDB's and are never committed, baked into an image, or — once exports exist
+  — exported. Nothing shows them yet: that is the grid's job.
 - The library says when it is still being updated after a sync. Classification,
   IGDB matching and RAWG scores run after the sync has answered and can take a
   few minutes; until now the button came back within seconds and nothing said

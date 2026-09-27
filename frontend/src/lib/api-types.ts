@@ -111,6 +111,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/images/{image_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Image */
+        get: operations["image_api_images__image_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sync/runs": {
         parameters: {
             query?: never;
@@ -245,6 +262,20 @@ export interface components {
             label: string;
             /** Provider */
             provider: string;
+        };
+        /**
+         * Cover
+         * @description A cover at two sizes, for `srcset`: `url` at its own size, `url_2x` at twice it.
+         */
+        Cover: {
+            /** Height */
+            height: number;
+            /** Url */
+            url: string;
+            /** Url 2X */
+            url_2x: string | null;
+            /** Width */
+            width: number;
         };
         /**
          * EntitlementSummary
@@ -429,6 +460,7 @@ export interface components {
         };
         /** WorkSummary */
         WorkSummary: {
+            cover: components["schemas"]["Cover"] | null;
             /** Entitlements */
             entitlements: components["schemas"]["EntitlementSummary"][];
             /** Id */
@@ -646,6 +678,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    image_api_images__image_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                image_id: number;
+            };
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The image file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

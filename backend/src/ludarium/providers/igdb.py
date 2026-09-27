@@ -34,6 +34,17 @@ from ludarium.providers.base import (
 )
 
 IGDB_API: Final = "https://api.igdb.com/v4"
+# The image CDN. Public: no token, and none of the API's limits.
+IGDB_IMAGES: Final = "https://images.igdb.com/igdb/image/upload"
+# IGDB's image ids are short lowercase alphanumerics (`co1wyy`). Checked because
+# one becomes a path segment here and a file name on disk.
+IMAGE_ID: Final = re.compile(r"[a-z0-9]+")
+# The presets this code asks for. Anything else is a typo, not a size.
+IMAGE_SIZES: Final = frozenset({"t_cover_big", "t_cover_big_2x"})
+# A cover at the largest preset asked for measured 68 to 80 KB. Twenty times that
+# is not a cover, and the download stops there rather than reading it whole.
+MAX_IMAGE_BYTES: Final = 2_000_000
+JPEG_MAGIC: Final = b"\xff\xd8\xff"
 TWITCH_TOKEN_URL: Final = "https://id.twitch.tv/oauth2/token"
 
 # IGDB's documentation: "There is a rate limit of 4 requests per second" and "You
@@ -243,6 +254,57 @@ class IgdbClient:
         )
         rows: list[dict[str, Any]] = await retrying(self._query_once, endpoint, body)
         return rows
+
+    async def image(self, image_id: str, size: str) -> bytes | None:
+        """One image from IGDB's CDN, or None where IGDB no longer has it.
+
+        Retried like a query on an outage. Not rate limited: the CDN is not the
+        API, and the caller bounds how many it asks for at once.
+        """
+
+        if not IMAGE_ID.fullmatch(image_id):
+            raise ValueError(f"not an IGDB image id: {image_id!r}")
+        if size not in IMAGE_SIZES:
+            raise ValueError(f"not an IGDB image size this code asks for: {size!r}")
+        retrying = AsyncRetrying(
+            retry=retry_if_exception_type(ProviderUnavailableError),
+            wait=wait_exponential(multiplier=RETRY_BACKOFF_SECONDS, max=RETRY_MAX_WAIT_SECONDS),
+            stop=stop_after_attempt(RETRY_ATTEMPTS),
+            reraise=True,
+        )
+        body: bytes | None = await retrying(self._image_once, image_id, size)
+        return body
+
+    async def _image_once(self, image_id: str, size: str) -> bytes | None:
+        try:
+            # Streamed, so an oversized answer is refused at the limit rather
+            # than read whole first.
+            async with self._client.stream(
+                "GET", f"{IGDB_IMAGES}/{size}/{image_id}.jpg"
+            ) as response:
+                status = response.status_code
+                if status == 404:
+                    return None
+                if status >= 500:
+                    raise ProviderUnavailableError(f"igdb's image server answered {status}")
+                if status != httpx.codes.OK:
+                    raise MalformedResponseError(
+                        f"igdb's image server answered an undocumented {status}"
+                    )
+                body = bytearray()
+                async for chunk in response.aiter_bytes():
+                    body += chunk
+                    if len(body) > MAX_IMAGE_BYTES:
+                        raise MalformedResponseError(
+                            f"igdb sent more than {MAX_IMAGE_BYTES} bytes for a cover"
+                        )
+        except httpx.HTTPError as exc:
+            raise ProviderUnavailableError(
+                f"igdb's image server did not answer: {type(exc).__name__}"
+            ) from None
+        if not body.startswith(JPEG_MAGIC):
+            raise MalformedResponseError("igdb sent a cover that is not a JPEG")
+        return bytes(body)
 
     async def _query_once(self, endpoint: str, body: str) -> list[dict[str, Any]]:
         token = await self._token()

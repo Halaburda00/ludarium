@@ -86,15 +86,15 @@ M2a and M2c and stay true.
 
 The list is in build order, and the order is load-bearing twice over.
 
-- [ ] Fix the works ordering and the cursor that depends on it. First, because
+- [x] Fix the works ordering and the cursor that depends on it. First, because
       the grid in M2c is built on both, and fixing them afterwards means
       migrating the column twice
-- [ ] IGDB client (Twitch OAuth, token cache, rate limiting)
-- [ ] Enrichment pipeline with local caching — never re-fetch what we have.
+- [x] IGDB client (Twitch OAuth, token cache, rate limiting)
+- [x] Enrichment pipeline with local caching — never re-fetch what we have.
       Ahead of everything that fetches, because it is the cache, the batching
       and the rate limiting all of them share; written after its callers it
       becomes three private ones
-- [ ] `ItemKind` classification, moved forward from M3, and ahead of the
+- [x] `ItemKind` classification, moved forward from M3, and ahead of the
       matcher rather than merely inside the same milestone. A real library
       carries playtests, public beta clients and test servers, and
       `GetOwnedGames` carries no field that separates them from games — so
@@ -113,7 +113,7 @@ The list is in build order, and the order is load-bearing twice over.
       specified in `docs/schema.md`. Layer 1 is the first thing that merges
       stubs, so the operation ships with it, tests and undo included
 - [x] RAWG client for Metacritic + required attribution link in the UI
-- [ ] Cover art: fetching and storage
+- [x] Cover art: fetching and storage
 
 **On the timing of `ludamatch`:** it is created here rather than at M6 for two
 reasons, neither of them preference. Licence hygiene — every line of matcher

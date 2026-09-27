@@ -27,11 +27,16 @@ def default_database() -> str:
     return (BACKEND / database).resolve().relative_to(REPOSITORY).as_posix()
 
 
+def default_data_dir() -> str:
+    data_dir: Path = Settings.model_fields["data_dir"].default
+    return (BACKEND / data_dir).resolve().relative_to(REPOSITORY).as_posix()
+
+
 RUNTIME_STATE = [
     default_database(),
     f"{default_database()}-wal",
-    # Where #51 puts cover files: beside the database, in the same directory.
-    f"{Path(default_database()).parent.as_posix()}/covers/igdb/co1wyy.jpg",
+    # Where the cover step puts files, under the default data directory.
+    f"{default_data_dir()}/covers/igdb/co1wyy_2x.jpg",
     "backend/.env",
 ]
 SOURCE = ["backend/src/ludarium/enrichment.py", "backend/.env.example"]

@@ -4,8 +4,8 @@
 row and everything it took with it on a `match_audit` row, and `undo_merge`
 rebuilds the source from that record (rule 6). The table in `docs/schema.md`,
 "Merging stubs", is the specification; tables it names that do not exist yet —
-`field_pin`, the genre, company and platform links, images, embeddings, aliases
-and the review queue — are left for the change that creates them to add here.
+`field_pin`, the genre, company and platform links, embeddings, aliases and the
+review queue — are left for the change that creates them to add here.
 
 The undo restores the source under a new id. SQLite reuses the highest rowid
 once it is deleted, and the source of a merge is usually the youngest work, so
@@ -43,6 +43,7 @@ from ludarium.models import (
     EntitlementWork,
     ExternalId,
     FieldProvenance,
+    ImageAsset,
     MatchAudit,
     UserWorkState,
     Work,
@@ -67,6 +68,8 @@ USER_DEFAULTS: Final[Mapping[str, object]] = {
     "started_at": None,
     "completed_at": None,
 }
+
+NO_IMAGES: Final[Mapping[str, list[Any]]] = {"moved": [], "dropped": []}
 
 # Bumped when the shape of `details` changes, so an undo can refuse a payload
 # it would misread instead of half-restoring it.
@@ -138,6 +141,7 @@ async def merge_work(
         ExternalId.entity_type == EntityType.WORK,
     )
     details["states"] = await _merge_states(session, source_id, target_id)
+    details["images"] = await _move_images(session, source_id, target_id)
     details["audits"] = await _repoint(
         session, MatchAudit.id, MatchAudit.work_id, source_id, target_id
     )
@@ -210,6 +214,8 @@ async def undo_merge(session: AsyncSession, *, audit_id: int, actor: MatchActor)
         session, ExternalId.id, ExternalId.entity_id, details["external_ids"], target_id, work.id
     )
     await _unmerge_states(session, details["states"], target_id, work.id)
+    # A payload written before images were moved has none to put back.
+    await _unmove_images(session, details.get("images", NO_IMAGES), target_id, work.id)
     await _repoint_back(
         session, MatchAudit.id, MatchAudit.work_id, details["audits"], target_id, work.id
     )
@@ -272,6 +278,13 @@ async def collect_orphan_stubs(session: AsyncSession) -> OrphanReport:
         await _delete_provenance(session, EntityType.WORK, batch)
         for edition_batch in in_batches(editions):
             await _delete_provenance(session, EntityType.EDITION, edition_batch)
+        # The rows only. Their files are the cover step's to sweep: it knows
+        # which of them another row still points at.
+        await session.execute(
+            delete(ImageAsset).where(
+                ImageAsset.entity_type == EntityType.WORK, ImageAsset.entity_id.in_(batch)
+            )
+        )
         await session.execute(
             delete(ExternalId).where(
                 ExternalId.entity_type == EntityType.WORK, ExternalId.entity_id.in_(batch)
@@ -696,6 +709,49 @@ async def _unmerge_states(
         if kept is not None:
             for field, value in _decoded(UserWorkState, entry["target_before"]).items():
                 setattr(kept, field, value)
+    await session.flush()
+
+
+async def _move_images(session: AsyncSession, source_id: int, target_id: int) -> dict[str, Any]:
+    """The source's images, onto the target, but not a file the target already has.
+
+    Same file means same checksum, source and kind: one cover asserted twice.
+    """
+
+    held = {
+        (image.kind, image.source_ref, image.checksum)
+        for image in await session.scalars(
+            select(ImageAsset).where(
+                ImageAsset.entity_type == EntityType.WORK, ImageAsset.entity_id == target_id
+            )
+        )
+        if image.checksum is not None
+    }
+    moved: list[int] = []
+    dropped: list[dict[str, Any]] = []
+    for image in await session.scalars(
+        select(ImageAsset)
+        .where(ImageAsset.entity_type == EntityType.WORK, ImageAsset.entity_id == source_id)
+        .order_by(ImageAsset.id)
+    ):
+        if (image.kind, image.source_ref, image.checksum) in held:
+            dropped.append(_snapshot(image))
+            await session.delete(image)
+        else:
+            image.entity_id = target_id
+            moved.append(image.id)
+    await session.flush()
+    return {"moved": moved, "dropped": dropped}
+
+
+async def _unmove_images(
+    session: AsyncSession, record: Mapping[str, Any], target_id: int, restored_id: int
+) -> None:
+    await _repoint_back(
+        session, ImageAsset.id, ImageAsset.entity_id, record["moved"], target_id, restored_id
+    )
+    for snapshot in record["dropped"]:
+        session.add(_restore(ImageAsset, {**snapshot, "entity_id": restored_id}))
     await session.flush()
 
 

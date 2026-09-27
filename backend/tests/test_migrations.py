@@ -119,6 +119,7 @@ def test_upgrade_then_downgrade_leaves_an_empty_database(settings: Settings) -> 
         "fetch_cache",
         "external_id",
         "match_audit",
+        "image_asset",
     }
     assert table_names(settings.database_url) == {"alembic_version"}
 

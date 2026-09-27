@@ -15,9 +15,10 @@ import httpx
 
 from ludarium.classification import classify_steam_items
 from ludarium.config import Settings
+from ludarium.covers import fetch_covers
 from ludarium.crypto import CredentialCipher
 from ludarium.db import Database
-from ludarium.enrichment import EnrichmentInProgressError, Step, enrich
+from ludarium.enrichment import EnrichmentInProgressError, Step, chained, enrich
 from ludarium.enums import SyncTrigger
 from ludarium.matching import anchor_steam_works
 from ludarium.metacritic import score_matched_works
@@ -53,7 +54,8 @@ def _anchor(context: StepContext) -> Step | None:
         context.http,
         tokens=DatabaseTokenStore(context.database, cipher),
     )
-    return anchor_steam_works(client)
+    # One run: covers are fetched for what anchoring has just matched.
+    return chained(anchor_steam_works(client), fetch_covers(client, settings.data_dir))
 
 
 def _score(context: StepContext) -> Step | None:

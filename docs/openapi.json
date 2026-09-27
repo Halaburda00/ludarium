@@ -107,6 +107,42 @@
         "title": "ConnectRequest",
         "type": "object"
       },
+      "Cover": {
+        "description": "A cover at two sizes, for `srcset`: `url` at its own size, `url_2x` at twice it.",
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "url_2x": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url 2X"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "url",
+          "url_2x",
+          "width",
+          "height"
+        ],
+        "title": "Cover",
+        "type": "object"
+      },
       "EntitlementSummary": {
         "description": "One copy the user owns, and where it came from. The platform column of the table.",
         "properties": {
@@ -567,6 +603,16 @@
       },
       "WorkSummary": {
         "properties": {
+          "cover": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Cover"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "entitlements": {
             "items": {
               "$ref": "#/components/schemas/EntitlementSummary"
@@ -662,6 +708,7 @@
           "playtime_minutes",
           "last_played_at",
           "metacritic",
+          "cover",
           "entitlements"
         ],
         "title": "WorkSummary",
@@ -975,6 +1022,60 @@
         "summary": "Health",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/images/{image_id}": {
+      "get": {
+        "operationId": "image_api_images__image_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "image_id",
+            "required": true,
+            "schema": {
+              "title": "Image Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {}
+            },
+            "description": "The image file"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Image",
+        "tags": [
+          "images"
         ]
       }
     },
