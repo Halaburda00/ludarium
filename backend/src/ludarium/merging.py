@@ -727,15 +727,19 @@ async def _repoint_back(
 
 
 async def _undone(session: AsyncSession, merged: MatchAudit) -> bool:
-    for unmerged in await session.scalars(
-        select(MatchAudit).where(
-            MatchAudit.action == MatchAction.UNMERGED,
-            MatchAudit.previous_work_id == merged.work_id,
+    """Whether an `unmerged` row names this merge.
+
+    By `undoes` alone: the `unmerged` row's `previous_work_id` is the target as
+    it was, and a later merge of that target repoints the `merged` row without
+    touching it, so the two stop matching (#68 review).
+    """
+
+    return any(
+        (unmerged.details or {}).get("undoes") == merged.id
+        for unmerged in await session.scalars(
+            select(MatchAudit).where(MatchAudit.action == MatchAction.UNMERGED)
         )
-    ):
-        if (unmerged.details or {}).get("undoes") == merged.id:
-            return True
-    return False
+    )
 
 
 async def _resolve_all(session: AsyncSession, entity_type: EntityType, entity_id: int) -> None:

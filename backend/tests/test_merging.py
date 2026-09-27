@@ -576,3 +576,18 @@ async def test_an_orphan_the_user_or_the_matcher_touched_is_kept(
 
     assert report.deleted == []
     assert report.kept == [matched.id, rated.id, renamed.id, parent.id]
+
+
+async def test_a_merge_stays_undone_when_its_target_is_merged_later(
+    session: AsyncSession, steam: Account
+) -> None:
+    a = await stub(session, steam, "1", "A")
+    b = await stub(session, steam, "2", "B")
+    c = await stub(session, steam, "3", "C")
+    first = await merge(session, a, b)
+    await undo_merge(session, audit_id=first.id, actor=MatchActor.USER)
+    later = await merge(session, b, c)
+    await undo_merge(session, audit_id=later.id, actor=MatchActor.USER)
+
+    with pytest.raises(MergeError, match="already been undone"):
+        await undo_merge(session, audit_id=first.id, actor=MatchActor.USER)
