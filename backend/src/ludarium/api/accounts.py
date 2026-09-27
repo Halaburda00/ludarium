@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Final
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, SecretStr
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -26,7 +26,8 @@ from ludarium.providers import (
     ProviderError,
     RateLimitedError,
 )
-from ludarium.providers.registry import UnsupportedProviderError, build_library
+from ludarium.providers.registry import UnsupportedProviderError
+from ludarium.providers.registry import connect as settle
 
 # Fixed, and deliberately not derived from the credential: a mask that mirrors
 # the length of a secret is a fact about the secret (rule 7). The UI needs to
@@ -39,8 +40,10 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 class ConnectRequest(BaseModel):
     provider: str = Field(max_length=64)
     # Public: the SteamID64 identifies the account and is half the unique key.
-    external_account_id: str = Field(max_length=256)
+    # Empty for Epic, whose sign-in names the account itself.
+    external_account_id: str = Field(default="", max_length=256)
     label: str = Field(default="Main", max_length=256)
+    # Steam's Web API key, or the authorization code Epic's sign-in page showed.
     # `SecretStr` so no validation error, traceback repr or log line carries it.
     credentials: SecretStr = Field(max_length=1024)
 
@@ -78,9 +81,18 @@ def _describe(account: Account, provider_key: str) -> AccountResponse:
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def connect(
-    payload: ConnectRequest, request: Request, session: SessionDep, record: CurrentSession
+    payload: ConnectRequest,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    record: CurrentSession,
 ) -> AccountResponse:
     """Validate first, then store. A rejected key leaves nothing behind.
+
+    An account already connected is connected again rather than refused: its
+    credential is replaced and it is active once more, answered 200. That is
+    how an Epic account whose sign-in ended comes back, and how a Steam key is
+    rotated, without losing the account's history.
 
     The four provider errors are three different answers, because they are three
     different jobs: a wrong key and a private profile are the user's to fix and
@@ -92,13 +104,12 @@ async def connect(
     client: httpx.AsyncClient = request.app.state.http
     secret = payload.credentials.get_secret_value()
     try:
-        library = build_library(
+        connected = await settle(
             provider.key,
             external_account_id=payload.external_account_id,
-            secret=secret,
+            credential=secret,
             client=client,
         )
-        await library.validate_credentials()
     except UnsupportedProviderError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except (InvalidCredentialsError, LibraryNotVisibleError) as exc:
@@ -112,12 +123,31 @@ async def connect(
     except ProviderError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
+    existing = await session.scalar(
+        select(Account).where(
+            Account.provider_id == provider.id,
+            Account.external_account_id == connected.external_account_id,
+        )
+    )
+    if existing is not None and existing.user_id != record.user_id:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"`{payload.provider}` account {connected.external_account_id} is already connected",
+        )
+    if existing is not None:
+        existing.credentials_encrypted = get_cipher().encrypt(connected.secret)
+        existing.credentials_updated_at = utcnow()
+        existing.is_active = True
+        await session.commit()
+        response.status_code = status.HTTP_200_OK
+        return _describe(existing, provider.key)
+
     account = Account(
         user_id=record.user_id,
         provider_id=provider.id,
-        external_account_id=payload.external_account_id,
+        external_account_id=connected.external_account_id,
         label=payload.label,
-        credentials_encrypted=get_cipher().encrypt(secret),
+        credentials_encrypted=get_cipher().encrypt(connected.secret),
         credentials_updated_at=utcnow(),
     )
     session.add(account)
@@ -127,7 +157,7 @@ async def connect(
         await session.rollback()
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            f"`{payload.provider}` account {payload.external_account_id} is already connected",
+            f"`{payload.provider}` account {connected.external_account_id} is already connected",
         ) from exc
     return _describe(account, provider.key)
 
