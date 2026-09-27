@@ -112,7 +112,7 @@ The list is in build order, and the order is load-bearing twice over.
 - [x] `merge_work(source, target)` and the orphan-stub cleanup job, both
       specified in `docs/schema.md`. Layer 1 is the first thing that merges
       stubs, so the operation ships with it, tests and undo included
-- [ ] RAWG client for Metacritic + required attribution link in the UI
+- [x] RAWG client for Metacritic + required attribution link in the UI
 - [ ] Cover art: fetching and storage
 
 **On the timing of `ludamatch`:** it is created here rather than at M6 for two
