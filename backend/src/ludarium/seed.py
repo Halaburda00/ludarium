@@ -50,6 +50,18 @@ PROVIDER_SEED: tuple[ProviderSpec, ...] = (
         licence_class=LicenceClass.RUNTIME_ONLY,
     ),
     ProviderSpec(
+        key="rawg",
+        kind=ProviderKind.METADATA,
+        source_kind=SourceKind.METADATA_PROVIDER,
+        display_name="RAWG",
+        # "No data redistribution": its scores are dropped from every export.
+        licence_class=LicenceClass.RUNTIME_ONLY,
+        # The game's page on RAWG, filled with the slug `external_id` holds. It
+        # is the active link RAWG's terms require beside every score, so it is
+        # built where the score is served and never left to the UI to find.
+        store_url_template="https://rawg.io/games/{id}",
+    ),
+    ProviderSpec(
         key="steam_store",
         kind=ProviderKind.METADATA,
         # Steam describing its own apps, so it sits where Steam does on the

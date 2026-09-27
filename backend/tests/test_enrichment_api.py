@@ -11,10 +11,12 @@ from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from test_matching import Igdb
+from test_metacritic import Rawg
 
 from ludarium.enums import ItemKind, SyncStatus, SyncTrigger
 from ludarium.models import Provider, SyncRun, Work
 from ludarium.providers import igdb as igdb_module
+from ludarium.providers import rawg as rawg_module
 from ludarium.providers import steam as steam_module
 from ludarium.providers import steam_store as store_module
 
@@ -88,6 +90,13 @@ def with_igdb(client: TestClient) -> None:
             "igdb_client_id": "not-a-real-client-id",
             "igdb_client_secret": SecretStr("not-a-real-secret"),
         }
+    )
+
+
+def with_rawg(client: TestClient) -> None:
+    settings = client.app.state.settings  # type: ignore[attr-defined]
+    client.app.state.settings = settings.model_copy(  # type: ignore[attr-defined]
+        update={"rawg_api_key": SecretStr("not-a-real-rawg-key")}
     )
 
 
@@ -263,3 +272,37 @@ def test_an_unknown_provider_is_a_404(connected: TestClient) -> None:
 
 def test_enrichment_needs_a_session(client: TestClient) -> None:
     assert client.post("/api/enrichment/steam_store").status_code == 401
+
+
+@respx.mock
+async def test_with_rawg_configured_scores_follow_matching(
+    connected: TestClient, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(rawg_module, "RETRY_BACKOFF_SECONDS", 0.0)
+    with_igdb(connected)
+    with_rawg(connected)
+    respx.get(OWNED_GAMES_URL).mock(return_value=library())
+    respx.get(GET_ITEMS_URL).mock(return_value=store())
+    Igdb([{"game": 72, "uid": "620"}], {72: "Portal 2"}).mount()
+    Rawg(
+        {"Portal 2": [4200]},
+        {4200: ["https://store.steampowered.com/app/620/Portal_2/"]},
+        {4200: {"slug": "portal-2", "metacritic": 95}},
+    ).mount()
+
+    assert connected.post("/api/sync/steam").status_code == 200
+
+    (matched,) = await runs_of(session, "igdb")
+    (scored,) = await runs_of(session, "rawg")
+    # After: RAWG is asked only about what matching anchored.
+    assert matched.finished_at is not None and scored.started_at >= matched.finished_at
+    assert scored.status is SyncStatus.SUCCESS
+    portal = await session.scalar(select(Work.metacritic_score).where(Work.igdb_id == 72))
+    assert portal == 95
+
+
+def test_scoring_by_hand_without_a_rawg_key_is_a_400(connected: TestClient) -> None:
+    response = connected.post("/api/enrichment/rawg")
+
+    assert response.status_code == 400
+    assert "not configured" in response.json()["detail"]

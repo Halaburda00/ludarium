@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # one the instance still syncs libraries and simply enriches nothing.
     igdb_client_id: str | None = None
     igdb_client_secret: SecretStr | None = None
+    # RAWG, for Metacritic scores. Optional for the same reason, and a key the
+    # user registers themselves: RAWG's free tier is 20 000 requests a month.
+    rawg_api_key: SecretStr | None = None
 
     # `LUDARIUM_USERNAME=` and `LUDARIUM_PASSWORD=` in a .env are the way "unset"
     # actually reaches us, and pydantic would take the empty string for an answer.
@@ -56,7 +59,7 @@ class Settings(BaseSettings):
 
     # Blank is unset here too, and for the same reason as above — but optional,
     # so it becomes None rather than an error.
-    @field_validator("igdb_client_id", "igdb_client_secret", mode="before")
+    @field_validator("igdb_client_id", "igdb_client_secret", "rawg_api_key", mode="before")
     @classmethod
     def _blank_is_unset(cls, value: object) -> object:
         return None if isinstance(value, str) and not value.strip() else value

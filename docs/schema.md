@@ -103,8 +103,8 @@ rows too, so that every entitlement has a source and no FK needs to be nullable.
 | `source_kind` | TEXT | no | | `SourceKind` this provider writes with |
 | `licence_class` | TEXT | no | `'redistributable'` | `runtime_only` rows are excluded from every export |
 | `display_name` | TEXT | no | | |
-| `attribution_html` | TEXT | yes | | RAWG requires attribution and an active link wherever its data is displayed |
-| `store_url_template` | TEXT | yes | | Takes `provider_item_id`, e.g. `https://store.steampowered.com/app/{id}`. We never launch a game, so a link to the store page is the answer to "where do I find this" |
+| `attribution_html` | TEXT | yes | | Unused. RAWG's credit is a UI string, translated like any other, and its link is built from `store_url_template` (ADR-0023); HTML from the database is not something the UI renders |
+| `store_url_template` | TEXT | yes | | Takes `provider_item_id`, e.g. `https://store.steampowered.com/app/{id}`. We never launch a game, so a link to the store page is the answer to "where do I find this". For `rawg` it is the game's page, `https://rawg.io/games/{id}`, filled with the work's `rawg` external id: the active link RAWG's terms require beside every score |
 | `precedence_weight` | INTEGER | no | `100` | Tie-break within one `SourceKind`; higher wins |
 | `enabled` | BOOLEAN | no | `true` | |
 | `status` | TEXT | no | `'pending'` | `SyncStatus` of the most recent run |
@@ -249,7 +249,7 @@ than a creation with a different code path.
 | `release_date` | DATE | yes | | Kept when known |
 | `summary` | TEXT | yes | | |
 | `metacritic_score` | INTEGER | yes | | 0–100, RAWG-sourced, `runtime_only` |
-| `metacritic_url` | TEXT | yes | | Required for the attribution link |
+| `metacritic_url` | TEXT | yes | | The game's Metacritic page, as RAWG gives it; `https` only. Not the attribution link, which goes to RAWG (ADR-0023) |
 | `igdb_id` | INTEGER | yes | | Denormalised anchor for fast lookups; authoritative copy lives in `external_id`, and the two are written together, not resolved (ADR-0021) |
 | `is_matched` | BOOLEAN | no | `false` | True once an IGDB anchor exists; written with it, like `igdb_id` |
 | `enriched_at` | TIMESTAMP | yes | | Enrichment pipeline skips anything fresher than the TTL (M2) |

@@ -324,6 +324,22 @@ export interface components {
             status: components["schemas"]["SyncStatus"];
         };
         /**
+         * Score
+         * @description A Metacritic score and the page of the source it came from, which is RAWG.
+         *
+         *     One object so the two cannot be separated: RAWG's terms require an active
+         *     link wherever its data is shown, and a score the API hands out without its
+         *     link is a score some client will show without it.
+         */
+        Score: {
+            /** Source Name */
+            source_name: string;
+            /** Source Url */
+            source_url: string;
+            /** Value */
+            value: number;
+        };
+        /**
          * SessionResponse
          * @description What the frontend needs to render a signed-in shell. The token is in the cookie.
          */
@@ -415,6 +431,7 @@ export interface components {
             item_kind: components["schemas"]["ItemKind"] | null;
             /** Last Played At */
             last_played_at: string | null;
+            metacritic: components["schemas"]["Score"] | null;
             play_status: components["schemas"]["PlayStatus"];
             /** Playtime Minutes */
             playtime_minutes: number;

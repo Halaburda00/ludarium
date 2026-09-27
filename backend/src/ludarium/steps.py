@@ -19,7 +19,9 @@ from ludarium.db import Database
 from ludarium.enrichment import EnrichmentInProgressError, Step, enrich
 from ludarium.enums import SyncTrigger
 from ludarium.matching import anchor_steam_works
+from ludarium.metacritic import score_matched_works
 from ludarium.providers.igdb import IgdbClient, IgdbCredentials
+from ludarium.providers.rawg import RawgClient
 from ludarium.providers.steam_store import SteamStoreClient
 from ludarium.tokens import DatabaseTokenStore
 
@@ -53,16 +55,25 @@ def _anchor(context: StepContext) -> Step | None:
     return anchor_steam_works(client)
 
 
+def _score(context: StepContext) -> Step | None:
+    key = context.settings.rawg_api_key
+    if key is None:
+        return None
+    return score_matched_works(RawgClient(key.get_secret_value(), context.http))
+
+
 STEPS: Final[Mapping[str, StepBuilder]] = {
     "steam_store": lambda context: classify_steam_items(SteamStoreClient(context.http)),
     "igdb": _anchor,
+    "rawg": _score,
 }
 
 # A successful sync of the key is what gives each of these something new to ask
 # about (ADR-0019). In order, and the order is load-bearing: matching takes only
-# works known to be games, so classification has to have run first.
+# works known to be games, so classification has to have run first, and RAWG is
+# asked only about works matching has anchored.
 FOLLOWS: Final[Mapping[str, tuple[str, ...]]] = {
-    "steam": ("steam_store", "igdb"),
+    "steam": ("steam_store", "igdb", "rawg"),
 }
 
 

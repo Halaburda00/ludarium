@@ -164,3 +164,21 @@ def test_half_an_igdb_application_stops_the_instance(
         get_settings()
 
     assert "not-a-real-value-for-this-half" not in str(caught.value)
+
+
+def test_rawg_is_optional_and_blank_means_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LUDARIUM_RAWG_API_KEY", "  ")
+
+    assert get_settings().rawg_api_key is None
+
+
+def test_the_rawg_key_is_read_under_the_prefix_and_kept_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LUDARIUM_RAWG_API_KEY", "not-a-real-rawg-key")
+
+    settings = get_settings()
+
+    assert settings.rawg_api_key is not None
+    assert settings.rawg_api_key.get_secret_value() == "not-a-real-rawg-key"
+    assert "not-a-real-rawg-key" not in f"{settings!r} {settings.model_dump()}"

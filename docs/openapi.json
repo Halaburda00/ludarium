@@ -314,6 +314,30 @@
         "title": "ProviderStatusResponse",
         "type": "object"
       },
+      "Score": {
+        "description": "A Metacritic score and the page of the source it came from, which is RAWG.\n\nOne object so the two cannot be separated: RAWG's terms require an active\nlink wherever its data is shown, and a score the API hands out without its\nlink is a score some client will show without it.",
+        "properties": {
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          },
+          "source_url": {
+            "title": "Source Url",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "value",
+          "source_name",
+          "source_url"
+        ],
+        "title": "Score",
+        "type": "object"
+      },
       "SessionResponse": {
         "description": "What the frontend needs to render a signed-in shell. The token is in the cookie.",
         "properties": {
@@ -556,6 +580,16 @@
             ],
             "title": "Last Played At"
           },
+          "metacritic": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Score"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "play_status": {
             "$ref": "#/components/schemas/PlayStatus"
           },
@@ -595,6 +629,7 @@
           "is_hidden",
           "playtime_minutes",
           "last_played_at",
+          "metacritic",
           "entitlements"
         ],
         "title": "WorkSummary",

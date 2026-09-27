@@ -57,6 +57,16 @@ shape moves.
   `game` default wherever no source asserted it. Two kinds of entry are still
   called games, because the store has no word for them: test servers and public
   beta clients.
+- Metacritic scores, from RAWG, in a column of the library. Set
+  `LUDARIUM_RAWG_API_KEY` to a key registered at rawg.io; without one nothing
+  is fetched. Only games IGDB has matched are looked up, by IGDB's name, and a
+  result is believed only when RAWG sells it under the game's own Steam appid —
+  so *Prey* (2017) never gets *Prey* (2006)'s score, and a game RAWG cannot
+  confirm gets none. Each score links to the game's page on RAWG, and the
+  library credits RAWG wherever scores are shown, as RAWG's terms require.
+  Scores are asked for after matching, on every Steam sync, and kept for a
+  month; RAWG's free tier allows 20 000 requests a month, about three per game.
+  They are RAWG's data and will be left out of exports.
 - Two cards for one game become one. When IGDB files two owned entries under
   the same game — a standard and a GOTY release, say — the newer card is folded
   into the one already matched: its copies, editions, sources and your status,
