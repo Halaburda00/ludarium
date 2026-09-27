@@ -22,12 +22,13 @@ from sqlalchemy import literal, select, tuple_
 
 from ludarium.auth import CurrentSession
 from ludarium.db import SessionDep
-from ludarium.enums import EntityType, ItemKind, PlayStatus
+from ludarium.enums import EntityType, ImageKind, ItemKind, PlayStatus
 from ludarium.models import (
     Account,
     Entitlement,
     EntitlementWork,
     ExternalId,
+    ImageAsset,
     Provider,
     UserWorkState,
     Work,
@@ -76,6 +77,16 @@ class Score(BaseModel):
     source_url: str
 
 
+class Cover(BaseModel):
+    """A cover at two sizes, for `srcset`: `url` at its own size, `url_2x` at twice it."""
+
+    url: str
+    url_2x: str | None
+    # Of `url`. Lets the grid reserve the space before the image arrives.
+    width: int
+    height: int
+
+
 class WorkSummary(BaseModel):
     id: int
     title: str
@@ -96,6 +107,8 @@ class WorkSummary(BaseModel):
     # Null where there is no score, and where there is one but nothing to link
     # it to: a score without its attribution is not shown at all.
     metacritic: Score | None
+    # Null until the cover step has fetched one.
+    cover: Cover | None
     entitlements: list[EntitlementSummary]
 
 
@@ -225,6 +238,7 @@ async def listing(
 
     copies = await _entitlements(session, [work.id for work, _, _ in rows], user_id)
     source = await session.scalar(select(Provider).where(Provider.key == SCORE_SOURCE))
+    covers = await _covers(session, [work.id for work, _, _ in rows])
     # A work with nothing live pointing at it is dropped rather than shown
     # empty-handed: a row that contradicts the endpoint's own rule — in the list
     # because something live points at it, with nothing listed — is worse than a
@@ -237,7 +251,7 @@ async def listing(
     works = [(work, state, held) for work, state, held in rows if copies.get(work.id)]
     return WorksPage(
         works=[
-            _describe(work, state, copies[work.id], _score(work, source, held))
+            _describe(work, state, copies[work.id], _score(work, source, held), covers.get(work.id))
             for work, state, held in works
         ],
         # From the last row read, not the last row kept, so the listing always
@@ -262,6 +276,7 @@ def _describe(
     state: UserWorkState | None,
     copies: list[EntitlementSummary],
     metacritic: Score | None,
+    cover: Cover | None,
 ) -> WorkSummary:
     return WorkSummary(
         id=work.id,
@@ -279,8 +294,47 @@ def _describe(
         playtime_minutes=state.playtime_minutes if state else 0,
         last_played_at=state.last_played_at if state else None,
         metacritic=metacritic,
+        cover=cover,
         entitlements=copies,
     )
+
+
+async def _covers(session: SessionDep, work_ids: list[int]) -> dict[int, Cover]:
+    """One query for the page. The narrowest file is `url`; one twice its width, `url_2x`."""
+
+    if not work_ids:
+        return {}
+    files: dict[int, list[ImageAsset]] = {}
+    for image in await session.scalars(
+        select(ImageAsset)
+        .where(
+            ImageAsset.entity_type == EntityType.WORK,
+            ImageAsset.entity_id.in_(work_ids),
+            ImageAsset.kind == ImageKind.COVER,
+            ImageAsset.fetched_at.is_not(None),
+            ImageAsset.width.is_not(None),
+            ImageAsset.height.is_not(None),
+        )
+        .order_by(ImageAsset.entity_id, ImageAsset.width, ImageAsset.id)
+    ):
+        files.setdefault(image.entity_id, []).append(image)
+    covers: dict[int, Cover] = {}
+    for work_id, images in files.items():
+        base = images[0]
+        # Not null by the query; mypy cannot see that.
+        width, height = base.width or 0, base.height or 0
+        sharp = next((image for image in images if image.width == 2 * width), None)
+        covers[work_id] = Cover(
+            url=_image_url(base),
+            url_2x=_image_url(sharp) if sharp is not None else None,
+            width=width,
+            height=height,
+        )
+    return covers
+
+
+def _image_url(image: ImageAsset) -> str:
+    return f"/api/images/{image.id}"
 
 
 async def _entitlements(

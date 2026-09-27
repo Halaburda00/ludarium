@@ -222,6 +222,7 @@ async def test_with_igdb_configured_a_sync_is_classified_and_then_matched(
     Igdb(
         [{"game": 1942, "uid": "292030"}, {"game": 72, "uid": "620"}],
         {1942: "The Witcher 3: Wild Hunt", 72: "Portal 2"},
+        {1942: "co1wyy"},
     ).mount()
 
     assert connected.post("/api/sync/steam").status_code == 200
@@ -236,6 +237,12 @@ async def test_with_igdb_configured_a_sync_is_classified_and_then_matched(
         ("The Witcher 3: Wild Hunt", 1942),
         ("Portal 2", 72),
         ("Dota 2", None),
+    ]
+    # Covers in the same run, for what anchoring matched.
+    data_dir = connected.app.state.settings.data_dir  # type: ignore[attr-defined]
+    assert sorted(path.name for path in (data_dir / "covers" / "igdb").iterdir()) == [
+        "co1wyy.jpg",
+        "co1wyy_2x.jpg",
     ]
 
 

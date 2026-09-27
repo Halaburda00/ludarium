@@ -44,9 +44,12 @@ type Rows = list[dict[str, Any]]
 class Igdb:
     """IGDB as the step meets it: rows filtered by the query, cut at its limit and offset."""
 
-    def __init__(self, external_games: Rows, games: dict[int, str]) -> None:
+    def __init__(
+        self, external_games: Rows, games: dict[int, str], covers: dict[int, str] | None = None
+    ) -> None:
         self.external_games = [{"id": n, **row} for n, row in enumerate(external_games, 1)]
         self.games = games
+        self.covers = covers or {}
         self.asked_appids: list[str] = []
 
     def answer_external_games(self, request: httpx.Request) -> httpx.Response:
@@ -65,10 +68,28 @@ class Igdb:
             200, json=[{"id": n, "name": self.games[n]} for n in ids if n in self.games]
         )
 
+    def answer_covers(self, request: httpx.Request) -> httpx.Response:
+        found = re.search(r"game = \(([^)]*)\)", request.content.decode())
+        assert found is not None
+        games = [int(n) for n in found[1].split(",")]
+        return httpx.Response(
+            200,
+            json=[
+                {"id": n, "game": game, "image_id": self.covers[game]}
+                for n, game in enumerate(games, 1)
+                if game in self.covers
+            ],
+        )
+
     def mount(self) -> None:
         respx.post(igdb_module.TWITCH_TOKEN_URL).mock(return_value=httpx.Response(200, json=TOKEN))
         respx.post(EXTERNAL_GAMES_URL).mock(side_effect=self.answer_external_games)
         respx.post(GAMES_URL).mock(side_effect=self.answer_games)
+        respx.post(f"{igdb_module.IGDB_API}/covers").mock(side_effect=self.answer_covers)
+        # Bytes that only start like a JPEG: no IGDB image is recorded here.
+        respx.get(url__startswith=igdb_module.IGDB_IMAGES).mock(
+            return_value=httpx.Response(200, content=b"\xff\xd8\xff\xe0 not a real cover")
+        )
 
 
 def _number(pattern: str, body: str) -> int:

@@ -146,6 +146,8 @@ def settings(tmp_path: Path) -> Settings:
         username=TEST_USERNAME,
         password=SecretStr(TEST_PASSWORD),
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'ludarium.db'}",
+        # Never the real `./data`: a test that fetches a cover writes it here.
+        data_dir=tmp_path / "data",
     )
 
 

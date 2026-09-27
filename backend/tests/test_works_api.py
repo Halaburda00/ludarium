@@ -13,13 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium import steps as steps_module
 from ludarium.api import works as works_module
-from ludarium.enums import EntitlementOrigin, EntityType, WorkLinkRole
+from ludarium.enums import EntitlementOrigin, EntityType, ImageKind, WorkLinkRole
 from ludarium.models import (
     Account,
     AppUser,
     Entitlement,
     EntitlementWork,
     ExternalId,
+    ImageAsset,
     Provider,
     UserWorkState,
     Work,
@@ -668,3 +669,86 @@ async def test_two_slugs_for_one_work_do_not_list_it_twice(
 
     assert titles(body) == LIBRARY
     assert metacritic(synced, "Portal 2")["source_url"] == "https://rawg.io/games/portal-2"
+
+
+async def covered(
+    client: TestClient, session: AsyncSession, title: str, *files: tuple[int, int, bytes | None]
+) -> list[int]:
+    """Cover rows for a work, one per (width, height, bytes); None bytes is a row with no file."""
+
+    work = await session.scalar(select(Work).where(Work.title == title))
+    assert work is not None
+    data_dir = client.app.state.settings.data_dir  # type: ignore[attr-defined]
+    ids = []
+    for width, height, body in files:
+        relative = f"covers/igdb/co{width}.jpg"
+        if body is not None:
+            (data_dir / "covers" / "igdb").mkdir(parents=True, exist_ok=True)
+            (data_dir / relative).write_bytes(body)
+        image = ImageAsset(
+            entity_type=EntityType.WORK,
+            entity_id=work.id,
+            kind=ImageKind.COVER,
+            source_ref="igdb",
+            local_path=relative,
+            width=width,
+            height=height,
+            fetched_at=utcnow(),
+        )
+        session.add(image)
+        await session.flush()
+        ids.append(image.id)
+    await session.commit()
+    return ids
+
+
+JPEG = b"\xff\xd8\xff\xe0 a cover"
+
+
+async def test_a_cover_is_listed_at_both_sizes_and_served_from_disk(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    small, sharp = await covered(synced, session, "Portal 2", (264, 374, JPEG), (528, 748, JPEG))
+
+    body = synced.get("/api/works").json()
+    portal = next(work for work in body["works"] if work["title"] == "Portal 2")
+    assert portal["cover"] == {
+        "url": f"/api/images/{small}",
+        "url_2x": f"/api/images/{sharp}",
+        "width": 264,
+        "height": 374,
+    }
+    dota = next(work for work in body["works"] if work["title"] == "Dota 2")
+    assert dota["cover"] is None
+
+    served = synced.get(portal["cover"]["url"])
+    assert served.status_code == 200
+    assert served.content == JPEG
+    assert served.headers["content-type"] == "image/jpeg"
+    assert "immutable" in served.headers["cache-control"]
+
+
+async def test_an_image_whose_file_is_gone_is_a_404(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    (gone,) = await covered(synced, session, "Portal 2", (264, 374, None))
+
+    assert synced.get(f"/api/images/{gone}").status_code == 404
+    assert synced.get("/api/images/99999").status_code == 404
+
+
+async def test_a_row_pointing_outside_the_data_directory_is_not_served(
+    synced: TestClient, session: AsyncSession, tmp_path: Path
+) -> None:
+    (image_id,) = await covered(synced, session, "Portal 2", (264, 374, JPEG))
+    secret = tmp_path / "secret.txt"
+    secret.write_text("not an image")
+    image = await session.get_one(ImageAsset, image_id)
+    image.local_path = "../secret.txt"
+    await session.commit()
+
+    assert synced.get(f"/api/images/{image_id}").status_code == 404
+
+
+def test_an_image_needs_a_session(client: TestClient) -> None:
+    assert client.get("/api/images/1").status_code == 401
