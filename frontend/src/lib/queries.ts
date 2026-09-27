@@ -25,6 +25,8 @@ type Schemas = components['schemas']
 
 export type Account = Schemas['AccountResponse']
 export type SyncRun = Schemas['SyncRunResponse']
+/** A sync's runs, and the steps it queued to run after it. */
+export type SyncResult = Schemas['SyncResponse']
 /** One copy the user owns. The platform column of the table is a list of these. */
 export type EntitlementSummary = Schemas['EntitlementSummary']
 export type WorkSummary = Schemas['WorkSummary']
@@ -85,8 +87,8 @@ export function useConnect() {
 
 export function useSync() {
   const client = useQueryClient()
-  return useMutation<SyncRun[], ApiError, string>({
-    mutationFn: (provider) => api<SyncRun[]>(`/api/sync/${provider}`, { method: 'POST' }),
+  return useMutation<SyncResult, ApiError, string>({
+    mutationFn: (provider) => api<SyncResult>(`/api/sync/${provider}`, { method: 'POST' }),
     // Not awaited. `invalidateQueries` resolves only once the refetch is done,
     // and refetching an infinite query replays every loaded page in sequence —
     // each page param comes out of the page before it, so five loaded pages are

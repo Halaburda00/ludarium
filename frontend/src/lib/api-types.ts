@@ -139,7 +139,7 @@ export interface paths {
         put?: never;
         /**
          * Run
-         * @description Sync every account of one provider and report each run.
+         * @description Sync every account of one provider and report each run, and what follows it.
          *
          *     A list rather than one run because a platform may have several accounts
          *     (M4), and one of them failing is not the others' problem — `sync_account`
@@ -155,7 +155,9 @@ export interface paths {
          *     Enrichment follows once any account synced, after the response has gone:
          *     the store is asked about what the sync added, and a store that is slow or
          *     down neither delays nor fails the sync that already landed (rule 4). A sync
-         *     where every account failed stored nothing new, and triggers nothing.
+         *     where every account failed stored nothing new, and triggers nothing. The
+         *     steps are queued before the answer leaves, so a client that asks at once
+         *     already sees them in progress.
          */
         post: operations["run_api_sync__provider__post"];
         delete?: never;
@@ -360,8 +362,17 @@ export interface components {
          *     without the provider row cannot say whether it has ever worked.
          */
         SyncOverviewResponse: {
+            /** Enriching */
+            enriching: string[];
             /** Providers */
             providers: components["schemas"]["ProviderStatusResponse"][];
+            /** Runs */
+            runs: components["schemas"]["SyncRunResponse"][];
+        };
+        /** SyncResponse */
+        SyncResponse: {
+            /** Enriching */
+            enriching: string[];
             /** Runs */
             runs: components["schemas"]["SyncRunResponse"][];
         };
@@ -689,7 +700,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SyncRunResponse"][];
+                    "application/json": components["schemas"]["SyncResponse"];
                 };
             };
             /** @description Validation Error */

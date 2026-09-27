@@ -13,6 +13,7 @@ from ludarium.auth import bootstrap_user, current_session
 from ludarium.config import Settings, get_settings
 from ludarium.db import Database
 from ludarium.seed import reconcile_sort_keys, seed_providers
+from ludarium.steps import Scheduled
 
 # Bounded on purpose, and not only for the user waiting on onboarding: a run
 # that never returns is a `sync_run` row stuck at `running`, and the reclaim
@@ -87,6 +88,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Ludarium", version=__version__, lifespan=lifespan)
     app.state.settings = settings
+    # Here rather than in `lifespan`: a request can only arrive once it has run,
+    # but a test that builds the app and reads its state should not have to.
+    app.state.scheduled = Scheduled()
     app.include_router(health.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
     # A backstop, not the mechanism. Every endpoint on these routers already

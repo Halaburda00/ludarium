@@ -361,6 +361,13 @@
       "SyncOverviewResponse": {
         "description": "Both halves in one call, because the panel shows them together.\n\nA provider's health without its runs cannot say *what* failed, and the runs\nwithout the provider row cannot say whether it has ever worked.",
         "properties": {
+          "enriching": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Enriching",
+            "type": "array"
+          },
           "providers": {
             "items": {
               "$ref": "#/components/schemas/ProviderStatusResponse"
@@ -378,9 +385,34 @@
         },
         "required": [
           "providers",
-          "runs"
+          "runs",
+          "enriching"
         ],
         "title": "SyncOverviewResponse",
+        "type": "object"
+      },
+      "SyncResponse": {
+        "properties": {
+          "enriching": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Enriching",
+            "type": "array"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/SyncRunResponse"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs",
+          "enriching"
+        ],
+        "title": "SyncResponse",
         "type": "object"
       },
       "SyncRunResponse": {
@@ -997,7 +1029,7 @@
     },
     "/api/sync/{provider}": {
       "post": {
-        "description": "Sync every account of one provider and report each run.\n\nA list rather than one run because a platform may have several accounts\n(M4), and one of them failing is not the others' problem \u2014 `sync_account`\nturns a provider failure into a run status precisely so this loop does not\nhave to catch anything to keep rule 4.\n\n`SyncInProgressError` is the only exception, and it is the caller's answer\nrather than a run's: the double-click that produced it wants 409, not a\nsecond run. Everything else \u2014 including a credential that will not decrypt \u2014\nreaches `library_for` and comes back as a failed run, so one broken account\ncannot end a request that the others were about to complete.\n\nEnrichment follows once any account synced, after the response has gone:\nthe store is asked about what the sync added, and a store that is slow or\ndown neither delays nor fails the sync that already landed (rule 4). A sync\nwhere every account failed stored nothing new, and triggers nothing.",
+        "description": "Sync every account of one provider and report each run, and what follows it.\n\nA list rather than one run because a platform may have several accounts\n(M4), and one of them failing is not the others' problem \u2014 `sync_account`\nturns a provider failure into a run status precisely so this loop does not\nhave to catch anything to keep rule 4.\n\n`SyncInProgressError` is the only exception, and it is the caller's answer\nrather than a run's: the double-click that produced it wants 409, not a\nsecond run. Everything else \u2014 including a credential that will not decrypt \u2014\nreaches `library_for` and comes back as a failed run, so one broken account\ncannot end a request that the others were about to complete.\n\nEnrichment follows once any account synced, after the response has gone:\nthe store is asked about what the sync added, and a store that is slow or\ndown neither delays nor fails the sync that already landed (rule 4). A sync\nwhere every account failed stored nothing new, and triggers nothing. The\nsteps are queued before the answer leaves, so a client that asks at once\nalready sees them in progress.",
         "operationId": "run_api_sync__provider__post",
         "parameters": [
           {
@@ -1031,11 +1063,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SyncRunResponse"
-                  },
-                  "title": "Response Run Api Sync  Provider  Post",
-                  "type": "array"
+                  "$ref": "#/components/schemas/SyncResponse"
                 }
               }
             },

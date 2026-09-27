@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import type { EntitlementSummary, SyncRun, WorkSummary, WorksPage } from '@/lib/queries'
+import type { EntitlementSummary, SyncResult, SyncRun, WorkSummary, WorksPage } from '@/lib/queries'
 import Library from '@/routes/Library'
 import { renderApp, stubFetch } from '@/test/render'
 
@@ -68,11 +68,16 @@ function run(overrides: Partial<SyncRun> = {}): SyncRun {
   }
 }
 
+/** A sync's answer: its runs, and the steps it queued after them. */
+function synced(...runs: SyncRun[]): SyncResult {
+  return { runs, enriching: [] }
+}
+
 describe('library', () => {
   it('asks for a sync and reports what the run saw', async () => {
     const calls = stubFetch({
       'GET /api/works': { body: THREE },
-      'POST /api/sync/steam': { body: [run()] },
+      'POST /api/sync/steam': { body: synced(run()) },
     })
     renderApp(<Library />)
 
@@ -88,7 +93,7 @@ describe('library', () => {
     stubFetch({
       'GET /api/works': { body: EMPTY },
       'POST /api/sync/steam': {
-        body: [run({ status: 'failed', items_seen: 0, error_text: 'steam did not answer' })],
+        body: synced(run({ status: 'failed', items_seen: 0, error_text: 'steam did not answer' })),
       },
     })
     renderApp(<Library />)
@@ -151,7 +156,7 @@ describe('a partial run', () => {
   it('is not reported as a success', async () => {
     stubFetch({
       'GET /api/works': { body: THREE },
-      'POST /api/sync/steam': { body: [run({ status: 'partial', items_seen: 2 })] },
+      'POST /api/sync/steam': { body: synced(run({ status: 'partial', items_seen: 2 })) },
     })
     renderApp(<Library />)
 

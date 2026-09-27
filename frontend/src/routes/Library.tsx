@@ -13,7 +13,7 @@ export default function Library() {
   const logout = useLogout()
   const navigate = useNavigate()
 
-  const runs = sync.data ?? []
+  const runs = sync.data?.runs ?? []
   const failed = runs.find((run) => run.status === 'failed')
   // Its own answer, not a shade of success: a partial run means part of the
   // library did not come through, and reporting "Synced 40 games" over it tells
