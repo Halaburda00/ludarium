@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from test_matching import Igdb
 from test_metacritic import Rawg
 
+from ludarium import steps as steps_module
+from ludarium.enrichment import EnrichmentRun
 from ludarium.enums import ItemKind, SyncStatus, SyncTrigger
 from ludarium.models import Provider, SyncRun, Work
 from ludarium.providers import igdb as igdb_module
@@ -127,7 +129,7 @@ async def test_a_sync_that_stored_nothing_triggers_nothing(
     respx.get(OWNED_GAMES_URL).mock(return_value=httpx.Response(503))
     asked = respx.get(GET_ITEMS_URL).mock(return_value=store())
 
-    (run,) = connected.post("/api/sync/steam").json()
+    (run,) = connected.post("/api/sync/steam").json()["runs"]
 
     assert run["status"] == SyncStatus.FAILED
     assert not asked.called
@@ -145,7 +147,7 @@ async def test_a_store_outage_does_not_fail_the_sync_it_follows(
 
     response = connected.post("/api/sync/steam")
 
-    (synced,) = response.json()
+    (synced,) = response.json()["runs"]
     assert synced["status"] == SyncStatus.SUCCESS
     (run,) = await store_runs(session)
     assert run.status is SyncStatus.FAILED
@@ -306,3 +308,51 @@ def test_scoring_by_hand_without_a_rawg_key_is_a_400(connected: TestClient) -> N
 
     assert response.status_code == 400
     assert "not configured" in response.json()["detail"]
+
+
+@respx.mock
+async def test_the_sync_names_the_steps_it_queued_and_only_those_set_up(
+    connected: TestClient,
+) -> None:
+    respx.get(OWNED_GAMES_URL).mock(return_value=library())
+    respx.get(GET_ITEMS_URL).mock(return_value=store())
+
+    # No IGDB application and no RAWG key here: neither step opens a run, so
+    # naming them would have a client wait for ever.
+    assert connected.post("/api/sync/steam").json()["enriching"] == ["steam_store"]
+
+
+@respx.mock
+async def test_a_failed_sync_queues_nothing(connected: TestClient) -> None:
+    respx.get(OWNED_GAMES_URL).mock(return_value=httpx.Response(503))
+
+    assert connected.post("/api/sync/steam").json()["enriching"] == []
+
+
+@respx.mock
+async def test_a_queued_step_reads_as_in_progress_until_it_ends(
+    connected: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Queued before the answer, so no moment between the answer and the step reads as done."""
+
+    seen: list[list[str]] = []
+    scheduled = connected.app.state.scheduled  # type: ignore[attr-defined]
+
+    async def watched(run: EnrichmentRun) -> None:
+        # What the overview serves, read where the step can reach it: the test
+        # client cannot be called from inside the loop the step runs on.
+        seen.append(list(scheduled))
+
+    monkeypatch.setitem(steps_module.STEPS, "steam_store", lambda context: watched)
+    respx.get(OWNED_GAMES_URL).mock(return_value=library())
+
+    assert connected.post("/api/sync/steam").status_code == 200
+
+    assert seen == [["steam_store"]]
+    assert connected.get("/api/sync/runs").json()["enriching"] == []
+
+
+def test_the_overview_serves_what_is_queued(connected: TestClient) -> None:
+    connected.app.state.scheduled.add(["steam_store", "igdb"])  # type: ignore[attr-defined]
+
+    assert connected.get("/api/sync/runs").json()["enriching"] == ["steam_store", "igdb"]

@@ -1,8 +1,16 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { EntitlementSummary, SyncRun, WorkSummary, WorksPage } from '@/lib/queries'
+import type {
+  EntitlementSummary,
+  SyncOverview,
+  SyncResult,
+  SyncRun,
+  WorkSummary,
+  WorksPage,
+} from '@/lib/queries'
+import { ENRICHMENT_POLL_MS } from '@/lib/queries'
 import Library from '@/routes/Library'
 import { renderApp, stubFetch } from '@/test/render'
 
@@ -68,11 +76,36 @@ function run(overrides: Partial<SyncRun> = {}): SyncRun {
   }
 }
 
+/** A sync's answer: its runs, and the steps it queued after them. */
+function synced(...runs: SyncRun[]): SyncResult {
+  return { runs, enriching: [] }
+}
+
+/** `GET /api/sync/runs`: which steps are still running, and the runs so far. */
+function overview(enriching: string[] = [], runs: SyncRun[] = []): SyncOverview {
+  const provider = (key: string, display_name: string) => ({
+    key,
+    display_name,
+    enabled: true,
+    status: 'success' as const,
+    last_success_at: null,
+    last_error: null,
+  })
+  return {
+    providers: [provider('steam', 'Steam'), provider('igdb', 'IGDB'), provider('rawg', 'RAWG')],
+    runs,
+    enriching,
+  }
+}
+
+const IDLE = overview()
+
 describe('library', () => {
   it('asks for a sync and reports what the run saw', async () => {
     const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
       'GET /api/works': { body: THREE },
-      'POST /api/sync/steam': { body: [run()] },
+      'POST /api/sync/steam': { body: synced(run()) },
     })
     renderApp(<Library />)
 
@@ -86,9 +119,10 @@ describe('library', () => {
 
   it('reports a run that failed rather than pretending it worked', async () => {
     stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
       'GET /api/works': { body: EMPTY },
       'POST /api/sync/steam': {
-        body: [run({ status: 'failed', items_seen: 0, error_text: 'steam did not answer' })],
+        body: synced(run({ status: 'failed', items_seen: 0, error_text: 'steam did not answer' })),
       },
     })
     renderApp(<Library />)
@@ -102,6 +136,7 @@ describe('library', () => {
 
   it('treats a 409 as news rather than as an error', async () => {
     stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
       'GET /api/works': { body: EMPTY },
       'POST /api/sync/steam': { status: 409, body: { detail: 'account 1 is already syncing' } },
     })
@@ -117,14 +152,20 @@ describe('library', () => {
   })
 
   it('says the library is empty rather than showing nothing at all', async () => {
-    stubFetch({ 'GET /api/works': { body: EMPTY } })
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/works': { body: EMPTY },
+    })
     renderApp(<Library />)
 
     expect(await screen.findByText(/Nothing here yet/)).toBeInTheDocument()
   })
 
   it('lists what came back, with the count pluralised', async () => {
-    stubFetch({ 'GET /api/works': { body: THREE } })
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/works': { body: THREE },
+    })
     renderApp(<Library />)
 
     expect(await screen.findByText('3 games')).toBeInTheDocument()
@@ -133,6 +174,7 @@ describe('library', () => {
 
   it('signs out through the endpoint rather than by forgetting locally', async () => {
     const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
       'GET /api/works': { body: THREE },
       'POST /api/auth/logout': { status: 204 },
     })
@@ -150,8 +192,9 @@ describe('library', () => {
 describe('a partial run', () => {
   it('is not reported as a success', async () => {
     stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
       'GET /api/works': { body: THREE },
-      'POST /api/sync/steam': { body: [run({ status: 'partial', items_seen: 2 })] },
+      'POST /api/sync/steam': { body: synced(run({ status: 'partial', items_seen: 2 })) },
     })
     renderApp(<Library />)
 
@@ -167,7 +210,10 @@ describe('a partial run', () => {
 
 describe('the table', () => {
   it('gives every game a row with its title and its platform', async () => {
-    stubFetch({ 'GET /api/works': { body: THREE } })
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/works': { body: THREE },
+    })
     renderApp(<Library />)
 
     // Found by role rather than by text: a `<div>` full of titles would satisfy
@@ -181,7 +227,10 @@ describe('the table', () => {
   })
 
   it('links the platform to the store page the API built', async () => {
-    stubFetch({ 'GET /api/works': { body: THREE } })
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/works': { body: THREE },
+    })
     renderApp(<Library />)
 
     const link = await screen.findByRole('link', { name: 'Dota 2 on Steam' })
@@ -197,7 +246,10 @@ describe('the table', () => {
       works: [work(1, 'Disc Copy', [copy({ store_url: null, provider_name: 'GOG' })])],
       next_cursor: null,
     }
-    stubFetch({ 'GET /api/works': { body: unlinkable } })
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/works': { body: unlinkable },
+    })
     renderApp(<Library />)
 
     // A missing store template is our gap, not the user's: they still own it
@@ -216,7 +268,10 @@ describe('the table', () => {
       ],
       next_cursor: null,
     }
-    stubFetch({ 'GET /api/works': { body: both } })
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/works': { body: both },
+    })
     renderApp(<Library />)
 
     // One work, two entitlements — a bundle or a rebuy. Collapsing them to the
@@ -244,7 +299,10 @@ describe('Metacritic', () => {
   }
 
   it('links each score to the RAWG page it is credited to', async () => {
-    stubFetch({ 'GET /api/works': { body: PORTAL } })
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/works': { body: PORTAL },
+    })
     renderApp(<Library />)
 
     const score = await screen.findByRole('link', { name: 'Metacritic 95 for Portal 2, from RAWG' })
@@ -257,7 +315,10 @@ describe('Metacritic', () => {
 
   it('credits RAWG with a link wherever a score is shown', async () => {
     // RAWG's terms, not a nicety: attribution and an active link.
-    stubFetch({ 'GET /api/works': { body: PORTAL } })
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/works': { body: PORTAL },
+    })
     renderApp(<Library />)
 
     const credit = await screen.findByText(/Metacritic scores from/)
@@ -268,7 +329,10 @@ describe('Metacritic', () => {
   })
 
   it('credits nobody when there is no score to credit', async () => {
-    stubFetch({ 'GET /api/works': { body: THREE } })
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/works': { body: THREE },
+    })
     renderApp(<Library />)
 
     await screen.findByText('Portal 2')
@@ -281,6 +345,7 @@ describe('paging', () => {
     const first: WorksPage = { works: [work(1, 'Dota 2')], next_cursor: 'page-2==' }
     const second: WorksPage = { works: [work(2, 'Portal 2')], next_cursor: null }
     const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
       'GET /api/works': { body: first },
       // Percent-encoded, because the cursor is base64url and its padding is not
       // safe in a query string unescaped.
@@ -300,7 +365,10 @@ describe('paging', () => {
   })
 
   it('offers nothing more to load on the last page', async () => {
-    stubFetch({ 'GET /api/works': { body: THREE } })
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/works': { body: THREE },
+    })
     renderApp(<Library />)
 
     expect(await screen.findByText('3 games')).toBeInTheDocument()
@@ -318,7 +386,10 @@ describe('a library that would not load', () => {
     let attempt = 0
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => {
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === '/api/sync/runs') {
+          return new Response(JSON.stringify(IDLE), { status: 200 })
+        }
         attempt += 1
         return attempt <= 3
           ? new Response(JSON.stringify({ detail: 'the database is locked' }), { status: 503 })
@@ -340,6 +411,7 @@ describe('a library that would not load', () => {
 describe('a page that came back empty with a cursor after it', () => {
   it('offers the next page rather than declaring the library empty', async () => {
     stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
       // Exactly what `works.py` answers when a torn read drops every row of a
       // page: no works, and a cursor saying the library continues. It takes the
       // cursor from the last row read rather than the last row kept for this
@@ -360,7 +432,10 @@ describe('a page that came back empty with a cursor after it', () => {
   })
 
   it('still calls a library with nothing in it empty', async () => {
-    stubFetch({ 'GET /api/works': { body: EMPTY } })
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/works': { body: EMPTY },
+    })
     renderApp(<Library />)
 
     // The fix above must not turn the empty state off altogether: no cursor is
@@ -379,9 +454,12 @@ describe('the sync button', () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const path = String(input)
         seen.push(path)
+        if (path === '/api/sync/runs') {
+          return new Response(JSON.stringify(IDLE), { status: 200 })
+        }
         if (path.startsWith('/api/sync')) {
           syncing = true
-          return new Response(JSON.stringify([run()]), { status: 200 })
+          return new Response(JSON.stringify(synced(run())), { status: 200 })
         }
         const cursor = new URL(path, 'http://x').searchParams.get('cursor')
         const page = cursor === null ? 1 : Number(cursor)
@@ -405,5 +483,136 @@ describe('the sync button', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Sync now' }))
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sync now' })).toBeEnabled())
+  })
+})
+
+describe('the steps after a sync', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('says which one is running and holds the sync button back', async () => {
+    stubFetch({
+      'GET /api/sync/runs': { body: overview(['rawg']) },
+      'GET /api/works': { body: THREE },
+    })
+    renderApp(<Library />)
+
+    expect(
+      await screen.findByText(
+        'Still updating the library: asking RAWG. The list refreshes when it is done.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Updating…' })).toBeDisabled()
+  })
+
+  it('refetches the library once the last one has finished', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const scored: WorksPage = {
+      works: [
+        {
+          ...work(1, 'Portal 2'),
+          metacritic: {
+            value: 95,
+            source_name: 'RAWG',
+            source_url: 'https://rawg.io/games/portal-2',
+          },
+        },
+      ],
+      next_cursor: null,
+    }
+    const routes: Record<string, { body: unknown }> = {
+      'GET /api/sync/runs': { body: overview(['rawg']) },
+      'GET /api/works': { body: { works: [work(1, 'Portal 2')], next_cursor: null } },
+    }
+    stubFetch(routes)
+    renderApp(<Library />)
+    await screen.findByText(/asking RAWG/)
+
+    routes['GET /api/sync/runs'] = { body: IDLE }
+    routes['GET /api/works'] = { body: scored }
+    await vi.advanceTimersByTimeAsync(ENRICHMENT_POLL_MS)
+
+    expect(await screen.findByRole('link', { name: /Metacritic 95/ })).toBeInTheDocument()
+    expect(screen.queryByText(/asking RAWG/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sync now' })).toBeEnabled()
+  })
+
+  it('reports a step this sync queued that failed', async () => {
+    const failed = run({
+      id: 7,
+      provider: 'igdb',
+      account_id: null,
+      status: 'failed',
+      started_at: '2026-08-21T10:00:05Z',
+      finished_at: '2026-08-21T10:00:06Z',
+      error_text: 'igdb answered 503',
+    })
+    stubFetch({
+      'GET /api/sync/runs': { body: overview([], [failed]) },
+      'GET /api/works': { body: THREE },
+      'POST /api/sync/steam': { body: { runs: [run()], enriching: ['igdb'] } },
+    })
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+
+    expect(await screen.findByText('IGDB did not finish: igdb answered 503')).toBeInTheDocument()
+  })
+
+  it('does not blame this sync for a step that failed before it', async () => {
+    const earlier = run({
+      id: 7,
+      provider: 'igdb',
+      account_id: null,
+      status: 'failed',
+      started_at: '2026-08-20T09:00:00Z',
+      finished_at: '2026-08-20T09:00:01Z',
+      error_text: 'igdb answered 503',
+    })
+    stubFetch({
+      'GET /api/sync/runs': { body: overview([], [earlier]) },
+      'GET /api/works': { body: THREE },
+      'POST /api/sync/steam': { body: { runs: [run()], enriching: ['igdb'] } },
+    })
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+
+    await screen.findByText('Synced 3 games.')
+    expect(screen.queryByText(/did not finish/)).not.toBeInTheDocument()
+  })
+})
+
+describe('the moment a sync answers', () => {
+  it('holds the button back before the overview has caught up', async () => {
+    // Freed in that gap, a second click would start a sync whose answer
+    // replaces this one's, and a failure of a step this one queued would go
+    // unreported.
+    let synced_ = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input)
+        if (path === '/api/sync/runs') {
+          return synced_
+            ? new Promise<Response>(() => {})
+            : new Response(JSON.stringify(IDLE), { status: 200 })
+        }
+        if (init?.method === 'POST') {
+          synced_ = true
+          return new Response(JSON.stringify({ runs: [run()], enriching: ['rawg'] }), {
+            status: 200,
+          })
+        }
+        return new Response(JSON.stringify(THREE), { status: 200 })
+      }),
+    )
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+
+    await screen.findByText('Synced 3 games.')
+    expect(screen.getByRole('button', { name: 'Updating…' })).toBeDisabled()
   })
 })

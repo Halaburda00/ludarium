@@ -19,7 +19,7 @@ from ludarium.db import SessionDep
 from ludarium.enums import SyncStatus, SyncTrigger
 from ludarium.models import Account, Provider, SyncRun
 from ludarium.providers.registry import supports
-from ludarium.steps import StepContext, enrich_after_sync
+from ludarium.steps import Scheduled, StepContext, enrich_after_sync, plan_after_sync
 from ludarium.sync import SyncInProgressError, library_for, sync_account
 
 RECENT_RUNS = 50
@@ -51,6 +51,13 @@ class ProviderStatusResponse(BaseModel):
     last_error: str | None
 
 
+class SyncResponse(BaseModel):
+    runs: list[SyncRunResponse]
+    # The steps this sync queued, in the order they run: what a client waits
+    # on before the library it shows is the whole answer (#70).
+    enriching: list[str]
+
+
 class SyncOverviewResponse(BaseModel):
     """Both halves in one call, because the panel shows them together.
 
@@ -60,6 +67,9 @@ class SyncOverviewResponse(BaseModel):
 
     providers: list[ProviderStatusResponse]
     runs: list[SyncRunResponse]
+    # Steps queued by a sync and not yet finished, whether or not one has
+    # opened its run: the gap before a step starts is still work to wait for.
+    enriching: list[str]
 
 
 def describe_run(run: SyncRun, provider_key: str) -> SyncRunResponse:
@@ -113,8 +123,8 @@ async def run(
     background: BackgroundTasks,
     session: SessionDep,
     record: CurrentSession,
-) -> list[SyncRunResponse]:
-    """Sync every account of one provider and report each run.
+) -> SyncResponse:
+    """Sync every account of one provider and report each run, and what follows it.
 
     A list rather than one run because a platform may have several accounts
     (M4), and one of them failing is not the others' problem — `sync_account`
@@ -130,7 +140,9 @@ async def run(
     Enrichment follows once any account synced, after the response has gone:
     the store is asked about what the sync added, and a store that is slow or
     down neither delays nor fails the sync that already landed (rule 4). A sync
-    where every account failed stored nothing new, and triggers nothing.
+    where every account failed stored nothing new, and triggers nothing. The
+    steps are queued before the answer leaves, so a client that asks at once
+    already sees them in progress.
     """
 
     reporter, accounts = await _syncable(session, provider, record.user_id)
@@ -142,18 +154,29 @@ async def run(
             runs.append(await sync_account(session, account=account, library=library))
         except SyncInProgressError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    planned = []
     if any(finished.status is SyncStatus.SUCCESS for finished in runs):
+        context = StepContext(client, request.app.state.database, request.app.state.settings)
+        planned = plan_after_sync(context, library=reporter.key)
+        scheduled: Scheduled = request.app.state.scheduled
+        scheduled.add(provider for provider, _ in planned)
         background.add_task(
             enrich_after_sync,
-            StepContext(client, request.app.state.database, request.app.state.settings),
-            library=reporter.key,
+            context,
+            planned,
             trigger=SyncTrigger.MANUAL,
+            scheduled=scheduled,
         )
-    return [describe_run(finished, reporter.key) for finished in runs]
+    return SyncResponse(
+        runs=[describe_run(finished, reporter.key) for finished in runs],
+        enriching=[provider for provider, _ in planned],
+    )
 
 
 @router.get("/runs")
-async def overview(session: SessionDep, record: CurrentSession) -> SyncOverviewResponse:
+async def overview(
+    request: Request, session: SessionDep, record: CurrentSession
+) -> SyncOverviewResponse:
     providers = list(await session.scalars(select(Provider).order_by(Provider.key)))
     rows = await session.execute(
         select(SyncRun, Provider.key)
@@ -174,4 +197,5 @@ async def overview(session: SessionDep, record: CurrentSession) -> SyncOverviewR
             for provider in providers
         ],
         runs=[describe_run(run, key) for run, key in rows],
+        enriching=list(request.app.state.scheduled),
     )

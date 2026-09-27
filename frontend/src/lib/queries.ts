@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import {
   useInfiniteQuery,
   useMutation,
@@ -25,6 +26,9 @@ type Schemas = components['schemas']
 
 export type Account = Schemas['AccountResponse']
 export type SyncRun = Schemas['SyncRunResponse']
+/** A sync's runs, and the steps it queued to run after it. */
+export type SyncResult = Schemas['SyncResponse']
+export type SyncOverview = Schemas['SyncOverviewResponse']
 /** One copy the user owns. The platform column of the table is a list of these. */
 export type EntitlementSummary = Schemas['EntitlementSummary']
 export type WorkSummary = Schemas['WorkSummary']
@@ -36,6 +40,13 @@ export type Credentials = Schemas['LoginRequest']
 
 export const accountsKey = ['accounts'] as const
 export const worksKey = ['works'] as const
+export const syncOverviewKey = ['sync', 'runs'] as const
+
+/**
+ * How often the library asks whether the steps after a sync are done. A step
+ * takes seconds to minutes, and the answer is one small read.
+ */
+export const ENRICHMENT_POLL_MS = 2000
 
 /**
  * The connected accounts, and the session probe in the same request.
@@ -85,18 +96,66 @@ export function useConnect() {
 
 export function useSync() {
   const client = useQueryClient()
-  return useMutation<SyncRun[], ApiError, string>({
-    mutationFn: (provider) => api<SyncRun[]>(`/api/sync/${provider}`, { method: 'POST' }),
+  return useMutation<SyncResult, ApiError, string>({
+    mutationFn: (provider) => api<SyncResult>(`/api/sync/${provider}`, { method: 'POST' }),
     // Not awaited. `invalidateQueries` resolves only once the refetch is done,
     // and refetching an infinite query replays every loaded page in sequence —
     // each page param comes out of the page before it, so five loaded pages are
     // five round-trips. Awaited, all five sit inside the mutation's `isPending`
     // and the sync button stays disabled long after the sync itself finished.
-    onSuccess: () => {
+    onSuccess: (result) => {
       void client.invalidateQueries({ queryKey: worksKey })
       void client.invalidateQueries({ queryKey: accountsKey })
+      // Written in at once, then confirmed. Until the refetch answers, the
+      // cached overview says nothing is running, and a sync button freed in
+      // that gap starts a second sync whose answer replaces this one's — and
+      // with it the record of which steps this one queued.
+      client.setQueryData<SyncOverview>(syncOverviewKey, (overview) =>
+        overview
+          ? {
+              ...overview,
+              enriching: [...new Set([...overview.enriching, ...result.enriching])],
+            }
+          : overview,
+      )
+      void client.invalidateQueries({ queryKey: syncOverviewKey })
     },
   })
+}
+
+/**
+ * The steps a sync queued that have not finished — classification, matching,
+ * scores — polled while there are any, and the library refetched once there
+ * are none (#70).
+ *
+ * They run after the sync has answered, so the library the sync refetched is
+ * the one from before them. Without this the scores of a two-minute RAWG run
+ * appear only when something else happens to reload the page.
+ *
+ * Asked on mount too, so a page opened while they run says so as well.
+ */
+export function useEnrichment(): UseQueryResult<SyncOverview, ApiError> {
+  const client = useQueryClient()
+  const overview = useQuery<SyncOverview, ApiError>({
+    queryKey: syncOverviewKey,
+    queryFn: () => api<SyncOverview>('/api/sync/runs'),
+    refetchInterval: (query) => (query.state.data?.enriching.length ? ENRICHMENT_POLL_MS : false),
+    // A progress line, not the library: a failed poll is simply no line.
+    retry: false,
+  })
+  const running = (overview.data?.enriching.length ?? 0) > 0
+  // Whether this page saw anything running, so that "nothing running" on the
+  // first answer is not mistaken for something having just finished.
+  const watched = useRef(false)
+  useEffect(() => {
+    if (running) {
+      watched.current = true
+    } else if (watched.current) {
+      watched.current = false
+      void client.invalidateQueries({ queryKey: worksKey })
+    }
+  }, [running, client])
+  return overview
 }
 
 /**

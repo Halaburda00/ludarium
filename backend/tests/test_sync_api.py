@@ -81,7 +81,7 @@ def test_a_sync_returns_the_run_counters(connected: TestClient) -> None:
     response = connected.post("/api/sync/steam")
 
     assert response.status_code == 200
-    (run,) = response.json()
+    (run,) = response.json()["runs"]
     assert run["provider"] == "steam"
     assert run["status"] == SyncStatus.SUCCESS
     assert (run["items_seen"], run["items_added"], run["items_removed"]) == (3, 3, 0)
@@ -107,7 +107,7 @@ async def test_a_failure_partway_is_a_status_not_a_500(
     response = connected.post("/api/sync/steam")
 
     assert response.status_code == 200
-    (run,) = response.json()
+    (run,) = response.json()["runs"]
     assert run["status"] == SyncStatus.FAILED
     assert run["items_removed"] == 0
     assert run["error_text"]
@@ -170,7 +170,7 @@ async def test_a_key_the_current_encryption_key_cannot_read_becomes_a_failed_run
     response = connected.post("/api/sync/steam")
 
     assert response.status_code == 200
-    (run,) = response.json()
+    (run,) = response.json()["runs"]
     assert run["status"] == SyncStatus.FAILED
     assert "LUDARIUM_ENCRYPTION_KEY" in run["error_text"]
     assert "not-a-fernet-token" not in response.text
@@ -189,7 +189,7 @@ async def test_an_account_with_no_stored_key_becomes_a_failed_run(
     response = connected.post("/api/sync/steam")
 
     assert response.status_code == 200
-    (run,) = response.json()
+    (run,) = response.json()["runs"]
     assert run["status"] == SyncStatus.FAILED
     assert run["error_text"] == "no credential is stored for this account"
 
@@ -228,7 +228,7 @@ async def test_one_broken_account_does_not_end_the_others_sync(
         response = connected.post("/api/sync/steam")
 
     assert response.status_code == 200
-    statuses = {run["account_id"]: run["status"] for run in response.json()}
+    statuses = {run["account_id"]: run["status"] for run in response.json()["runs"]}
     assert statuses == {broken.id: SyncStatus.FAILED, working.id: SyncStatus.SUCCESS}
 
 
@@ -302,7 +302,7 @@ async def test_another_users_account_is_not_synced_along(
 
     assert response.status_code == 200
     # Only mine. Theirs would have failed on `b"unused"` long before that.
-    assert [run["account_id"] for run in response.json()] == [mine.id]
+    assert [run["account_id"] for run in response.json()["runs"]] == [mine.id]
 
 
 @respx.mock

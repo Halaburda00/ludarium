@@ -6,7 +6,8 @@ in each mapping rather than a branch in an endpoint.
 """
 
 import logging
-from collections.abc import Callable, Mapping
+from collections import Counter
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -77,26 +78,86 @@ FOLLOWS: Final[Mapping[str, tuple[str, ...]]] = {
 }
 
 
-async def enrich_after_sync(context: StepContext, *, library: str, trigger: SyncTrigger) -> None:
-    """Run every step that follows `library`, one after another.
+class Scheduled:
+    """The steps syncs have queued and not yet finished, for a client to wait on (#70).
+
+    Filled when a sync answers and emptied as each step ends, so there is no
+    moment between the answer and the first step, or between two steps, when
+    nothing reads as in progress: a run row exists only while a step is
+    running. In memory, because it describes this process's background tasks,
+    which do not outlive it either.
+
+    Counted rather than a set: a second sync can queue a step the first one's
+    has not finished, and the first finishing must not clear the second's.
+    """
+
+    def __init__(self) -> None:
+        self._queued: Counter[str] = Counter()
+
+    def add(self, providers: Iterable[str]) -> None:
+        self._queued.update(providers)
+
+    def done(self, provider: str) -> None:
+        self._queued[provider] -= 1
+        if self._queued[provider] <= 0:
+            del self._queued[provider]
+
+    def __iter__(self) -> Iterator[str]:
+        # In the order the steps run, which is the order `STEPS` names them,
+        # rather than the order they were queued: a step queued again by a
+        # second sync would otherwise read as the last one, and a client naming
+        # the first as "running" would name the wrong one.
+        order = {provider: position for position, provider in enumerate(STEPS)}
+        return iter(sorted(self._queued, key=lambda provider: order.get(provider, len(order))))
+
+
+def plan_after_sync(context: StepContext, *, library: str) -> list[tuple[str, Step]]:
+    """Every step that follows `library` and that this instance is set up for, in order.
+
+    Built before the sync answers, so the answer can name them. A step the
+    instance is not set up for — no IGDB application, no RAWG key — is left
+    out rather than planned: it opens no run, and a client waiting on it would
+    wait for ever. Recording that as a failure on every sync would put a red
+    status on something nobody asked for.
+    """
+
+    planned = []
+    for provider in FOLLOWS.get(library, ()):
+        step = STEPS[provider](context)
+        if step is not None:
+            planned.append((provider, step))
+    return planned
+
+
+async def enrich_after_sync(
+    context: StepContext,
+    planned: Sequence[tuple[str, Step]],
+    *,
+    trigger: SyncTrigger,
+    scheduled: Scheduled,
+) -> None:
+    """Run the planned steps one after another, and tell `scheduled` as each one ends.
 
     A step already running is skipped rather than queued. The items this sync
     added are still asked about by the next run of that step, and before M4
     that is the next sync or a click (ADR-0020). A failed run is its own
     provider's status, which `enrich` records; nothing here has to catch it.
-
-    A step the instance is not set up for is skipped without a run: no IGDB
-    application is a choice, and recording it as a failure on every sync would
-    put a red status on something nobody asked for.
     """
 
-    for provider in FOLLOWS.get(library, ()):
-        step = STEPS[provider](context)
-        if step is None:
-            continue
-        try:
-            await enrich(context.database, provider=provider, step=step, trigger=trigger)
-        except EnrichmentInProgressError:
-            logger.info(
-                "`%s` is already enriching; this sync's items wait for its next run", provider
-            )
+    remaining = [provider for provider, _ in planned]
+    try:
+        for provider, step in planned:
+            try:
+                await enrich(context.database, provider=provider, step=step, trigger=trigger)
+            except EnrichmentInProgressError:
+                logger.info(
+                    "`%s` is already enriching; this sync's items wait for its next run", provider
+                )
+            finally:
+                scheduled.done(provider)
+                remaining.remove(provider)
+    finally:
+        # Whatever ended the task early — a bug in a step, a cancelled task at
+        # shutdown — the steps it will never run are not in progress either.
+        for provider in remaining:
+            scheduled.done(provider)
