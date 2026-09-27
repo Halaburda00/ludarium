@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.db import Database
 from ludarium.enrichment import enrich
-from ludarium.enums import EntityType, ItemKind, MatchLayer, SourceKind, SyncStatus
+from ludarium.enums import EntityType, ItemKind, MatchAction, MatchLayer, SourceKind, SyncStatus
 from ludarium.matching import anchor_steam_works
 from ludarium.models import (
     Account,
@@ -22,6 +22,7 @@ from ludarium.models import (
     EntitlementWork,
     ExternalId,
     FieldProvenance,
+    MatchAudit,
     Work,
 )
 from ludarium.providers import IgdbClient, IgdbCredentials, MemoryTokenStore, RequestLimiter
@@ -221,7 +222,7 @@ async def test_an_appid_two_igdb_games_claim_is_not_a_match(
 
 
 @respx.mock
-async def test_two_stubs_for_one_game_anchor_the_older_and_leave_the_other_for_a_merge(
+async def test_two_stubs_for_one_game_anchor_the_older_and_fold_the_younger_into_it(
     db: Database,
     session: AsyncSession,
     steam: Account,
@@ -240,13 +241,27 @@ async def test_two_stubs_for_one_game_anchor_the_older_and_leave_the_other_for_a
         assert await anchor(db, client) is SyncStatus.SUCCESS
 
     assert (await work_of(db, older.id)).igdb_id == 1942
-    left = await work_of(db, younger.id)
-    assert (left.is_matched, left.title) == (False, "The Witcher 3: Wild Hunt")
-    assert "1 works name an IGDB game another work already holds" in caplog.text
+    assert await read(db, lambda reader: reader.get(Work, younger.id)) is None
+    links = await read(db, lambda reader: _links(reader))
+    assert links == {(older.id, MatchLayer.HARD_ID)}
+    audit = await read(db, lambda reader: reader.scalar(select(MatchAudit)))
+    assert (audit.action, audit.work_id, audit.previous_work_id, audit.layer) == (
+        MatchAction.MERGED,
+        older.id,
+        younger.id,
+        MatchLayer.HARD_ID,
+    )
+    assert "1 works merged into the work that holds their IGDB game" in caplog.text
+
+
+async def _links(reader: AsyncSession) -> set[tuple[int, MatchLayer | None]]:
+    return {
+        (link.work_id, link.match_layer) for link in await reader.scalars(select(EntitlementWork))
+    }
 
 
 @respx.mock
-async def test_a_game_another_work_already_holds_is_left_alone(
+async def test_a_game_another_work_already_holds_takes_the_stub_in(
     db: Database, session: AsyncSession, steam: Account, client: IgdbClient
 ) -> None:
     Igdb([{"game": 1942, "uid": "292030"}], {1942: "The Witcher 3: Wild Hunt"}).mount()
@@ -260,7 +275,52 @@ async def test_a_game_another_work_already_holds_is_left_alone(
 
     assert await anchor(db, client) is SyncStatus.SUCCESS
 
+    assert await read(db, lambda reader: reader.get(Work, stub.id)) is None
+    assert await read(db, lambda reader: _links(reader)) == {(holder.id, MatchLayer.HARD_ID)}
+
+
+@respx.mock
+async def test_a_stub_that_conflicts_with_the_holder_is_left_standing(
+    db: Database, session: AsyncSession, steam: Account, client: IgdbClient
+) -> None:
+    Igdb([{"game": 1942, "uid": "292030"}], {1942: "The Witcher 3: Wild Hunt"}).mount()
+    holder = await make_work(session, "The Witcher 3: Wild Hunt")
+    holder.igdb_id, holder.is_matched = 1942, True
+    session.add(
+        ExternalId(entity_type=EntityType.WORK, entity_id=holder.id, namespace="igdb", value="1942")
+    )
+    stub = await own(session, steam, "292030")
+    for work, source in ((holder, "rawg"), (stub, "opencritic")):
+        await record(
+            session,
+            entity_type=EntityType.WORK,
+            entity_id=work.id,
+            field="metacritic_score",
+            source_kind=SourceKind.METADATA_PROVIDER,
+            source_ref=source,
+            value=90,
+        )
+    await session.commit()
+
+    assert await anchor(db, client) is SyncStatus.SUCCESS
+
     assert (await work_of(db, stub.id)).is_matched is False
+    assert await read(db, lambda reader: reader.scalar(select(MatchAudit))) is None
+
+
+@respx.mock
+async def test_the_run_collects_stubs_no_entitlement_reaches(
+    db: Database, session: AsyncSession, steam: Account, client: IgdbClient
+) -> None:
+    Igdb([], {}).mount()
+    orphan = await make_work(session, "Nobody owns this")
+    owned = await own(session, steam, "292030")
+    await session.commit()
+
+    assert await anchor(db, client) is SyncStatus.SUCCESS
+
+    assert await read(db, lambda reader: reader.get(Work, orphan.id)) is None
+    assert (await work_of(db, owned.id)).id == owned.id
 
 
 @respx.mock
