@@ -1,6 +1,6 @@
 from ludarium.models.base import Base
 from ludarium.models.cache import FetchCache
-from ludarium.models.catalogue import Edition, ExternalId, Work
+from ludarium.models.catalogue import Edition, ExternalId, ImageAsset, Work
 from ludarium.models.identity import AppUser, UserSession
 from ludarium.models.matching import MatchAudit
 from ludarium.models.ownership import Entitlement, EntitlementWork
@@ -19,6 +19,7 @@ __all__ = [
     "ExternalId",
     "FetchCache",
     "FieldProvenance",
+    "ImageAsset",
     "MatchAudit",
     "Provider",
     "SyncRun",

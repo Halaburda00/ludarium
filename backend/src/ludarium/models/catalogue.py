@@ -4,7 +4,7 @@ from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from ludarium import titles
-from ludarium.enums import EntityType, ItemKind
+from ludarium.enums import EntityType, ImageKind, ItemKind
 from ludarium.models.base import Base
 from ludarium.models.types import CreatedAt, UpdatedAt, enum_column
 
@@ -132,3 +132,41 @@ class ExternalId(Base):
     # The provider key that asserted it.
     source_ref: Mapped[str | None]
     created_at: Mapped[CreatedAt]
+
+
+class ImageAsset(Base):
+    """One image file of a work, on disk under the data directory (ADR-0019, ADR-0024).
+
+    The file, not the picture: a cover fetched at two sizes is two rows, told
+    apart by `width`, so each has its own checksum and path. A changed cover is
+    new rows rather than rewritten ones, and the served URL names the row — so
+    a browser can keep an image for good without ever showing a stale one.
+    """
+
+    __tablename__ = "image_asset"
+    __table_args__ = (
+        Index("ix_image_asset_entity_type_entity_id", "entity_type", "entity_id"),
+        # Never a reused id. SQLite hands a freed highest rowid to the next
+        # insert, and replacing a work's cover frees exactly those: the new
+        # file would be served under the old URL, which browsers were told to
+        # keep for good. PostgreSQL's sequences never go back anyway.
+        {"sqlite_autoincrement": True},
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Polymorphic like `external_id`, so no foreign key.
+    entity_type: Mapped[EntityType] = mapped_column(enum_column(EntityType, "entity_type"))
+    entity_id: Mapped[int]
+    kind: Mapped[ImageKind] = mapped_column(enum_column(ImageKind, "image_kind"))
+    # The provider key. Also what decides whether the file may leave the
+    # instance: IGDB's may not (M5 exports).
+    source_ref: Mapped[str]
+    remote_url: Mapped[str | None]
+    # Relative to the data directory, and only ever written by us.
+    local_path: Mapped[str | None]
+    # SHA-256 of the file, hex.
+    checksum: Mapped[str | None]
+    width: Mapped[int | None]
+    height: Mapped[int | None]
+    # Null means queued, not yet downloaded.
+    fetched_at: Mapped[datetime | None]
