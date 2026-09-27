@@ -28,6 +28,8 @@ export type SyncRun = Schemas['SyncRunResponse']
 /** One copy the user owns. The platform column of the table is a list of these. */
 export type EntitlementSummary = Schemas['EntitlementSummary']
 export type WorkSummary = Schemas['WorkSummary']
+/** A Metacritic score with the page it is credited to; never one without the other. */
+export type Score = Schemas['Score']
 export type WorksPage = Schemas['WorksPage']
 export type Connection = Schemas['ConnectRequest']
 export type Credentials = Schemas['LoginRequest']

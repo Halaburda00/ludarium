@@ -13,12 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium import steps as steps_module
 from ludarium.api import works as works_module
-from ludarium.enums import EntitlementOrigin, WorkLinkRole
+from ludarium.enums import EntitlementOrigin, EntityType, WorkLinkRole
 from ludarium.models import (
     Account,
     AppUser,
     Entitlement,
     EntitlementWork,
+    ExternalId,
     Provider,
     UserWorkState,
     Work,
@@ -616,3 +617,54 @@ def test_a_page_that_loses_everything_still_hands_back_a_cursor(
 
     assert body["works"] == []
     assert body["next_cursor"] is not None
+
+
+async def scored(session: AsyncSession, title: str, score: int | None, slug: str | None) -> None:
+    work = await session.scalar(select(Work).where(Work.title == title))
+    assert work is not None
+    work.metacritic_score = score
+    if slug is not None:
+        session.add(
+            ExternalId(entity_type=EntityType.WORK, entity_id=work.id, namespace="rawg", value=slug)
+        )
+    await session.commit()
+
+
+def metacritic(client: TestClient, title: str) -> Any:
+    body = client.get("/api/works").json()
+    return next(work for work in body["works"] if work["title"] == title)["metacritic"]
+
+
+async def test_a_score_comes_with_the_rawg_page_it_is_credited_to(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    await scored(session, "Portal 2", 95, "portal-2")
+
+    assert metacritic(synced, "Portal 2") == {
+        "value": 95,
+        "source_name": "RAWG",
+        "source_url": "https://rawg.io/games/portal-2",
+    }
+    assert metacritic(synced, "Dota 2") is None
+
+
+async def test_a_score_with_nothing_to_credit_it_to_is_not_served(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    """RAWG's terms: an active link wherever its data is shown. No link, no score."""
+
+    await scored(session, "Portal 2", 95, None)
+
+    assert metacritic(synced, "Portal 2") is None
+
+
+async def test_two_slugs_for_one_work_do_not_list_it_twice(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    await scored(session, "Portal 2", 95, "portal-2-old")
+    await scored(session, "Portal 2", 95, "portal-2")
+
+    body = synced.get("/api/works").json()
+
+    assert titles(body) == LIBRARY
+    assert metacritic(synced, "Portal 2")["source_url"] == "https://rawg.io/games/portal-2"

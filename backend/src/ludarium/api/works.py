@@ -22,11 +22,12 @@ from sqlalchemy import literal, select, tuple_
 
 from ludarium.auth import CurrentSession
 from ludarium.db import SessionDep
-from ludarium.enums import ItemKind, PlayStatus
+from ludarium.enums import EntityType, ItemKind, PlayStatus
 from ludarium.models import (
     Account,
     Entitlement,
     EntitlementWork,
+    ExternalId,
     Provider,
     UserWorkState,
     Work,
@@ -42,6 +43,8 @@ MAX_CURSOR: Final = 256
 # Accepted, one would page from wherever its title happened to compare, which is
 # the made-up cursor `_after` exists to turn away.
 CURSOR_VERSION: Final = 2
+# Where Metacritic scores come from, and whose page each one links to.
+SCORE_SOURCE: Final = "rawg"
 
 router = APIRouter(prefix="/works", tags=["works"])
 
@@ -58,6 +61,19 @@ class EntitlementSummary(BaseModel):
     provider_title: str
     playtime_minutes: int | None
     store_url: str | None
+
+
+class Score(BaseModel):
+    """A Metacritic score and the page of the source it came from, which is RAWG.
+
+    One object so the two cannot be separated: RAWG's terms require an active
+    link wherever its data is shown, and a score the API hands out without its
+    link is a score some client will show without it.
+    """
+
+    value: int
+    source_name: str
+    source_url: str
 
 
 class WorkSummary(BaseModel):
@@ -77,6 +93,9 @@ class WorkSummary(BaseModel):
     # The sum across this work's entitlements, resolved (rule 5).
     playtime_minutes: int
     last_played_at: datetime | None
+    # Null where there is no score, and where there is one but nothing to link
+    # it to: a score without its attribution is not shown at all.
+    metacritic: Score | None
     entitlements: list[EntitlementSummary]
 
 
@@ -165,8 +184,21 @@ async def listing(
         .join(Entitlement, Entitlement.id == EntitlementWork.entitlement_id)
         .where(EntitlementWork.work_id == Work.id, *owned_by(user_id))
     )
+    # A subquery rather than a join: nothing in the schema stops a work holding
+    # two slugs, and a join would then list the work twice.
+    slug = (
+        select(ExternalId.value)
+        .where(
+            ExternalId.entity_type == EntityType.WORK,
+            ExternalId.entity_id == Work.id,
+            ExternalId.namespace == SCORE_SOURCE,
+        )
+        .order_by(ExternalId.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
     page = (
-        select(Work, UserWorkState)
+        select(Work, UserWorkState, slug)
         # Outer, because "every work reachable by a live entitlement has a
         # `user_work_state` row" is a convention `sync._stub` keeps and no
         # constraint enforces. An inner join makes a future write path that
@@ -191,7 +223,8 @@ async def listing(
     has_more = len(rows) > limit
     rows = rows[:limit]
 
-    copies = await _entitlements(session, [work.id for work in (work for work, _ in rows)], user_id)
+    copies = await _entitlements(session, [work.id for work, _, _ in rows], user_id)
+    source = await session.scalar(select(Provider).where(Provider.key == SCORE_SOURCE))
     # A work with nothing live pointing at it is dropped rather than shown
     # empty-handed: a row that contradicts the endpoint's own rule — in the list
     # because something live points at it, with nothing listed — is worse than a
@@ -201,9 +234,12 @@ async def listing(
     # and not on PostgreSQL, whose default READ COMMITTED gives each statement
     # its own. ADR-0004 keeps PostgreSQL a supported target, so the defence
     # stays and its test forces the race rather than waiting for it.
-    works = [(work, state) for work, state in rows if copies.get(work.id)]
+    works = [(work, state, held) for work, state, held in rows if copies.get(work.id)]
     return WorksPage(
-        works=[_describe(work, state, copies[work.id]) for work, state in works],
+        works=[
+            _describe(work, state, copies[work.id], _score(work, source, held))
+            for work, state, held in works
+        ],
         # From the last row read, not the last row kept, so the listing always
         # advances. Taken from the last kept row it would re-read whatever was
         # dropped — harmless — but a page where *everything* was dropped would
@@ -214,8 +250,18 @@ async def listing(
     )
 
 
+def _score(work: Work, source: Provider | None, slug: str | None) -> Score | None:
+    url = _store_url(source.store_url_template, slug) if source is not None else None
+    if work.metacritic_score is None or source is None or url is None:
+        return None
+    return Score(value=work.metacritic_score, source_name=source.display_name, source_url=url)
+
+
 def _describe(
-    work: Work, state: UserWorkState | None, copies: list[EntitlementSummary]
+    work: Work,
+    state: UserWorkState | None,
+    copies: list[EntitlementSummary],
+    metacritic: Score | None,
 ) -> WorkSummary:
     return WorkSummary(
         id=work.id,
@@ -232,6 +278,7 @@ def _describe(
         is_hidden=state.is_hidden if state else False,
         playtime_minutes=state.playtime_minutes if state else 0,
         last_played_at=state.last_played_at if state else None,
+        metacritic=metacritic,
         entitlements=copies,
     )
 

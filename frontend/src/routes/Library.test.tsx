@@ -40,16 +40,13 @@ function work(
     is_hidden: false,
     playtime_minutes: 0,
     last_played_at: null,
+    metacritic: null,
     entitlements,
   }
 }
 
 const THREE: WorksPage = {
-  works: [
-    work(1, 'Dota 2'),
-    work(2, 'Portal 2'),
-    work(3, 'The Witcher 3: Wild Hunt'),
-  ],
+  works: [work(1, 'Dota 2'), work(2, 'Portal 2'), work(3, 'The Witcher 3: Wild Hunt')],
   next_cursor: null,
 }
 
@@ -146,9 +143,7 @@ describe('library', () => {
     // The cookie is httpOnly, so there is nothing local to forget: the session
     // ends because the server deleted the row. Where the user goes next is
     // `App.test.tsx`'s subject.
-    await waitFor(() =>
-      expect(calls.some((call) => call.path === '/api/auth/logout')).toBe(true),
-    )
+    await waitFor(() => expect(calls.some((call) => call.path === '/api/auth/logout')).toBe(true))
   })
 })
 
@@ -229,6 +224,55 @@ describe('the table', () => {
     const row = (await screen.findAllByRole('row'))[1]
     expect(within(row).getByRole('link')).toHaveTextContent('Steam')
     expect(within(row).getByText('GOG')).toBeInTheDocument()
+  })
+})
+
+describe('Metacritic', () => {
+  const PORTAL: WorksPage = {
+    works: [
+      {
+        ...work(1, 'Portal 2'),
+        metacritic: {
+          value: 95,
+          source_name: 'RAWG',
+          source_url: 'https://rawg.io/games/portal-2',
+        },
+      },
+      work(2, 'Dota 2'),
+    ],
+    next_cursor: null,
+  }
+
+  it('links each score to the RAWG page it is credited to', async () => {
+    stubFetch({ 'GET /api/works': { body: PORTAL } })
+    renderApp(<Library />)
+
+    const score = await screen.findByRole('link', { name: 'Metacritic 95 for Portal 2, from RAWG' })
+    expect(score).toHaveTextContent('95')
+    expect(score).toHaveAttribute('href', 'https://rawg.io/games/portal-2')
+    expect(score).toHaveAttribute('rel', expect.stringContaining('noreferrer'))
+    const dota = screen.getAllByRole('row')[2]
+    expect(within(dota).getByText('No score')).toBeInTheDocument()
+  })
+
+  it('credits RAWG with a link wherever a score is shown', async () => {
+    // RAWG's terms, not a nicety: attribution and an active link.
+    stubFetch({ 'GET /api/works': { body: PORTAL } })
+    renderApp(<Library />)
+
+    const credit = await screen.findByText(/Metacritic scores from/)
+    expect(within(credit).getByRole('link', { name: 'RAWG' })).toHaveAttribute(
+      'href',
+      'https://rawg.io',
+    )
+  })
+
+  it('credits nobody when there is no score to credit', async () => {
+    stubFetch({ 'GET /api/works': { body: THREE } })
+    renderApp(<Library />)
+
+    await screen.findByText('Portal 2')
+    expect(screen.queryByText(/Metacritic scores from/)).not.toBeInTheDocument()
   })
 })
 
