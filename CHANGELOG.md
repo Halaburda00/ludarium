@@ -57,6 +57,17 @@ shape moves.
   `game` default wherever no source asserted it. Two kinds of entry are still
   called games, because the store has no word for them: test servers and public
   beta clients.
+- Epic Games libraries. Connect an Epic account from the onboarding screen:
+  sign in on Epic's own page, copy the code it shows, paste it back. Ludarium
+  keeps the sign-in, not your password, encrypted like the Steam key, and
+  renews it on every sync. Games, DLC and tools come in with their English
+  titles; Unreal Engine marketplace assets are left out. Claimed free games
+  are owned games. "Sync now" now syncs every platform you have connected, and
+  a platform that fails says so on its own — with a "Sign in again" link when
+  Epic has ended the sign-in, and without one when Epic is simply down. This
+  uses the Epic Games Launcher's own endpoints, which Epic does not document
+  and can change; if it does, the Epic sync fails and Steam carries on. Epic
+  games are not matched to IGDB yet (#74), so they have no cover or score.
 - Cover art for every game IGDB has matched, fetched in the same run as the
   match and kept on this server under the data directory
   (`LUDARIUM_DATA_DIR`, `./data` by default). Two sizes of each, 264×374 and

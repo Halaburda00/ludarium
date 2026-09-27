@@ -137,7 +137,7 @@ layer 1 and RAWG — finishes in M2a. Leaving it in M4 would hold it behind two
 milestones of grid and filters. The scores show in the M1 table until M2c
 replaces it.
 
-- [ ] `EpicProvider` (auth flow modelled on legendary). Epic has no public
+- [x] `EpicProvider` (auth flow modelled on legendary). Epic has no public
       library API; the flow is the launcher's own and can change without
       notice, so the provider must fail as itself (rule 4). What it holds is a
       refresh token that is replaced on every refresh — encrypted like the
