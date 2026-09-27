@@ -174,7 +174,7 @@ async def _download(
 
     gate = asyncio.Semaphore(AT_ONCE)
 
-    async def one(work_id: int, image_id: str) -> Fetched | None:
+    async def one(image_id: str) -> tuple[tuple[Size, str, str], ...] | None:
         files = []
         for size in SIZES:
             async with gate:
@@ -185,10 +185,18 @@ async def _download(
             relative = _relative(image_id, size)
             await asyncio.to_thread(_write, data_dir / relative, body)
             files.append((size, relative, hashlib.sha256(body).hexdigest()))
-        return Fetched(work_id, image_id, tuple(files))
+        return tuple(files)
 
-    results = await asyncio.gather(*(one(work_id, image_id) for work_id, image_id in missing))
-    return [result for result in results if result is not None]
+    # Once per image, not once per work. IGDB gives editions and remasters the
+    # same box art, and two downloads of one file at once would each rename
+    # the other's `.partial` out from under it.
+    images = sorted({image_id for _, image_id in missing})
+    downloaded = dict(zip(images, await asyncio.gather(*map(one, images)), strict=True))
+    return [
+        Fetched(work_id, image_id, files)
+        for work_id, image_id in missing
+        if (files := downloaded[image_id]) is not None
+    ]
 
 
 def _write(path: Path, body: bytes) -> None:

@@ -242,3 +242,20 @@ async def test_a_file_nobody_points_at_is_swept_and_nothing_outside_the_director
 
     assert list((data_dir / DIRECTORY).iterdir()) == []
     assert (data_dir / "notes.txt").exists()
+
+
+@respx.mock
+async def test_two_works_igdb_gives_one_cover_fetch_it_once_and_both_get_it(
+    db: Database, session: AsyncSession, seeded: None, client: IgdbClient, data_dir: Path
+) -> None:
+    """Editions and remasters often share their box art in IGDB."""
+
+    cdn = Cdn({1942: "co1wyy", 1943: "co1wyy"}).mount()
+    first = await anchored(session, 1942)
+    second = await anchored(session, 1943)
+    await session.commit()
+
+    assert await run(db, client, data_dir) is SyncStatus.SUCCESS
+
+    assert len(cdn.downloads) == 2
+    assert await covers_of(db, first.id) == await covers_of(db, second.id) != []
