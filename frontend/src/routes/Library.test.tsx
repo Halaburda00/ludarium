@@ -583,3 +583,36 @@ describe('the steps after a sync', () => {
     expect(screen.queryByText(/did not finish/)).not.toBeInTheDocument()
   })
 })
+
+describe('the moment a sync answers', () => {
+  it('holds the button back before the overview has caught up', async () => {
+    // Freed in that gap, a second click would start a sync whose answer
+    // replaces this one's, and a failure of a step this one queued would go
+    // unreported.
+    let synced_ = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input)
+        if (path === '/api/sync/runs') {
+          return synced_
+            ? new Promise<Response>(() => {})
+            : new Response(JSON.stringify(IDLE), { status: 200 })
+        }
+        if (init?.method === 'POST') {
+          synced_ = true
+          return new Response(JSON.stringify({ runs: [run()], enriching: ['rawg'] }), {
+            status: 200,
+          })
+        }
+        return new Response(JSON.stringify(THREE), { status: 200 })
+      }),
+    )
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+
+    await screen.findByText('Synced 3 games.')
+    expect(screen.getByRole('button', { name: 'Updating…' })).toBeDisabled()
+  })
+})

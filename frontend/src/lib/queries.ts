@@ -103,11 +103,21 @@ export function useSync() {
     // each page param comes out of the page before it, so five loaded pages are
     // five round-trips. Awaited, all five sit inside the mutation's `isPending`
     // and the sync button stays disabled long after the sync itself finished.
-    onSuccess: () => {
+    onSuccess: (result) => {
       void client.invalidateQueries({ queryKey: worksKey })
       void client.invalidateQueries({ queryKey: accountsKey })
-      // The steps it queued are already in the overview, so asking now starts
-      // the polling below rather than waiting for something else to.
+      // Written in at once, then confirmed. Until the refetch answers, the
+      // cached overview says nothing is running, and a sync button freed in
+      // that gap starts a second sync whose answer replaces this one's — and
+      // with it the record of which steps this one queued.
+      client.setQueryData<SyncOverview>(syncOverviewKey, (overview) =>
+        overview
+          ? {
+              ...overview,
+              enriching: [...new Set([...overview.enriching, ...result.enriching])],
+            }
+          : overview,
+      )
       void client.invalidateQueries({ queryKey: syncOverviewKey })
     },
   })
