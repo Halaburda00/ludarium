@@ -5,6 +5,7 @@ party being up and does not tell it what the user is looking at. Behind the
 session like everything else: the files are IGDB's, and they are not published.
 """
 
+import asyncio
 import mimetypes
 from pathlib import Path
 from typing import Final
@@ -34,11 +35,10 @@ async def image(
     asset = await session.get(ImageAsset, image_id)
     if asset is None or asset.local_path is None or asset.fetched_at is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such image")
-    data_dir: Path = request.app.state.settings.data_dir.resolve()
-    path = (data_dir / asset.local_path).resolve()
-    # The paths are ours, written by the cover step. Checked all the same: a
-    # row is the one thing here that decides which file leaves the disk.
-    if not path.is_relative_to(data_dir) or not path.is_file():
+    path = await asyncio.to_thread(
+        _contained, request.app.state.settings.data_dir, asset.local_path
+    )
+    if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such image")
     media_type, _ = mimetypes.guess_type(path.name)
     return FileResponse(
@@ -46,3 +46,16 @@ async def image(
         media_type=media_type or "application/octet-stream",
         headers={"Cache-Control": CACHE_CONTROL},
     )
+
+
+def _contained(data_dir: Path, relative: str) -> Path | None:
+    """The file, if it exists and resolves inside the data directory.
+
+    The paths are ours, written by the cover step. Checked all the same: a row
+    is the one thing here that decides which file leaves the disk. In a thread,
+    because resolving and statting are syscalls on a disk that may be slow.
+    """
+
+    root = data_dir.resolve()
+    path = (root / relative).resolve()
+    return path if path.is_relative_to(root) and path.is_file() else None

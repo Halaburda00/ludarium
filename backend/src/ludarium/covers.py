@@ -138,20 +138,33 @@ async def _missing(
 ) -> list[tuple[int, str]]:
     """The works whose cover is not on disk as IGDB names it now, at every size."""
 
-    held: dict[int, set[str]] = {}
+    recorded: list[tuple[int, str]] = []
     async with database.reading_session_factory() as session:
         for batch in in_batches(list(wanted)):
-            for image in await session.scalars(
-                select(ImageAsset).where(
-                    ImageAsset.entity_type == EntityType.WORK,
-                    ImageAsset.entity_id.in_(batch),
-                    ImageAsset.kind == ImageKind.COVER,
-                    ImageAsset.source_ref == SOURCE,
-                    ImageAsset.fetched_at.is_not(None),
+            recorded += [
+                (image.entity_id, image.local_path)
+                for image in await session.scalars(
+                    select(ImageAsset).where(
+                        ImageAsset.entity_type == EntityType.WORK,
+                        ImageAsset.entity_id.in_(batch),
+                        ImageAsset.kind == ImageKind.COVER,
+                        ImageAsset.source_ref == SOURCE,
+                        ImageAsset.fetched_at.is_not(None),
+                    )
                 )
-            ):
-                if image.local_path and (data_dir / image.local_path).is_file():
-                    held.setdefault(image.entity_id, set()).add(image.local_path)
+                if image.local_path
+            ]
+
+    # Off the event loop, as every other touch of the disk here: one stat per
+    # file, and on a NAS the disk may be slow or across the network.
+    def on_disk() -> set[str]:
+        return {path for _, path in recorded if (data_dir / path).is_file()}
+
+    present = await asyncio.to_thread(on_disk)
+    held: dict[int, set[str]] = {}
+    for work_id, path in recorded:
+        if path in present:
+            held.setdefault(work_id, set()).add(path)
     return [
         (work_id, image_id)
         for work_id, image_id in wanted.items()
