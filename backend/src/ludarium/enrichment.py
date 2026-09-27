@@ -168,6 +168,21 @@ class EnrichmentRun:
             await session.commit()
 
 
+def chained(*steps: Step) -> Step:
+    """Several steps as one run of one provider, each after the one before.
+
+    For work that reads what the step before it wrote — covers are fetched for
+    the works anchoring has just matched — and that no one would want reported
+    as two runs of the same provider.
+    """
+
+    async def step(run: EnrichmentRun) -> None:
+        for part in steps:
+            await part(run)
+
+    return step
+
+
 async def enrich(
     database: Database,
     *,
