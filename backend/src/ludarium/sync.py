@@ -460,6 +460,7 @@ async def _apply(
         )
 
     await _stub(session, run=run, account=account, entitlements=fresh)
+    await _classify(session, run=run, reporter=reporter, entitlements=seen, items=items)
     # Counted rather than incremented: a counter touched inside the loop is
     # dirty at every flush in it, which was an `UPDATE sync_run` per item.
     run.items_added = len(fresh)
@@ -708,6 +709,62 @@ async def _stub(
     # No flush after the last phase: nothing between here and `_apply`'s own
     # asks the database anything, and it flushes before the aggregates read
     # these rows back.
+
+
+async def _classify(
+    session: AsyncSession,
+    *,
+    run: SyncRun,
+    reporter: Provider,
+    entitlements: list[Entitlement],
+    items: list[LibraryItem],
+) -> None:
+    """What the platform says each item is, asserted about the work it belongs to.
+
+    Epic's catalogue says so in the library it hands over; Steam's owned-games
+    answer does not, and its items say nothing here — a separate step asks the
+    store (ADR-0020). Provenance like any other, so a user's own label still
+    wins (rules 3 and 9), and the matcher, which takes only works known to be
+    games, can take Epic's.
+    """
+
+    kinds = {
+        entitlement.id: item.item_kind
+        for entitlement, item in zip(entitlements, items, strict=True)
+        if item.item_kind is not None
+    }
+    if not kinds:
+        return
+    works: dict[int, int] = {}
+    for batch in in_batches(list(kinds)):
+        rows = await session.execute(
+            select(EntitlementWork.entitlement_id, EntitlementWork.work_id).where(
+                EntitlementWork.entitlement_id.in_(batch),
+                EntitlementWork.role == WorkLinkRole.PRIMARY,
+            )
+        )
+        for entitlement_id, work_id in rows:
+            works[entitlement_id] = work_id
+    for entitlement_id, kind in kinds.items():
+        work_id = works.get(entitlement_id)
+        if work_id is None:
+            continue
+        recorded = await record_many(
+            session,
+            entity_type=EntityType.WORK,
+            entity_id=work_id,
+            source_kind=reporter.source_kind,
+            source_ref=reporter.key,
+            values={"item_kind": kind.value},
+            run_id=run.id,
+        )
+        await resolve(
+            session,
+            entity_type=EntityType.WORK,
+            entity_id=work_id,
+            fields=["item_kind"],
+            recorded=recorded,
+        )
 
 
 def _nameless(entitlement: Entitlement) -> str:

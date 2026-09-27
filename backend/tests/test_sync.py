@@ -1450,3 +1450,29 @@ async def test_a_credential_nothing_replaced_is_left_alone(
 
     await session.refresh(account)
     assert get_cipher().decrypt(account.credentials_encrypted or b"") == "a-key-that-never-changes"
+
+
+async def test_a_kind_the_platform_states_is_asserted_about_the_work(
+    session: AsyncSession,
+) -> None:
+    """Epic says what an item is in the library itself; the matcher needs it on the work."""
+
+    epic = await make_account(session, key="epic", external_account_id="0123456789abcdef")
+    items = [
+        owned("48171393707541359f3a7dd7257b2757", "Gone Home", item_kind=ItemKind.GAME),
+        owned("279c2ab64eb54a8d812b0c78198a382c", "Rise and Fall", item_kind=ItemKind.DLC),
+        owned("f1d1779e3b434d429d954b49349bb4bb", "Unknown to the catalogue"),
+    ]
+
+    await sync_account(session, account=epic, library=FakeLibrary(items, key="epic"))
+
+    kinds = await session.execute(select(Work.title, Work.item_kind).order_by(Work.id))
+    assert kinds.tuples().all() == [
+        ("Gone Home", ItemKind.GAME),
+        ("Rise and Fall", ItemKind.DLC),
+        ("Unknown to the catalogue", None),
+    ]
+    sources = await session.scalars(
+        select(FieldProvenance.source_ref).where(FieldProvenance.field == "item_kind").distinct()
+    )
+    assert sources.all() == ["epic"]
