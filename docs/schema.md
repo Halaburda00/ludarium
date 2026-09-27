@@ -292,7 +292,10 @@ authoritative.
 `UNIQUE (namespace, value, entity_type)`.
 
 Layer 1 writes the `igdb` row for a work and, in the same transaction, the
-`work.igdb_id` and `work.is_matched` copies of it. A second work naming the same
+`work.igdb_id` and `work.is_matched` copies of it. For a work anchored with no
+Steam copy — an Epic-only game — it also writes the Steam appids IGDB files the
+game under, as authoritative `steam` rows: what RAWG confirms a Metacritic
+candidate by (ADR-0026). A second work naming the same
 IGDB game is folded into the first by `merge_work` rather than given a second
 row (ADR-0021, ADR-0022).
 

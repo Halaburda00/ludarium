@@ -66,8 +66,14 @@ shape moves.
   a platform that fails says so on its own — with a "Sign in again" link when
   Epic has ended the sign-in, and without one when Epic is simply down. This
   uses the Epic Games Launcher's own endpoints, which Epic does not document
-  and can change; if it does, the Epic sync fails and Steam carries on. Epic
-  games are not matched to IGDB yet (#74), so they have no cover or score.
+  and can change; if it does, the Epic sync fails and Steam carries on.
+- Epic games are matched to IGDB, so they get IGDB's title, cover art and —
+  for games owned only on Epic — a Metacritic score. A game owned on both
+  Steam and Epic becomes one card. Measured on a real library: 423 of 533
+  Epic games matched, 17 folded into their Steam cards, and 192 of 406
+  Epic-only games scored. A game sitting beside its own beta, test branch or
+  soundtrack in Epic's catalogue is matched only where the titles agree, so a
+  test client is never folded into its game.
 - Cover art for every game IGDB has matched, fetched in the same run as the
   match and kept on this server under the data directory
   (`LUDARIUM_DATA_DIR`, `./data` by default). Two sizes of each, 264×374 and
