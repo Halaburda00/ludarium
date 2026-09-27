@@ -762,7 +762,8 @@ matcher action that destroys a row.
 reuses the highest rowid once it is freed, and the source of a merge is usually
 the youngest work — moves back every recorded row that is still where the merge
 put it, resolves both works again, and writes an `unmerged` row naming the
-`merged` one. A merge is undone once (ADR-0022).
+`merged` one. A merge is undone once, and not while a later merge that folded
+its target away still stands: merges are undone in reverse order (ADR-0022).
 
 **Orphaned stubs** are works no `entitlement_work` row reaches — whose links
 all moved elsewhere in a rematch, or that were never linked. A removed

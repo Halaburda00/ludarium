@@ -591,3 +591,25 @@ async def test_a_merge_stays_undone_when_its_target_is_merged_later(
 
     with pytest.raises(MergeError, match="already been undone"):
         await undo_merge(session, audit_id=first.id, actor=MatchActor.USER)
+
+
+async def test_a_merge_whose_target_was_merged_since_waits_for_that_merge_to_be_undone(
+    session: AsyncSession, steam: Account
+) -> None:
+    """Undoing out of order would put the first merge's view of the target onto a later work."""
+
+    a = await stub(session, steam, "1", "A")
+    b = await stub(session, steam, "2", "B")
+    c = await stub(session, steam, "3", "C")
+    c_id = c.id
+    await assert_(session, a, "title", "A's own", kind=SourceKind.MANUAL, ref="user")
+    first = await merge(session, a, b)
+    await assert_(session, b, "title", "The user's latest", kind=SourceKind.MANUAL, ref="user")
+    second = await merge(session, b, c)
+
+    with pytest.raises(MergeError, match=f"match_audit {second.id}"):
+        await undo_merge(session, audit_id=first.id, actor=MatchActor.USER)
+    assert (await session.get_one(Work, c_id, populate_existing=True)).title == "The user's latest"
+
+    await undo_merge(session, audit_id=second.id, actor=MatchActor.USER)
+    await undo_merge(session, audit_id=first.id, actor=MatchActor.USER)

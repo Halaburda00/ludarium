@@ -175,6 +175,11 @@ async def undo_merge(session: AsyncSession, *, audit_id: int, actor: MatchActor)
         raise MergeError(f"match_audit {audit_id} holds a payload this code cannot read")
     if await _undone(session, merged):
         raise MergeError(f"match_audit {audit_id} has already been undone")
+    later = await _folded_since(session, merged)
+    if later is not None:
+        raise MergeError(
+            f"work {merged.work_id} was merged since, by match_audit {later.id}; undo that first"
+        )
     target_id = merged.work_id
     target = await session.get(Work, target_id)
     if target is None:
@@ -724,6 +729,32 @@ async def _repoint_back(
         await session.execute(
             update(key.class_).where(key.in_(batch), column == from_id).values({column: to_id})
         )
+
+
+async def _folded_since(session: AsyncSession, merged: MatchAudit) -> MatchAudit | None:
+    """The live merge that folded this merge's target away, if one did.
+
+    Undone out of order, the payload's view of the target — its columns, the
+    ids of the rows it moved — would be applied to whatever the target became
+    later, taking a user's edit made in between off the work it now belongs
+    to (rule 3). That merge repointed this row, so it holds the same `work_id`
+    and names this row in its payload.
+    """
+
+    for later in await session.scalars(
+        select(MatchAudit)
+        .where(
+            MatchAudit.action == MatchAction.MERGED,
+            MatchAudit.work_id == merged.work_id,
+            MatchAudit.id > merged.id,
+        )
+        .order_by(MatchAudit.id.desc())
+    ):
+        if merged.id in (later.details or {}).get("audits", ()) and not await _undone(
+            session, later
+        ):
+            return later
+    return None
 
 
 async def _undone(session: AsyncSession, merged: MatchAudit) -> bool:

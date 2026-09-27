@@ -42,6 +42,13 @@ target after an undo and would otherwise keep the source's value. The undo
 moves back only rows still where the merge put them; one that changed hands
 since is left alone rather than pulled out from under whoever moved it.
 
+**Merges are undone in reverse order.** A later merge that folds the target
+away repoints the earlier `merged` row at its own target, and the earlier
+payload's view of the target — its columns, the ids of the rows it moved —
+would then be applied to a different work, taking an edit the user made in
+between off the work it belongs to (rule 3). The undo refuses and names the
+merge to undo first.
+
 **The orphan job runs at the end of the `igdb` step**, in its own transaction,
 until M4 brings a scheduler. A removed entitlement keeps its link (rule 1), so
 the stub behind it is never an orphan; the job deletes works, never
