@@ -2,6 +2,7 @@ from ludarium.models.base import Base
 from ludarium.models.cache import FetchCache
 from ludarium.models.catalogue import Edition, ExternalId, Work
 from ludarium.models.identity import AppUser, UserSession
+from ludarium.models.matching import MatchAudit
 from ludarium.models.ownership import Entitlement, EntitlementWork
 from ludarium.models.provenance import FieldProvenance
 from ludarium.models.provider import Account, Provider, SyncRun
@@ -18,6 +19,7 @@ __all__ = [
     "ExternalId",
     "FetchCache",
     "FieldProvenance",
+    "MatchAudit",
     "Provider",
     "SyncRun",
     "TwitchAppToken",

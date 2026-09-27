@@ -53,6 +53,8 @@ Supporting enums introduced by this document:
 | `SyncTrigger` | `manual`, `scheduled`, `ingest`, `import` | What started a run |
 | `MatchLayer` | `hard_id`, `alias`, `fuzzy`, `llm`, `manual` | Which cascade layer produced a match |
 | `MatchStatus` | `pending`, `accepted`, `rejected`, `superseded` | Review queue state |
+| `MatchAction` | `linked`, `unlinked`, `relinked`, `merged`, `unmerged` | What a `match_audit` row records; `unmerged` is the undo of a `merged` row, which stays in the trail |
+| `MatchActor` | `auto`, `user` | Who took a matcher decision |
 | `ImageKind` | `cover`, `hero`, `logo`, `screenshot` | |
 | `CompanyRole` | `developer`, `publisher`, `porting`, `support` | Publisher is a matcher feature, not decoration |
 
@@ -289,8 +291,8 @@ authoritative.
 
 Layer 1 writes the `igdb` row for a work and, in the same transaction, the
 `work.igdb_id` and `work.is_matched` copies of it. A second work naming the same
-IGDB game is left a stub for `merge_work` rather than given a second row
-(ADR-0021).
+IGDB game is folded into the first by `merge_work` rather than given a second
+row (ADR-0021, ADR-0022).
 
 #### `genre`, `work_genre`
 
@@ -529,18 +531,19 @@ low-confidence pair lands here instead of being merged.
 
 #### `match_audit`
 
-Every automatic merge is reversible and leaves a trail.
+Every automatic merge is reversible and leaves a trail. No foreign keys: the
+trail outlives what it names, and a `merged` row names a work the merge deleted.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
 | `id` | INTEGER | no | PK | |
 | `entitlement_id` | INTEGER | yes | | Null for `merged`, which is work-to-work and touches many entitlements at once |
-| `work_id` | INTEGER | no | | The surviving work for `merged` |
-| `action` | TEXT | no | | `linked`, `unlinked`, `relinked`, `merged` |
+| `work_id` | INTEGER | no | | The surviving work for `merged`, the restored one for `unmerged`. Indexed |
+| `action` | TEXT | no | | `MatchAction` |
 | `layer` | TEXT | yes | | `MatchLayer` |
-| `previous_work_id` | INTEGER | yes | | Enough to undo a relink; the deleted source for `merged` |
-| `details` | JSON | yes | | Undo payload for a `merged` action: the deleted source work's row and the ids of every row moved with it |
-| `actor` | TEXT | no | | `auto` or `user` |
+| `previous_work_id` | INTEGER | yes | | Enough to undo a relink; the deleted source for `merged`; the work it had been folded into for `unmerged` |
+| `details` | JSON | yes | | Undo payload for a `merged` action: the deleted source work's row, the ids of every row moved with it, and whole copies of every row it deleted. `{"undoes": <id>}` for `unmerged` |
+| `actor` | TEXT | no | | `MatchActor` |
 | `created_at` | TIMESTAMP | no | `now()` | |
 
 ---
@@ -738,16 +741,39 @@ table that references the source is dealt with explicitly:
 | `work.parent_work_id` | Children of the source are repointed at the target, and a source that was itself a child carries its parent over only if the target has none. Missing this leaves the `ON DELETE RESTRICT` on the self-FK blocking the final delete |
 | `work` (source) | Deleted last, in the same transaction |
 
-The merge writes a `match_audit` row with `action = 'merged'` and a `details`
-payload holding the source work and the ids of everything moved, which is what
-makes it reversible under rule 6. Reversibility matters more here than for a
-plain link: a merge is the one matcher action that destroys a row.
+Rows of tables that do not exist yet — `field_pin`, the genre, company and
+platform links, images, embeddings, aliases and `match_candidate` — are the
+business of the change that creates each table, which adds its line to
+`ludarium.merging`.
 
-**Orphaned stubs** accumulate — a stub whose last entitlement was removed, or
-whose links all moved elsewhere in a rematch. A periodic job deletes works that
-have no `entitlement_work` rows, are not matched, and carry no user-authored
-state (no `user_work_state` beyond defaults, no `manual` provenance). Anything
-failing those tests is kept and surfaced, not silently dropped.
+The source may not be anchored: an anchored work is always the target, and two
+anchored works name two IGDB games, which is not a duplicate. A `single_source`
+conflict is refused before anything is written, so a refused merge leaves
+nothing behind.
+
+The merge writes a `match_audit` row with `action = 'merged'` and a `details`
+payload holding the source work, the ids of everything moved, whole copies of
+every row it deleted, and the target's previous value for each field the fold
+brought provenance for, which is what makes it reversible under rule 6.
+Reversibility matters more here than for a plain link: a merge is the one
+matcher action that destroys a row.
+
+`undo_merge` rebuilds the source from that payload **under a new id** — SQLite
+reuses the highest rowid once it is freed, and the source of a merge is usually
+the youngest work — moves back every recorded row that is still where the merge
+put it, resolves both works again, and writes an `unmerged` row naming the
+`merged` one. A merge is undone once, and not while a later merge that folded
+its target away still stands: merges are undone in reverse order (ADR-0022).
+
+**Orphaned stubs** are works no `entitlement_work` row reaches — whose links
+all moved elsewhere in a rematch, or that were never linked. A removed
+entitlement keeps its link (rule 1), so the stub behind it is not an orphan and
+a restore finds it where it was. A job deletes works that have no
+`entitlement_work` rows, are not matched, are nobody's parent, and carry no
+user-authored state (no `user_work_state` beyond defaults, no `manual`
+provenance on the work or its editions). Anything failing those tests is kept
+and counted in the log, not silently dropped. Until M4 brings a scheduler it
+runs at the end of the `igdb` enrichment step.
 
 ---
 

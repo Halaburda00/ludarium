@@ -1,11 +1,11 @@
 """Matching layer 1: a Steam appid, looked up in IGDB `external_games` (#47).
 
-A hard id is not a similarity score, so this layer either anchors a work or
-leaves it alone. Where IGDB does not know the appid, or knows it under two
-games, the work stays a stub for a later layer: a false positive costs more
-than a false negative (rule 6). The query and the reading of its answer are
-`ludamatch`'s; this module decides which works to ask about and what an answer
-does to them.
+A hard id is not a similarity score, so this layer anchors a work, folds it
+into the work already anchored to the same game (#48), or leaves it alone.
+Where IGDB does not know the appid, or knows it under two games, the work stays
+a stub for a later layer: a false positive costs more than a false negative
+(rule 6). The query and the reading of its answer are `ludamatch`'s; this
+module decides which works to ask about and what an answer does to them.
 
 Only works known to be games are asked about. A playtest's appid resolves in
 IGDB to the game it tests, and `item_kind` is null until #41's step has said
@@ -30,7 +30,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.db import Database
 from ludarium.enrichment import EnrichmentRun, Step
-from ludarium.enums import EntityType, ItemKind, MatchLayer, WorkLinkRole
+from ludarium.enums import EntityType, ItemKind, MatchActor, MatchLayer, WorkLinkRole
+from ludarium.merging import MergeConflictError, collect_orphan_stubs, merge_work
 from ludarium.models import Account, Entitlement, EntitlementWork, ExternalId, Provider, Work
 from ludarium.models.cache import Payload
 from ludarium.providers.base import MalformedResponseError, whole_number
@@ -103,6 +104,7 @@ def anchor_steam_works(igdb: IgdbClient) -> Step:
             max_age=MAX_AGE,
         )
         await _anchor(run, targets, found, names)
+        await _collect_orphans(run.database)
 
     return step
 
@@ -149,48 +151,68 @@ async def _anchor(
     found: Mapping[str, int],
     names: Mapping[str, Payload | None],
 ) -> None:
-    """Anchor each work IGDB named, in one transaction.
+    """Anchor each work IGDB named, and fold into it every other work naming the same game.
 
-    A game another work already holds is left alone, whether that work was
-    anchored by an earlier run or a moment ago by this one. Folding the two
-    works into one is `merge_work` (#48), and until it exists two cards for one
-    game is the honest state; the unique anchor refuses the alternative anyway.
+    One transaction. A game another work already holds — anchored by an earlier
+    run, or a moment ago by this one — makes the second work a duplicate, and a
+    hard id is the one match certain enough to merge on without asking (rule 6).
+    The merge is audited and undoable all the same.
+
+    A merge the registry refuses, two works each taking a `single_source` field
+    from a different source, leaves both cards standing for review.
     """
 
     async with run.database.writing_session_factory() as session:
         reporter = await session.get_one(Provider, run.provider_id)
         wanted = sorted({str(game) for game in found.values()})
-        taken: set[str] = set()
+        holders: dict[str, int] = {}
         for batch in in_batches(wanted):
-            taken |= set(
-                await session.scalars(
-                    select(ExternalId.value).where(
+            holders |= {
+                value: entity_id
+                for value, entity_id in await session.execute(
+                    select(ExternalId.value, ExternalId.entity_id).where(
                         ExternalId.namespace == NAMESPACE,
                         ExternalId.entity_type == EntityType.WORK,
                         ExternalId.value.in_(batch),
                     )
                 )
-            )
+            }
 
-        anchored: set[int] = set()
-        held = 0
+        # Works this run has settled: anchored, or folded into another.
+        settled: set[int] = set()
+        merged = conflicted = 0
         for appid, work_id in targets:
             game = found.get(appid)
-            if game is None or work_id in anchored:
+            if game is None or work_id in settled:
                 continue
-            if str(game) in taken:
-                held += 1
-                continue
-            await _anchor_one(session, run.id, reporter, appid, work_id, game, names.get(str(game)))
-            taken.add(str(game))
-            anchored.add(work_id)
+            holder = holders.get(str(game))
+            if holder is None:
+                await _anchor_one(
+                    session, run.id, reporter, appid, work_id, game, names.get(str(game))
+                )
+                holders[str(game)] = work_id
+            else:
+                try:
+                    await merge_work(
+                        session,
+                        source_id=work_id,
+                        target_id=holder,
+                        layer=MatchLayer.HARD_ID,
+                        actor=MatchActor.AUTO,
+                    )
+                except MergeConflictError as exc:
+                    conflicted += 1
+                    logger.warning("work %d is not merged into work %d: %s", work_id, holder, exc)
+                    continue
+                await _vouch(session, holder, appid)
+                merged += 1
+            settled.add(work_id)
         await session.commit()
 
-    if held:
-        logger.info(
-            "%d works name an IGDB game another work already holds; they wait for merge_work",
-            held,
-        )
+    if merged:
+        logger.info("%d works merged into the work that holds their IGDB game", merged)
+    if conflicted:
+        logger.info("%d works name a held IGDB game but conflict with its holder", conflicted)
 
 
 async def _anchor_one(
@@ -215,24 +237,7 @@ async def _anchor_one(
     work = await session.get_one(Work, work_id)
     work.igdb_id = game
     work.is_matched = True
-
-    # The link that led here, marked with the layer that vouched for it. Only
-    # this appid's: another entitlement reaching the same work got there some
-    # other way, and saying otherwise would be an audit trail that lies.
-    await session.execute(
-        update(EntitlementWork)
-        .where(
-            EntitlementWork.work_id == work_id,
-            EntitlementWork.role == WorkLinkRole.PRIMARY,
-            EntitlementWork.entitlement_id.in_(
-                select(Entitlement.id)
-                .join(Account, Account.id == Entitlement.account_id)
-                .join(Provider, Provider.id == Account.provider_id)
-                .where(Provider.key == LIBRARY, Entitlement.provider_item_id == appid)
-            ),
-        )
-        .values(match_layer=MatchLayer.HARD_ID)
-    )
+    await _vouch(session, work_id, appid)
 
     name = named.get("name") if isinstance(named, dict) else None
     if not isinstance(name, str) or not name.strip():
@@ -259,3 +264,40 @@ async def _anchor_one(
         fields=list(fields),
         recorded=recorded,
     )
+
+
+async def _vouch(session: AsyncSession, work_id: int, appid: str) -> None:
+    """Mark the link that led to `work_id` with the layer that vouched for it.
+
+    Only this appid's: another entitlement reaching the same work got there some
+    other way, and saying otherwise would be an audit trail that lies.
+    """
+
+    await session.execute(
+        update(EntitlementWork)
+        .where(
+            EntitlementWork.work_id == work_id,
+            EntitlementWork.role == WorkLinkRole.PRIMARY,
+            EntitlementWork.entitlement_id.in_(
+                select(Entitlement.id)
+                .join(Account, Account.id == Entitlement.account_id)
+                .join(Provider, Provider.id == Account.provider_id)
+                .where(Provider.key == LIBRARY, Entitlement.provider_item_id == appid)
+            ),
+        )
+        .values(match_layer=MatchLayer.HARD_ID)
+    )
+
+
+async def _collect_orphans(database: Database) -> None:
+    """The orphan-stub job, here until M4 brings a scheduler to run it on its own.
+
+    A merge deletes its own source, so this finds the stubs left unreached some
+    other way. Its own transaction: the anchors stand whatever it finds.
+    """
+
+    async with database.writing_session_factory() as session:
+        report = await collect_orphan_stubs(session)
+        await session.commit()
+    if report.deleted:
+        logger.info("%d orphaned stubs deleted", len(report.deleted))

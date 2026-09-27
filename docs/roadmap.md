@@ -109,7 +109,7 @@ The list is in build order, and the order is load-bearing twice over.
 - [x] Matching layer 1: hard IDs from IGDB `external_games`. It belongs here,
       not in M4 — a stub has to acquire its IGDB anchor before there is
       anything to enrich, and the IGDB client is already in this milestone
-- [ ] `merge_work(source, target)` and the orphan-stub cleanup job, both
+- [x] `merge_work(source, target)` and the orphan-stub cleanup job, both
       specified in `docs/schema.md`. Layer 1 is the first thing that merges
       stubs, so the operation ships with it, tests and undo included
 - [ ] RAWG client for Metacritic + required attribution link in the UI

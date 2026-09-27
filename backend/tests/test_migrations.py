@@ -118,6 +118,7 @@ def test_upgrade_then_downgrade_leaves_an_empty_database(settings: Settings) -> 
         "twitch_app_token",
         "fetch_cache",
         "external_id",
+        "match_audit",
     }
     assert table_names(settings.database_url) == {"alembic_version"}
 

@@ -1,6 +1,7 @@
 # ADR-0021 The IGDB anchor is an `external_id` row, and layer 1 anchors only games
 
-Status: accepted, 2026-09-27
+Status: accepted, 2026-09-27. Its handling of two stubs naming one game is
+amended by ADR-0022: the younger is now merged into the anchored work.
 
 ## Context
 

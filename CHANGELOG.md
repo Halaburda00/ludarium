@@ -57,6 +57,14 @@ shape moves.
   `game` default wherever no source asserted it. Two kinds of entry are still
   called games, because the store has no word for them: test servers and public
   beta clients.
+- Two cards for one game become one. When IGDB files two owned entries under
+  the same game — a standard and a GOTY release, say — the newer card is folded
+  into the one already matched: its copies, editions, sources and your status,
+  rating and notes move over, where the surviving card had not set its own, and
+  playtime is summed again. Every merge is recorded and can be undone, which
+  brings the folded card back with everything it took along. Cards that no
+  copy points at any more are cleared away after each IGDB run, unless they
+  are matched or hold something you set.
 - An IGDB client, the first piece of M2a. It authenticates through a Twitch
   application, enforces both of IGDB's documented limits — four requests a
   second and eight open at once — once per application however many clients
