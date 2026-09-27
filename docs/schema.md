@@ -53,6 +53,8 @@ Supporting enums introduced by this document:
 | `SyncTrigger` | `manual`, `scheduled`, `ingest`, `import` | What started a run |
 | `MatchLayer` | `hard_id`, `alias`, `fuzzy`, `llm`, `manual` | Which cascade layer produced a match |
 | `MatchStatus` | `pending`, `accepted`, `rejected`, `superseded` | Review queue state |
+| `MatchAction` | `linked`, `unlinked`, `relinked`, `merged`, `unmerged` | What a `match_audit` row records; `unmerged` is the undo of a `merged` row, which stays in the trail |
+| `MatchActor` | `auto`, `user` | Who took a matcher decision |
 | `ImageKind` | `cover`, `hero`, `logo`, `screenshot` | |
 | `CompanyRole` | `developer`, `publisher`, `porting`, `support` | Publisher is a matcher feature, not decoration |
 
@@ -529,18 +531,19 @@ low-confidence pair lands here instead of being merged.
 
 #### `match_audit`
 
-Every automatic merge is reversible and leaves a trail.
+Every automatic merge is reversible and leaves a trail. No foreign keys: the
+trail outlives what it names, and a `merged` row names a work the merge deleted.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
 | `id` | INTEGER | no | PK | |
 | `entitlement_id` | INTEGER | yes | | Null for `merged`, which is work-to-work and touches many entitlements at once |
-| `work_id` | INTEGER | no | | The surviving work for `merged` |
-| `action` | TEXT | no | | `linked`, `unlinked`, `relinked`, `merged` |
+| `work_id` | INTEGER | no | | The surviving work for `merged`, the restored one for `unmerged`. Indexed |
+| `action` | TEXT | no | | `MatchAction` |
 | `layer` | TEXT | yes | | `MatchLayer` |
-| `previous_work_id` | INTEGER | yes | | Enough to undo a relink; the deleted source for `merged` |
-| `details` | JSON | yes | | Undo payload for a `merged` action: the deleted source work's row and the ids of every row moved with it |
-| `actor` | TEXT | no | | `auto` or `user` |
+| `previous_work_id` | INTEGER | yes | | Enough to undo a relink; the deleted source for `merged`; the work it had been folded into for `unmerged` |
+| `details` | JSON | yes | | Undo payload for a `merged` action: the deleted source work's row, the ids of every row moved with it, and whole copies of every row it deleted. `{"undoes": <id>}` for `unmerged` |
+| `actor` | TEXT | no | | `MatchActor` |
 | `created_at` | TIMESTAMP | no | `now()` | |
 
 ---

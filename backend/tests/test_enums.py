@@ -38,6 +38,8 @@ EXPECTED: dict[type[StrEnum], list[str]] = {
     enums.SyncTrigger: ["manual", "scheduled", "ingest", "import"],
     enums.MatchLayer: ["hard_id", "alias", "fuzzy", "llm", "manual"],
     enums.MatchStatus: ["pending", "accepted", "rejected", "superseded"],
+    enums.MatchAction: ["linked", "unlinked", "relinked", "merged", "unmerged"],
+    enums.MatchActor: ["auto", "user"],
     enums.ImageKind: ["cover", "hero", "logo", "screenshot"],
     enums.CompanyRole: ["developer", "publisher", "porting", "support"],
 }

@@ -123,6 +123,21 @@ class MatchStatus(StrEnum):
     SUPERSEDED = "superseded"
 
 
+class MatchAction(StrEnum):
+    LINKED = "linked"
+    UNLINKED = "unlinked"
+    RELINKED = "relinked"
+    MERGED = "merged"
+    # The undo of a `merged` row, which stays in the trail: rule 6 asks for an
+    # audit trail, and one that forgets what was undone is not one.
+    UNMERGED = "unmerged"
+
+
+class MatchActor(StrEnum):
+    AUTO = "auto"
+    USER = "user"
+
+
 class ImageKind(StrEnum):
     COVER = "cover"
     HERO = "hero"
