@@ -4,12 +4,20 @@ import { Link, useNavigate } from 'react-router-dom'
 import { WorksTable } from '@/components/WorksTable'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/field'
-import { useLogout, useSync, useWorks } from '@/lib/queries'
+import {
+  useEnrichment,
+  useLogout,
+  useSync,
+  useWorks,
+  type SyncOverview,
+  type SyncRun,
+} from '@/lib/queries'
 
 export default function Library() {
   const { t } = useTranslation()
   const works = useWorks()
   const sync = useSync()
+  const overview = useEnrichment()
   const logout = useLogout()
   const navigate = useNavigate()
 
@@ -20,6 +28,10 @@ export default function Library() {
   // the user everything arrived when it did not.
   const partial = runs.find((run) => run.status === 'partial')
   const landed = runs.reduce((total, run) => total + run.items_seen, 0)
+
+  const enriching = overview.data?.enriching ?? []
+  const step = enriching.length > 0 ? providerName(overview.data, enriching[0]) : null
+  const stepsFailed = failedSteps(overview.data, sync.data?.enriching ?? [], runs)
 
   // Flattened here rather than in the hook: the pages are a transport detail and
   // nothing below this line has a reason to know the library arrived in three
@@ -38,8 +50,15 @@ export default function Library() {
       <header className="flex items-baseline justify-between gap-4">
         <h1 className="font-heading text-2xl font-semibold">{t('library.title')}</h1>
         <div className="flex items-center gap-2">
-          <Button onClick={() => sync.mutate('steam')} disabled={sync.isPending}>
-            {sync.isPending ? t('library.syncing') : t('library.sync')}
+          {/* Not offered while the steps after a sync are running: another
+              sync would skip every step already underway, and the scores the
+              user is waiting for arrive on their own when they finish. */}
+          <Button onClick={() => sync.mutate('steam')} disabled={sync.isPending || step !== null}>
+            {sync.isPending
+              ? t('library.syncing')
+              : step !== null
+                ? t('library.updating')
+                : t('library.sync')}
           </Button>
           <Button
             variant="ghost"
@@ -73,6 +92,15 @@ export default function Library() {
       {runs.length > 0 && !failed && !partial ? (
         <Notice tone="ok">{t('library.synced', { count: landed })}</Notice>
       ) : null}
+      {step !== null ? <Notice tone="ok">{t('library.enriching', { step })}</Notice> : null}
+      {stepsFailed.map((run) => (
+        <Notice key={run.id} tone="warn">
+          {t('library.stepFailed', {
+            step: providerName(overview.data, run.provider),
+            reason: run.error_text ?? t('error.unexpected'),
+          })}
+        </Notice>
+      ))}
 
       {works.isPending ? <p className="text-sm text-muted-foreground">{t('common.loading')}</p> : null}
 
@@ -125,6 +153,36 @@ export default function Library() {
       ) : null}
     </main>
   )
+}
+
+function providerName(overview: SyncOverview | undefined, key: string): string {
+  return overview?.providers.find((provider) => provider.key === key)?.display_name ?? key
+}
+
+/**
+ * The steps this page's sync queued that have finished and failed.
+ *
+ * Each step's latest run, taken only if it began after the sync ended: a step
+ * skipped because it was already running opens no run of its own, and the
+ * failure of an older run is not news about this sync.
+ */
+function failedSteps(
+  overview: SyncOverview | undefined,
+  queued: string[],
+  runs: SyncRun[],
+): SyncRun[] {
+  const synced = runs.map((run) => run.finished_at).filter((at) => at !== null)
+  if (!overview || synced.length === 0) {
+    return []
+  }
+  const since = synced.reduce((latest, at) => (at > latest ? at : latest))
+  return queued
+    .filter((key) => !overview.enriching.includes(key))
+    .map((key) => overview.runs.find((run) => run.provider === key))
+    .filter(
+      (run): run is SyncRun =>
+        run !== undefined && run.started_at >= since && run.status === 'failed',
+    )
 }
 
 /** A message with the control that answers it, which is the shape of both. */
