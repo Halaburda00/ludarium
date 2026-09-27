@@ -34,6 +34,7 @@ export default function Library() {
 
   const runs = sync.data?.runs ?? []
   const failed = runs.filter((run) => run.status === 'failed')
+  const refused = sync.data?.refused ?? []
   // Its own answer, not a shade of success: a partial run means part of the
   // library did not come through, and reporting "Synced 40 games" over it tells
   // the user everything arrived when it did not.
@@ -115,10 +116,20 @@ export default function Library() {
           ) : null}
         </Notice>
       ))}
+      {refused.map((refusal) => (
+        <Notice key={refusal.provider} tone={refusal.status === 409 ? 'warn' : 'error'}>
+          {refusal.status === 409
+            ? t('library.platformBusy', { provider: providerName(overview.data, refusal.provider) })
+            : t('library.runFailed', {
+                provider: providerName(overview.data, refusal.provider),
+                reason: refusal.detail,
+              })}
+        </Notice>
+      ))}
       {partial && failed.length === 0 ? (
         <Notice tone="warn">{t('library.partial', { count: landed })}</Notice>
       ) : null}
-      {runs.length > 0 && failed.length === 0 && !partial ? (
+      {runs.length > 0 && failed.length === 0 && refused.length === 0 && !partial ? (
         <Notice tone="ok">{t('library.synced', { count: landed })}</Notice>
       ) : null}
       {step !== null ? <Notice tone="ok">{t('library.enriching', { step })}</Notice> : null}

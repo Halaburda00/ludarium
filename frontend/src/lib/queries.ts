@@ -28,6 +28,10 @@ export type Account = Schemas['AccountResponse']
 export type SyncRun = Schemas['SyncRunResponse']
 /** A sync's runs, and the steps it queued to run after it. */
 export type SyncResult = Schemas['SyncResponse']
+/** A platform the sync endpoint turned away rather than ran: 409, already syncing, and the like. */
+export type Refusal = { provider: string; status: number; detail: string }
+/** Every platform's sync, as one answer: what ran, and what was turned away. */
+export type SyncOutcome = SyncResult & { refused: Refusal[] }
 export type SyncOverview = Schemas['SyncOverviewResponse']
 /** One copy the user owns. The platform column of the table is a list of these. */
 export type EntitlementSummary = Schemas['EntitlementSummary']
@@ -96,7 +100,7 @@ export function useConnect() {
 
 export function useSync() {
   const client = useQueryClient()
-  return useMutation<SyncResult, ApiError, string[]>({
+  return useMutation<SyncOutcome, ApiError, string[]>({
     mutationFn: syncEach,
     // Not awaited. `invalidateQueries` resolves only once the refetch is done,
     // and refetching an infinite query replays every loaded page in sequence —
@@ -127,26 +131,27 @@ export function useSync() {
  * Every platform in turn, as one answer.
  *
  * One at a time rather than at once: each sync writes the library, and the
- * database takes one writer. A platform that fails does so as a failed run in
- * the answer (rule 4); an error here — another sync already running on one —
- * does not stop the others, and is raised only if nothing synced at all.
+ * database takes one writer. A platform whose provider fails does so as a
+ * failed run (rule 4). One the endpoint turns away — a sync already running
+ * on it — does not stop the others either, and is kept by name in `refused`,
+ * so a screen can say which platform did not run rather than report the rest
+ * as the whole. Raised only when every platform was turned away.
  */
-async function syncEach(providers: string[]): Promise<SyncResult> {
-  const merged: SyncResult = { runs: [], enriching: [] }
-  let refused: ApiError | null = null
-  let answered = false
+async function syncEach(providers: string[]): Promise<SyncOutcome> {
+  const merged: SyncOutcome = { runs: [], enriching: [], refused: [] }
+  let first: ApiError | null = null
   for (const provider of providers) {
     try {
       const result = await api<SyncResult>(`/api/sync/${provider}`, { method: 'POST' })
       merged.runs.push(...result.runs)
       merged.enriching = [...new Set([...merged.enriching, ...result.enriching])]
-      answered = true
     } catch (error) {
       if (!(error instanceof ApiError)) throw error
-      refused ??= error
+      first ??= error
+      merged.refused.push({ provider, status: error.status, detail: error.detail })
     }
   }
-  if (!answered && refused) throw refused
+  if (first && merged.refused.length === providers.length) throw first
   return merged
 }
 

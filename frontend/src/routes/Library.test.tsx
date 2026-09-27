@@ -730,3 +730,29 @@ describe('more than one platform', () => {
     expect(within(steam!).queryByRole('link')).not.toBeInTheDocument()
   })
 })
+
+describe('a platform the sync endpoint turned away', () => {
+  it('is named, not folded into a success', async () => {
+    stubFetch({
+      'GET /api/sync/runs': {
+        body: {
+          ...IDLE,
+          providers: [
+            ...IDLE.providers,
+            { ...IDLE.providers[0], key: 'epic', display_name: 'Epic Games' },
+          ],
+        },
+      },
+      'GET /api/accounts': { body: [account('steam', 1), account('epic', 2)] },
+      'GET /api/works': { body: THREE },
+      'POST /api/sync/steam': { body: synced(run()) },
+      'POST /api/sync/epic': { status: 409, body: { detail: 'account 2 is already syncing' } },
+    })
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+
+    expect(await screen.findByText('Epic Games is already syncing.')).toBeInTheDocument()
+    expect(screen.queryByText(/^Synced 3 games\.$/)).not.toBeInTheDocument()
+  })
+})

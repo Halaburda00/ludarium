@@ -55,6 +55,7 @@
     "synced_other": "Synced {{count}} games.",
     "runFailed": "{{provider}} did not sync: {{reason}}",
     "signInAgain": "Sign in again",
+    "platformBusy": "{{provider}} is already syncing.",
     "alreadyRunning": "A sync is already running for this account.",
     "count_one": "{{count}} game",
     "count_other": "{{count}} games",
