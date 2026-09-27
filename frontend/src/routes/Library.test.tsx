@@ -283,7 +283,7 @@ describe('the table', () => {
     // A missing store template is our gap, not the user's: they still own it
     // there, and an empty platform cell reads as if they do not.
     expect(await screen.findByText('GOG')).toBeInTheDocument()
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(within(screen.getByRole('table')).queryByRole('link')).not.toBeInTheDocument()
   })
 
   it('shows every copy of a work owned twice', async () => {
@@ -754,5 +754,22 @@ describe('a platform the sync endpoint turned away', () => {
 
     expect(await screen.findByText('Epic Games is already syncing.')).toBeInTheDocument()
     expect(screen.queryByText(/^Synced 3 games\.$/)).not.toBeInTheDocument()
+  })
+})
+
+describe('connecting another platform', () => {
+  it('is offered from a library that already has one', async () => {
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: THREE },
+    })
+    renderApp(<Library />)
+
+    await screen.findByText('Portal 2')
+    expect(screen.getByRole('link', { name: 'Connect an account' })).toHaveAttribute(
+      'href',
+      '/onboarding',
+    )
   })
 })
