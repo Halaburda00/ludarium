@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ludarium.api.common import provider_or_404
 from ludarium.auth import CurrentSession
 from ludarium.db import SessionDep
-from ludarium.enums import SyncStatus, SyncTrigger
+from ludarium.enums import SyncErrorKind, SyncStatus, SyncTrigger
 from ludarium.models import Account, Provider, SyncRun
 from ludarium.providers.registry import supports
 from ludarium.steps import Scheduled, StepContext, enrich_after_sync, plan_after_sync
@@ -40,6 +40,9 @@ class SyncRunResponse(BaseModel):
     items_updated: int
     items_removed: int
     error_text: str | None
+    # Who can fix a failure: `credentials` means sign in again or a new key,
+    # `unavailable` means wait. Null on success, and on runs from before it.
+    error_kind: SyncErrorKind | None
 
 
 class ProviderStatusResponse(BaseModel):
@@ -86,6 +89,7 @@ def describe_run(run: SyncRun, provider_key: str) -> SyncRunResponse:
         items_updated=run.items_updated,
         items_removed=run.items_removed,
         error_text=run.error_text,
+        error_kind=run.error_kind,
     )
 
 

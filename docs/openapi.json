@@ -394,6 +394,19 @@
         "title": "SessionResponse",
         "type": "object"
       },
+      "SyncErrorKind": {
+        "description": "Why a run failed, in the terms of who can fix it.",
+        "enum": [
+          "credentials",
+          "not_visible",
+          "rate_limited",
+          "unavailable",
+          "malformed",
+          "other"
+        ],
+        "title": "SyncErrorKind",
+        "type": "string"
+      },
       "SyncOverviewResponse": {
         "description": "Both halves in one call, because the panel shows them together.\n\nA provider's health without its runs cannot say *what* failed, and the runs\nwithout the provider row cannot say whether it has ever worked.",
         "properties": {
@@ -463,6 +476,16 @@
               }
             ],
             "title": "Account Id"
+          },
+          "error_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SyncErrorKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "error_text": {
             "anyOf": [
@@ -535,7 +558,8 @@
           "items_added",
           "items_updated",
           "items_removed",
-          "error_text"
+          "error_text",
+          "error_kind"
         ],
         "title": "SyncRunResponse",
         "type": "object"

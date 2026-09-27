@@ -394,6 +394,12 @@ export interface components {
             username: string;
         };
         /**
+         * SyncErrorKind
+         * @description Why a run failed, in the terms of who can fix it.
+         * @enum {string}
+         */
+        SyncErrorKind: "credentials" | "not_visible" | "rate_limited" | "unavailable" | "malformed" | "other";
+        /**
          * SyncOverviewResponse
          * @description Both halves in one call, because the panel shows them together.
          *
@@ -419,6 +425,7 @@ export interface components {
         SyncRunResponse: {
             /** Account Id */
             account_id: number | null;
+            error_kind: components["schemas"]["SyncErrorKind"] | null;
             /** Error Text */
             error_text: string | null;
             /** Finished At */

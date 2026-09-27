@@ -108,6 +108,21 @@ class SyncTrigger(StrEnum):
     IMPORT = "import"
 
 
+class SyncErrorKind(StrEnum):
+    """Why a run failed, in the terms of who can fix it."""
+
+    # The user's: sign in again, or a new key.
+    CREDENTIALS = "credentials"
+    # The user's: the library is private.
+    NOT_VISIBLE = "not_visible"
+    # Nobody's: wait.
+    RATE_LIMITED = "rate_limited"
+    UNAVAILABLE = "unavailable"
+    # Ours, or the platform changing under us.
+    MALFORMED = "malformed"
+    OTHER = "other"
+
+
 class MatchLayer(StrEnum):
     HARD_ID = "hard_id"
     ALIAS = "alias"

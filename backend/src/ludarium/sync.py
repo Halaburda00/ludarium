@@ -27,6 +27,7 @@ from ludarium.crypto import CredentialDecryptionError, get_cipher
 from ludarium.enums import (
     EntitlementOrigin,
     EntityType,
+    SyncErrorKind,
     SyncStatus,
     SyncTrigger,
     WorkLinkRole,
@@ -43,6 +44,7 @@ from ludarium.models import (
 )
 from ludarium.models.types import ScalarValue, utcnow
 from ludarium.providers import LibraryItem, LibraryProvider, ProviderError
+from ludarium.providers.base import error_kind
 from ludarium.providers.registry import build_library
 from ludarium.queries import in_batches
 from ludarium.resolver import record_many, resolve, resolve_work_aggregates_many
@@ -173,6 +175,7 @@ async def sync_account(
             seen,
             SyncStatus.FAILED,
             error=str(exc),
+            kind=error_kind(exc),
             renewed=library.renewed_secret,
         )
         return run
@@ -194,6 +197,7 @@ async def sync_account(
             seen,
             SyncStatus.FAILED,
             error=type(exc).__name__,
+            kind=error_kind(exc),
             renewed=library.renewed_secret,
         )
         raise
@@ -332,6 +336,7 @@ async def _close(
     status: SyncStatus,
     *,
     error: str | None = None,
+    kind: SyncErrorKind | None = None,
     renewed: str | None = None,
 ) -> None:
     """Finish the run and report the provider's health. Anything short of success rolls back.
@@ -366,6 +371,7 @@ async def _close(
     run.status = status
     run.finished_at = moment
     run.error_text = error
+    run.error_kind = kind
     if renewed is not None:
         account.credentials_encrypted = get_cipher().encrypt(renewed)
         account.credentials_updated_at = moment

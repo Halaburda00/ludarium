@@ -25,11 +25,12 @@ from datetime import timedelta
 from sqlalchemy import select
 
 from ludarium.db import Database
-from ludarium.enums import SyncStatus, SyncTrigger
+from ludarium.enums import SyncErrorKind, SyncStatus, SyncTrigger
 from ludarium.models import FetchCache, Provider, SyncRun
 from ludarium.models.cache import Payload
 from ludarium.models.types import utcnow
 from ludarium.providers import ProviderError
+from ludarium.providers.base import error_kind
 from ludarium.queries import in_batches
 from ludarium.sync import reclaim_orphans
 
@@ -207,11 +208,20 @@ async def enrich(
         )
     except ProviderError as exc:
         # Contractually free of credentials (rule 7), as in `sync_account`.
-        return await _close(database, run, progress, SyncStatus.FAILED, error=str(exc))
+        return await _close(
+            database, run, progress, SyncStatus.FAILED, error=str(exc), kind=error_kind(exc)
+        )
     except BaseException as exc:
         # `BaseException` so a cancelled run is closed too, for the reason
         # `sync_account` gives: `CancelledError` is not an `Exception`.
-        await _close(database, run, progress, SyncStatus.FAILED, error=type(exc).__name__)
+        await _close(
+            database,
+            run,
+            progress,
+            SyncStatus.FAILED,
+            error=type(exc).__name__,
+            kind=SyncErrorKind.OTHER,
+        )
         raise
     return await _close(database, run, progress, SyncStatus.SUCCESS)
 
@@ -247,6 +257,7 @@ async def _close(
     status: SyncStatus,
     *,
     error: str | None = None,
+    kind: SyncErrorKind | None = None,
 ) -> SyncRun:
     """Finish the run and report the provider's health, in one transaction.
 
@@ -266,6 +277,7 @@ async def _close(
         closed.status = status
         closed.finished_at = moment
         closed.error_text = error
+        closed.error_kind = kind
         closed.items_seen = progress.asked
         closed.items_updated = progress.fetched
         reporter.status = status

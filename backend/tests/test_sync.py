@@ -24,6 +24,7 @@ from ludarium.enums import (
     ItemKind,
     OwnershipType,
     SourceKind,
+    SyncErrorKind,
     SyncStatus,
     SyncTrigger,
     WorkLinkRole,
@@ -34,11 +35,13 @@ from ludarium.models import (
     Entitlement,
     EntitlementWork,
     FieldProvenance,
+    SyncRun,
     UserWorkState,
     Work,
 )
 from ludarium.models.types import ScalarValue, utcnow
 from ludarium.providers import (
+    InvalidCredentialsError,
     LibraryItem,
     ProviderUnavailableError,
     SteamCredentials,
@@ -1476,3 +1479,27 @@ async def test_a_kind_the_platform_states_is_asserted_about_the_work(
         select(FieldProvenance.source_ref).where(FieldProvenance.field == "item_kind").distinct()
     )
     assert sources.all() == ["epic"]
+
+
+@pytest.mark.parametrize(
+    ("error", "kind"),
+    [
+        (InvalidCredentialsError("epic has ended this sign-in"), SyncErrorKind.CREDENTIALS),
+        (ProviderUnavailableError("epic answered 503"), SyncErrorKind.UNAVAILABLE),
+        (RuntimeError("a bug"), SyncErrorKind.OTHER),
+    ],
+    ids=["ended sign-in", "outage", "bug"],
+)
+async def test_a_failed_run_says_who_can_fix_it(
+    session: AsyncSession, account: Account, error: Exception, kind: SyncErrorKind
+) -> None:
+    """An ended sign-in is the user's to fix; an outage is nobody's (#64)."""
+
+    library = FakeLibrary(error=error)
+    try:
+        run = await sync_account(session, account=account, library=library)
+    except RuntimeError:
+        run = await session.scalar(select(SyncRun))
+        assert run is not None
+
+    assert (run.status, run.error_kind) == (SyncStatus.FAILED, kind)
