@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useParams } from 'react-router-dom'
 
 import { Metacritic, ScoresCredit, Steam } from '@/components/Scores'
+import { ThemePicker } from '@/components/ThemePicker'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/field'
 import { useWork, type Credit, type EntitlementSummary, type WorkDetail } from '@/lib/queries'
@@ -57,7 +58,10 @@ export default function WorkPage() {
 
   return (
     <main className="mx-auto grid max-w-4xl gap-6 px-6 py-10">
-      <nav>{back}</nav>
+      <header className="flex items-center justify-between gap-4">
+        <nav>{back}</nav>
+        <ThemePicker />
+      </header>
       {body}
     </main>
   )
@@ -70,7 +74,7 @@ function Details({ work }: { work: WorkDetail }) {
     <article className="grid gap-8" aria-labelledby="work-title">
       <div className="grid gap-6 sm:grid-cols-[minmax(0,264px)_1fr]">
         <div
-          className="w-full max-w-66 overflow-hidden rounded-md bg-muted"
+          className="w-full max-w-66 overflow-hidden rounded-md bg-muted ring-1 ring-foreground/10"
           style={{ aspectRatio: '264 / 374' }}
         >
           {cover ? (

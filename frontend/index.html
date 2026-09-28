@@ -5,6 +5,18 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>frontend</title>
+    <script>
+      // Before the first paint, so a dark page does not flash white while the
+      // bundle loads. The same key and rule as `src/lib/theme.ts`.
+      try {
+        var theme = localStorage.getItem('ludarium.theme')
+        var dark =
+          theme === 'dark' ||
+          (theme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.classList.toggle('dark', dark)
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+      } catch (error) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
