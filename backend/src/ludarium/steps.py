@@ -105,22 +105,36 @@ class Scheduled:
 
     def __init__(self) -> None:
         self._queued: Counter[str] = Counter()
+        self._running: Counter[str] = Counter()
 
     def add(self, providers: Iterable[str]) -> None:
         self._queued.update(providers)
 
+    def start(self, provider: str) -> None:
+        self._running[provider] += 1
+
     def done(self, provider: str) -> None:
-        self._queued[provider] -= 1
-        if self._queued[provider] <= 0:
-            del self._queued[provider]
+        for counts in (self._queued, self._running):
+            counts[provider] -= 1
+            if counts[provider] <= 0:
+                del counts[provider]
 
     def __iter__(self) -> Iterator[str]:
-        # In the order the steps run, which is the order `STEPS` names them,
-        # rather than the order they were queued: a step queued again by a
-        # second sync would otherwise read as the last one, and a client naming
-        # the first as "running" would name the wrong one.
+        # What is running first, then what waits, each in the order `STEPS`
+        # names them rather than the order they were queued: a step queued
+        # again by a second sync would otherwise read as the last one. Running
+        # first because the order is not fixed — an Epic sync asks the store
+        # after IGDB — and a client names the first as the one running.
         order = {provider: position for position, provider in enumerate(STEPS)}
-        return iter(sorted(self._queued, key=lambda provider: order.get(provider, len(order))))
+        return iter(
+            sorted(
+                self._queued,
+                key=lambda provider: (
+                    provider not in self._running,
+                    order.get(provider, len(order)),
+                ),
+            )
+        )
 
 
 def plan_after_sync(context: StepContext, *, library: str) -> list[tuple[str, Step]]:
@@ -159,6 +173,7 @@ async def enrich_after_sync(
     remaining = [provider for provider, _ in planned]
     try:
         for provider, step in planned:
+            scheduled.start(provider)
             try:
                 await enrich(context.database, provider=provider, step=step, trigger=trigger)
             except EnrichmentInProgressError:

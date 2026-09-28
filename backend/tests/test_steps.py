@@ -58,3 +58,17 @@ def test_the_queue_reads_in_the_order_the_steps_run() -> None:
     scheduled.add(["steam_store", "igdb", "rawg"])
 
     assert list(scheduled) == ["steam_store", "igdb", "rawg"]
+
+
+def test_the_step_running_reads_first_whatever_order_the_steps_run_in() -> None:
+    """Nothing fixes the order a sync runs its steps in to the order `STEPS` names them."""
+
+    scheduled = Scheduled()
+    scheduled.add(["igdb", "steam_store", "rawg"])
+    scheduled.start("igdb")
+
+    assert list(scheduled) == ["igdb", "steam_store", "rawg"]
+
+    scheduled.done("igdb")
+    scheduled.start("steam_store")
+    assert list(scheduled) == ["steam_store", "rawg"]
