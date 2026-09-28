@@ -87,8 +87,11 @@ describe('the theme', () => {
     // Otherwise a dark page flashes white while the bundle loads. The script is
     // run as the browser would run it, so a renamed key here fails there.
     const html = readFileSync(join(process.cwd(), 'index.html'), 'utf8')
-    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1]
-    expect(script).toBeDefined()
+    // Parsed, not cut out with a pattern: the one inline script, not the bundle's.
+    const script = new DOMParser()
+      .parseFromString(html, 'text/html')
+      .querySelector('head script:not([src])')?.textContent
+    expect(script).toBeTruthy()
 
     for (const [stored, prefers, expected] of [
       ['dark', false, true],
