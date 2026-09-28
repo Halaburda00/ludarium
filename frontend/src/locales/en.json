@@ -82,6 +82,30 @@
     "matches_partial_other": "{{count}} matches so far",
     "noMatches": "Nothing in the library matches “{{search}}”."
   },
+  "work": {
+    "back": "← Library",
+    "notFound": "This game is not in your library.",
+    "released": "Released {{date}}",
+    "releasedIn": "Released in {{year}}",
+    "role": {
+      "publisher_one": "Publisher",
+      "publisher_other": "Publishers",
+      "developer_one": "Developer",
+      "developer_other": "Developers",
+      "porting_one": "Port",
+      "porting_other": "Ports",
+      "support_one": "Support",
+      "support_other": "Support"
+    },
+    "copies_one": "Your copy",
+    "copies_other": "Your {{count}} copies",
+    "platform": "Platform",
+    "storeTitle": "Name in the store",
+    "played": "Played",
+    "totalPlayed": "All copies",
+    "playtime": "{{hours}} h {{minutes}} min",
+    "notPlayed": "Not played"
+  },
   "steamRating": {
     "overwhelmingly_negative": "Overwhelmingly Negative",
     "very_negative": "Very Negative",

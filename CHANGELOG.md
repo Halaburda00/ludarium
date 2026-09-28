@@ -34,6 +34,13 @@ shape moves.
 
 ### Added
 
+- A page for each game, opened from its title in the grid. It shows the cover,
+  release date, summary, the companies behind it grouped by role, both scores
+  with their links, and every copy you own. Each copy has its platform, the name
+  the store gives it, a link to its store page and its playtime, and a total
+  when there is more than one copy. The way back returns to the same search. A
+  game that is not in the library, or only has removed copies, says so rather
+  than showing an empty page. `GET /api/works/{id}` serves it.
 - Every game IGDB has matched now carries its summary, its release date and
   year, and the companies behind it: developer, publisher, porting and support
   studios. They are asked for in the same run as matching and covers, and kept
