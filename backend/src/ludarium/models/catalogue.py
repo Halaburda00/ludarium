@@ -4,7 +4,7 @@ from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from ludarium import titles
-from ludarium.enums import EntityType, ImageKind, ItemKind, SteamRating
+from ludarium.enums import CompanyRole, EntityType, ImageKind, ItemKind, SteamRating
 from ludarium.models.base import Base
 from ludarium.models.types import CreatedAt, UpdatedAt, enum_column
 
@@ -186,3 +186,47 @@ class ImageAsset(Base):
     height: Mapped[int | None]
     # Null means queued, not yet downloaded.
     fetched_at: Mapped[datetime | None]
+
+
+class Company(Base):
+    """A publisher, developer, porter or support studio, as IGDB knows it (#82)."""
+
+    __tablename__ = "company"
+    __table_args__ = (
+        Index(
+            "uq_company_igdb_id",
+            "igdb_id",
+            unique=True,
+            sqlite_where=text("igdb_id IS NOT NULL"),
+            postgresql_where=text("igdb_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    # The matcher's, like `work.normalised_title`: `ludamatch` writes it, and
+    # nothing here does, so it is null until the matcher's publisher feature.
+    normalised_name: Mapped[str | None]
+    igdb_id: Mapped[int | None]
+
+
+class WorkCompany(Base):
+    """Who made or published a work, in which role."""
+
+    __tablename__ = "work_company"
+    __table_args__ = (
+        Index("ix_work_company_company_id_work_id_role", "company_id", "work_id", "role"),
+    )
+
+    work_id: Mapped[int] = mapped_column(
+        ForeignKey("work.id", ondelete="CASCADE"), primary_key=True
+    )
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("company.id", ondelete="RESTRICT"), primary_key=True
+    )
+    role: Mapped[CompanyRole] = mapped_column(
+        enum_column(CompanyRole, "company_role"), primary_key=True
+    )
+    # The provider that asserted the link, so a step replacing its own links
+    # leaves anyone else's alone.
+    source_ref: Mapped[str | None]

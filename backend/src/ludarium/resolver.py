@@ -11,10 +11,11 @@ absent: `field_pin` is not a table yet and arrives with the UI that writes it.
 """
 
 from collections.abc import Callable, Mapping, Sequence
+from datetime import date
 from typing import Final
 
+from sqlalchemy import Date, func, select
 from sqlalchemy import Enum as SqlEnum
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.enums import EntityType, FieldStrategy, SourceKind
@@ -529,15 +530,21 @@ def _without_manual(rows: Sequence[FieldProvenance]) -> list[FieldProvenance]:
 def _as_column_type(entity: Base, field: str, value: ScalarValue | None) -> object:
     """An enum column takes its member, so reading the entity back is not a lie.
 
-    Everything else round-trips as itself. A date arriving as an ISO string is
-    M2's problem, when IGDB becomes the first source to write one.
+    A date column takes a `date`: provenance holds JSON, so a date is recorded
+    as its ISO string, and SQLite's `Date` refuses a string outright. IGDB's
+    release date is the first to arrive this way (#82). Everything else
+    round-trips as itself.
     """
 
     column = entity.__table__.columns[field]
-    if value is None or not isinstance(column.type, SqlEnum):
+    if value is None:
         return value
-    member: object = column.type.python_type(value)
-    return member
+    if isinstance(column.type, SqlEnum):
+        member: object = column.type.python_type(value)
+        return member
+    if isinstance(column.type, Date) and isinstance(value, str):
+        return date.fromisoformat(value)
+    return value
 
 
 def _ordered(rows: Sequence[FieldProvenance], weights: Mapping[str, int]) -> list[FieldProvenance]:

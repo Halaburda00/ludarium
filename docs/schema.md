@@ -325,11 +325,12 @@ only display data.
 |---|---|---|---|---|
 | `company.id` | INTEGER | no | PK | |
 | `company.name` | TEXT | no | | |
-| `company.normalised_name` | TEXT | no | | For comparison in the matcher |
+| `company.normalised_name` | TEXT | yes | | For comparison in the matcher. Nullable for the reason `work.normalised_title` is: `ludamatch` writes it, and nothing does before the matcher's publisher feature |
 | `company.igdb_id` | INTEGER | yes | | `UNIQUE` where not null |
 | `work_company.work_id` | INTEGER | no | | FK, PK part, `ON DELETE CASCADE` |
 | `work_company.company_id` | INTEGER | no | | FK, PK part |
 | `work_company.role` | TEXT | no | | `CompanyRole`, PK part |
+| `work_company.source_ref` | TEXT | yes | | Which provider asserted the link, as on `work_genre`, so a step replacing its own links leaves anyone else's alone (#82) |
 
 #### `platform`, `work_platform`
 
