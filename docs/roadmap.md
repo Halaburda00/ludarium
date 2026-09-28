@@ -162,7 +162,7 @@ says so: search needs a backend of its own.
       `work.title` and `entitlement.provider_title` and still pages on the
       cursor the first item of M2a fixes. A substring over the sort key's fold
       rather than the FTS5 first planned (ADR-0028)
-- [ ] Work detail view
+- [x] Work detail view
 - [ ] Dark mode
 
 **Done when:** the library looks like something you would actually want to browse.
