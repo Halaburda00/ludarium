@@ -15,6 +15,8 @@ FIXTURES = Path(__file__).parent / "fixtures" / "steam_store"
 GET_ITEMS_URL = f"{store_module.STORE_API}{store_module.GET_ITEMS}"
 # Everything `items.json` was recorded for, in the order it was asked.
 RECORDED = ["1611740", "35420", "235900", "594650", "770720", "378649", "323180", "35020", "227700"]
+# And everything `reviews.json` was.
+REVIEWED = ["292030", "499450", "620", "1611740", "227700", "201510", "931180", "378649"]
 
 
 def recorded(name: str) -> Any:
@@ -212,3 +214,58 @@ async def test_an_id_that_is_not_an_appid_is_refused_before_asking(
 ) -> None:
     with pytest.raises(ValueError, match="digits"):
         await store.items(["1611740", "gog:1495134320"])
+
+
+@respx.mock
+async def test_reviews_are_asked_for_only_when_wanted(store: SteamStoreClient) -> None:
+    route = respx.get(GET_ITEMS_URL).mock(
+        return_value=httpx.Response(200, json=recorded("items.json"))
+    )
+
+    await store.items(RECORDED)
+    assert "data_request" not in asked(route)
+
+    await store.items(RECORDED, reviews=True)
+    assert asked(route)["data_request"] == {"include_reviews": True}
+
+
+@respx.mock
+async def test_an_answer_with_reviews_carries_the_store_s_summaries(
+    store: SteamStoreClient,
+) -> None:
+    respx.get(GET_ITEMS_URL).mock(return_value=httpx.Response(200, json=recorded("reviews.json")))
+
+    found = await store.items(REVIEWED, reviews=True)
+
+    # 499450 is the Witcher's old GOTY app and 227700 Firefall, both delisted:
+    # no record, so no reviews either.
+    assert "499450" not in found and "227700" not in found
+    assert found["292030"]["reviews"]["summary_filtered"] == {
+        "review_count": 824691,
+        "percent_positive": 96,
+        "review_score": 9,
+        "review_score_label": "Overwhelmingly Positive",
+    }
+
+
+async def test_a_full_batch_asking_for_reviews_still_fits_the_url(
+    store: SteamStoreClient,
+) -> None:
+    """The limit was measured without `data_request`; the extra field must not break it."""
+
+    appids = [str(10_000_000 + n) for n in range(store_module.MAX_BATCH)]
+    with respx.mock:
+        route = respx.get(GET_ITEMS_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "response": {
+                        "store_items": [{"id": int(appid), "success": 15} for appid in appids]
+                    }
+                },
+            )
+        )
+        await store.items(appids, reviews=True)
+
+    # 250 seven-digit appids made 8 186 bytes and passed; 300 made 9 786 and failed.
+    assert len(str(route.calls.last.request.url)) < 8_000

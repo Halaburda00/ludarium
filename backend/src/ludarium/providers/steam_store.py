@@ -38,6 +38,10 @@ MAX_BATCH: Final = 200
 # things, and nothing here reads a name.
 CONTEXT: Final = {"language": "english", "country_code": "US"}
 
+# Asked for only by the step that reads them. Without it an item carries no
+# `reviews` object at all, and the classification step has no use for one.
+REVIEWS: Final = {"include_reviews": True}
+
 # `success` for an item the store could answer about. A delisted app comes back
 # as 15 with `appid` 0, and only `id` still names what was asked.
 FOUND: Final = 1
@@ -56,8 +60,12 @@ class SteamStoreClient:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self._client = client
 
-    async def items(self, appids: Sequence[str]) -> dict[str, dict[str, Any]]:
+    async def items(
+        self, appids: Sequence[str], *, reviews: bool = False
+    ) -> dict[str, dict[str, Any]]:
         """The store's record for every app it knows among `appids`, keyed as asked.
+
+        With `reviews`, each record carries the store's review summaries too.
 
         An app the store has nothing under is left out, which the enrichment
         cache records as absent. That makes a short answer dangerous rather than
@@ -74,7 +82,12 @@ class SteamStoreClient:
         if malformed:
             raise ValueError(f"steam appids are digits: {malformed[:5]}")
 
-        request = {"ids": [{"appid": int(appid)} for appid in wanted], "context": CONTEXT}
+        request: dict[str, Any] = {
+            "ids": [{"appid": int(appid)} for appid in wanted],
+            "context": CONTEXT,
+        }
+        if reviews:
+            request["data_request"] = REVIEWS
         retrying = AsyncRetrying(
             retry=retry_if_exception_type(ProviderUnavailableError),
             wait=wait_exponential(multiplier=RETRY_BACKOFF_SECONDS, max=RETRY_MAX_WAIT_SECONDS),
