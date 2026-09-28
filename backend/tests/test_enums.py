@@ -50,6 +50,17 @@ EXPECTED: dict[type[StrEnum], list[str]] = {
     enums.MatchActor: ["auto", "user"],
     enums.ImageKind: ["cover", "hero", "logo", "screenshot"],
     enums.CompanyRole: ["developer", "publisher", "porting", "support"],
+    enums.SteamRating: [
+        "overwhelmingly_negative",
+        "very_negative",
+        "negative",
+        "mostly_negative",
+        "mixed",
+        "mostly_positive",
+        "positive",
+        "very_positive",
+        "overwhelmingly_positive",
+    ],
 }
 
 

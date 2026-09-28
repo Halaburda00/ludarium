@@ -394,6 +394,50 @@
         "title": "SessionResponse",
         "type": "object"
       },
+      "SteamRating": {
+        "description": "The Steam store's verdict on an app's user reviews, worst first, as the store orders it.",
+        "enum": [
+          "overwhelmingly_negative",
+          "very_negative",
+          "negative",
+          "mostly_negative",
+          "mixed",
+          "mostly_positive",
+          "positive",
+          "very_positive",
+          "overwhelmingly_positive"
+        ],
+        "title": "SteamRating",
+        "type": "string"
+      },
+      "SteamReviews": {
+        "description": "The Steam store's verdict on one of the work's apps, and where to read the reviews.\n\n`rating` is the verdict's value rather than Steam's label, which the store\ntranslates: the client names it in the user's language.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "percent": {
+            "title": "Percent",
+            "type": "integer"
+          },
+          "rating": {
+            "$ref": "#/components/schemas/SteamRating"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rating",
+          "percent",
+          "count",
+          "url"
+        ],
+        "title": "SteamReviews",
+        "type": "object"
+      },
       "SyncErrorKind": {
         "description": "Why a run failed, in the terms of who can fix it.",
         "enum": [
@@ -714,6 +758,16 @@
             "title": "Sort Title",
             "type": "string"
           },
+          "steam_reviews": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SteamReviews"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -732,6 +786,7 @@
           "playtime_minutes",
           "last_played_at",
           "metacritic",
+          "steam_reviews",
           "cover",
           "entitlements"
         ],

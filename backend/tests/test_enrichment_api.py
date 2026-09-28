@@ -116,7 +116,9 @@ async def test_a_sync_is_followed_by_classifying_what_it_stored(
     response = connected.post("/api/sync/steam")
 
     assert response.status_code == 200
-    assert asked.call_count == 1
+    # One request for what each app is, one for its reviews: two resources,
+    # cached apart, because they go stale at different rates.
+    assert asked.call_count == 2
     (run,) = await store_runs(session)
     assert (run.status, run.account_id, run.trigger) == (SyncStatus.SUCCESS, None, "manual")
     assert await kinds(session) == [ItemKind.GAME] * 3
@@ -196,7 +198,8 @@ async def test_a_failed_classification_can_be_retried_by_hand(
         SyncStatus.SUCCESS,
         None,
     )
-    assert body["items_seen"] == 3
+    # Three apps asked about twice: once for their kind, once for their reviews.
+    assert body["items_seen"] == 6
     assert await kinds(session) == [ItemKind.GAME] * 3
 
 

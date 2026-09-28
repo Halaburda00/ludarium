@@ -1,6 +1,6 @@
 import { Trans, useTranslation } from 'react-i18next'
 
-import type { EntitlementSummary, Score, WorkSummary } from '@/lib/queries'
+import type { EntitlementSummary, Score, SteamReviews, WorkSummary } from '@/lib/queries'
 
 /**
  * The library as a table, because the library is tabular.
@@ -27,8 +27,11 @@ export function WorksTable({ works }: { works: WorkSummary[] }) {
             <th scope="col" className="py-2 pr-4 font-medium">
               {t('library.columnPlatform')}
             </th>
-            <th scope="col" className="py-2 text-right font-medium">
+            <th scope="col" className="py-2 pr-4 text-right font-medium">
               {t('library.columnMetacritic')}
+            </th>
+            <th scope="col" className="py-2 text-right font-medium">
+              {t('library.columnSteamReviews')}
             </th>
           </tr>
         </thead>
@@ -44,8 +47,11 @@ export function WorksTable({ works }: { works: WorkSummary[] }) {
               <td className="py-2 pr-4">
                 <Platforms copies={work.entitlements} />
               </td>
-              <td className="py-2 text-right tabular-nums">
+              <td className="py-2 pr-4 text-right tabular-nums">
                 <Metacritic score={work.metacritic} title={work.title} />
+              </td>
+              <td className="py-2 text-right tabular-nums">
+                <Steam reviews={work.steam_reviews} title={work.title} />
               </td>
             </tr>
           ))}
@@ -87,6 +93,43 @@ function Metacritic({ score, title }: { score: Score | null; title: string }) {
       className="text-primary underline-offset-4 hover:underline"
     >
       {score.value}
+    </a>
+  )
+}
+
+/**
+ * The share of positive reviews, as a link to them on the store page.
+ *
+ * The verdict and the count are in the name rather than the cell: a column of
+ * "Overwhelmingly Positive" would be wider than the titles beside it.
+ */
+function Steam({ reviews, title }: { reviews: SteamReviews | null; title: string }) {
+  const { t } = useTranslation()
+  if (!reviews) {
+    return (
+      <span className="text-muted-foreground">
+        <span aria-hidden="true">–</span>
+        <span className="sr-only">{t('library.noScore')}</span>
+      </span>
+    )
+  }
+  const name = t('library.steamReviewsLink', {
+    rating: t(`steamRating.${reviews.rating}`),
+    title,
+    percent: reviews.percent,
+    reviews: reviews.count,
+  })
+  return (
+    <a
+      href={reviews.url}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={name}
+      // For the pointer, which has no other way to read the verdict.
+      title={name}
+      className="text-primary underline-offset-4 hover:underline"
+    >
+      {reviews.percent}%
     </a>
   )
 }

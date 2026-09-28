@@ -394,6 +394,28 @@ export interface components {
             username: string;
         };
         /**
+         * SteamRating
+         * @description The Steam store's verdict on an app's user reviews, worst first, as the store orders it.
+         * @enum {string}
+         */
+        SteamRating: "overwhelmingly_negative" | "very_negative" | "negative" | "mostly_negative" | "mixed" | "mostly_positive" | "positive" | "very_positive" | "overwhelmingly_positive";
+        /**
+         * SteamReviews
+         * @description The Steam store's verdict on one of the work's apps, and where to read the reviews.
+         *
+         *     `rating` is the verdict's value rather than Steam's label, which the store
+         *     translates: the client names it in the user's language.
+         */
+        SteamReviews: {
+            /** Count */
+            count: number;
+            /** Percent */
+            percent: number;
+            rating: components["schemas"]["SteamRating"];
+            /** Url */
+            url: string;
+        };
+        /**
          * SyncErrorKind
          * @description Why a run failed, in the terms of who can fix it.
          * @enum {string}
@@ -497,6 +519,7 @@ export interface components {
             release_year: number | null;
             /** Sort Title */
             sort_title: string;
+            steam_reviews: components["schemas"]["SteamReviews"] | null;
             /** Title */
             title: string;
         };

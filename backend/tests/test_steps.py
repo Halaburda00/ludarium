@@ -5,7 +5,7 @@ from ludarium.db import Database
 from ludarium.enrichment import EnrichmentRun
 from ludarium.enums import SyncTrigger
 from ludarium.seed import seed_providers
-from ludarium.steps import Scheduled, StepContext, enrich_after_sync
+from ludarium.steps import FOLLOWS, Scheduled, StepContext, enrich_after_sync
 
 
 def test_a_step_two_syncs_queued_stays_queued_until_both_are_done() -> None:
@@ -58,3 +58,25 @@ def test_the_queue_reads_in_the_order_the_steps_run() -> None:
     scheduled.add(["steam_store", "igdb", "rawg"])
 
     assert list(scheduled) == ["steam_store", "igdb", "rawg"]
+
+
+def test_the_step_running_reads_first_whatever_order_the_steps_run_in() -> None:
+    """An Epic sync asks the store after IGDB, the reverse of the order `STEPS` names them."""
+
+    scheduled = Scheduled()
+    scheduled.add(["igdb", "steam_store", "rawg"])
+    scheduled.start("igdb")
+
+    assert list(scheduled) == ["igdb", "steam_store", "rawg"]
+
+    scheduled.done("igdb")
+    scheduled.start("steam_store")
+    assert list(scheduled) == ["steam_store", "rawg"]
+
+
+def test_the_store_is_asked_before_matching_on_steam_and_after_it_on_epic() -> None:
+    """Steam's kinds gate the matcher; Epic's review scores need the appids IGDB gives."""
+
+    steam, epic = FOLLOWS["steam"], FOLLOWS["epic"]
+    assert steam.index("steam_store") < steam.index("igdb")
+    assert epic.index("igdb") < epic.index("steam_store")

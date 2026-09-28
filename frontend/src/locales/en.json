@@ -69,11 +69,24 @@
     "scoreLink": "Metacritic {{score}} for {{title}}, from {{source}}",
     "noScore": "No score",
     "scoresCredit": "Metacritic scores from <credit>{{source}}</credit>.",
+    "columnSteamReviews": "Steam reviews",
+    "steamReviewsLink": "{{rating}} on Steam for {{title}}: {{percent}}% of {{reviews, number}} reviews positive",
     "connectAnother": "Connect another account",
     "connectAccount": "Connect an account",
     "loadMore": "Load more",
     "count_partial_one": "{{count}} game so far",
     "count_partial_other": "{{count}} games so far"
+  },
+  "steamRating": {
+    "overwhelmingly_negative": "Overwhelmingly Negative",
+    "very_negative": "Very Negative",
+    "negative": "Negative",
+    "mostly_negative": "Mostly Negative",
+    "mixed": "Mixed",
+    "mostly_positive": "Mostly Positive",
+    "positive": "Positive",
+    "very_positive": "Very Positive",
+    "overwhelmingly_positive": "Overwhelmingly Positive"
   },
   "error": {
     "offline": "Could not reach the server.",

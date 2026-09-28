@@ -4,7 +4,7 @@ from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from ludarium import titles
-from ludarium.enums import EntityType, ImageKind, ItemKind
+from ludarium.enums import EntityType, ImageKind, ItemKind, SteamRating
 from ludarium.models.base import Base
 from ludarium.models.types import CreatedAt, UpdatedAt, enum_column
 
@@ -68,6 +68,14 @@ class Work(Base):
     metacritic_score: Mapped[int | None]
     # Required wherever the score is displayed: RAWG asks for an active link.
     metacritic_url: Mapped[str | None]
+    # The Steam store's summary of one of the work's apps, the four written
+    # together so that they always describe the same app (ADR-0027).
+    steam_review_rating: Mapped[SteamRating | None] = mapped_column(
+        enum_column(SteamRating, "steam_rating")
+    )
+    steam_review_percent: Mapped[int | None]
+    steam_review_count: Mapped[int | None]
+    steam_review_appid: Mapped[str | None]
     # Denormalised for lookups; the authoritative copy lives in `external_id`.
     igdb_id: Mapped[int | None]
     is_matched: Mapped[bool] = mapped_column(default=False, server_default=false())

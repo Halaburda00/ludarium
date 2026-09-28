@@ -58,6 +58,7 @@ Supporting enums introduced by this document:
 | `MatchActor` | `auto`, `user` | Who took a matcher decision |
 | `ImageKind` | `cover`, `hero`, `logo`, `screenshot` | |
 | `CompanyRole` | `developer`, `publisher`, `porting`, `support` | Publisher is a matcher feature, not decoration |
+| `SteamRating` | `overwhelmingly_negative`, `very_negative`, `negative`, `mostly_negative`, `mixed`, `mostly_positive`, `positive`, `very_positive`, `overwhelmingly_positive` | The Steam store's verdict on an app's user reviews, its codes 1–9 in order. Stored as a value rather than Steam's label, which the store translates into the language it is asked in (ADR-0027) |
 
 ---
 
@@ -252,6 +253,10 @@ than a creation with a different code path.
 | `summary` | TEXT | yes | | |
 | `metacritic_score` | INTEGER | yes | | 0–100, RAWG-sourced, `runtime_only` |
 | `metacritic_url` | TEXT | yes | | The game's Metacritic page, as RAWG gives it; `https` only. Not the attribution link, which goes to RAWG (ADR-0023) |
+| `steam_review_rating` | TEXT | yes | | `SteamRating`. Null where the store has no verdict, including an app with too few reviews for one (ADR-0027) |
+| `steam_review_percent` | INTEGER | yes | | 0–100, the share of positive reviews behind the rating |
+| `steam_review_count` | INTEGER | yes | | Reviews counted: every language, bought on Steam, off-topic review periods left out — the store's default filter |
+| `steam_review_appid` | TEXT | yes | | The app the three above describe, of the several a work can have. Where the link to the store's reviews goes |
 | `igdb_id` | INTEGER | yes | | Denormalised anchor for fast lookups; authoritative copy lives in `external_id`, and the two are written together, not resolved (ADR-0021) |
 | `is_matched` | BOOLEAN | no | `false` | True once an IGDB anchor exists; written with it, like `igdb_id` |
 | `enriched_at` | TIMESTAMP | yes | | Enrichment pipeline skips anything fresher than the TTL (M2) |
@@ -618,6 +623,8 @@ erDiagram
         int parent_work_id FK
         int release_year
         int metacritic_score
+        string steam_review_rating "SteamRating"
+        int steam_review_percent
         int igdb_id
         bool is_matched
     }
@@ -845,6 +852,7 @@ doing its job.
 | `item_kind` | `work` | `precedence` | Platforms mislabel DLC often enough that a manual override matters |
 | `cover` (via `image_asset`) | `work`, `edition` | `precedence` | Commonly pinned; store art differs per platform |
 | `metacritic_score`, `metacritic_url` | `work` | `single_source` | RAWG only. No competition, so no ladder |
+| `steam_review_rating`, `steam_review_percent`, `steam_review_count`, `steam_review_appid` | `work` | `single_source` | The Steam store only (`steam_store`). Recorded together, so all four describe one app |
 | `name` | `edition` | `precedence` | |
 | `playtime_minutes` | `entitlement` | `max` | Rule 5 exception, *within* one entitlement: the Steam API and the local agent describe the same play on the same account, and the lower figure is the stale one |
 | `playtime_minutes` | `user_work_state` | `sum` | Aggregate *across* entitlements: 40 hours on Steam plus 20 on GOG is 60 hours played. Different accounts are different play, not duplicate reports |
@@ -936,6 +944,7 @@ through `EXISTS` over `entitlement_work` → `entitlement`.
 |---|---|
 | Platform | `entitlement_work (work_id, entitlement_id)` and `entitlement (account_id, removed_at)`; the store is reached via `account.provider_id` |
 | Metacritic | `work (metacritic_score) WHERE metacritic_score IS NOT NULL` |
+| Steam reviews | `work (steam_review_percent) WHERE steam_review_percent IS NOT NULL` |
 | Genre | `work_genre (genre_id, work_id)` — the reverse of the PK, for "all RPGs" |
 | Year | `work (release_year)` |
 | Playtime | `user_work_state (user_id, playtime_minutes)` |

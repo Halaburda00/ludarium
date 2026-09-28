@@ -26,6 +26,7 @@ from ludarium.providers.epic import EpicCatalog
 from ludarium.providers.igdb import IgdbClient, IgdbCredentials
 from ludarium.providers.rawg import RawgClient
 from ludarium.providers.steam_store import SteamStoreClient
+from ludarium.reviews import score_steam_reviews
 from ludarium.tokens import DatabaseTokenStore
 
 logger = logging.getLogger(__name__)
@@ -72,8 +73,14 @@ def _score(context: StepContext) -> Step | None:
     return score_matched_works(RawgClient(key.get_secret_value(), context.http))
 
 
+def _store(context: StepContext) -> Step:
+    store = SteamStoreClient(context.http)
+    # One run of one endpoint, so one status: a store outage fails both.
+    return chained(classify_steam_items(store), score_steam_reviews(store))
+
+
 STEPS: Final[Mapping[str, StepBuilder]] = {
-    "steam_store": lambda context: classify_steam_items(SteamStoreClient(context.http)),
+    "steam_store": _store,
     "igdb": _anchor,
     "rawg": _score,
 }
@@ -84,9 +91,10 @@ STEPS: Final[Mapping[str, StepBuilder]] = {
 # asked only about works matching has anchored.
 FOLLOWS: Final[Mapping[str, tuple[str, ...]]] = {
     "steam": ("steam_store", "igdb", "rawg"),
-    # Epic states each item's kind in the library itself (#64), so there is no
-    # classification step to wait for.
-    "epic": ("igdb", "rawg"),
+    # Epic states each item's kind in the library itself (#64), so the store
+    # comes after matching rather than before: its review scores are for the
+    # Steam appids IGDB has just given the Epic games.
+    "epic": ("igdb", "steam_store", "rawg"),
 }
 
 
@@ -105,22 +113,36 @@ class Scheduled:
 
     def __init__(self) -> None:
         self._queued: Counter[str] = Counter()
+        self._running: Counter[str] = Counter()
 
     def add(self, providers: Iterable[str]) -> None:
         self._queued.update(providers)
 
+    def start(self, provider: str) -> None:
+        self._running[provider] += 1
+
     def done(self, provider: str) -> None:
-        self._queued[provider] -= 1
-        if self._queued[provider] <= 0:
-            del self._queued[provider]
+        for counts in (self._queued, self._running):
+            counts[provider] -= 1
+            if counts[provider] <= 0:
+                del counts[provider]
 
     def __iter__(self) -> Iterator[str]:
-        # In the order the steps run, which is the order `STEPS` names them,
-        # rather than the order they were queued: a step queued again by a
-        # second sync would otherwise read as the last one, and a client naming
-        # the first as "running" would name the wrong one.
+        # What is running first, then what waits, each in the order `STEPS`
+        # names them rather than the order they were queued: a step queued
+        # again by a second sync would otherwise read as the last one. Running
+        # first because the order is not fixed — an Epic sync asks the store
+        # after IGDB — and a client names the first as the one running.
         order = {provider: position for position, provider in enumerate(STEPS)}
-        return iter(sorted(self._queued, key=lambda provider: order.get(provider, len(order))))
+        return iter(
+            sorted(
+                self._queued,
+                key=lambda provider: (
+                    provider not in self._running,
+                    order.get(provider, len(order)),
+                ),
+            )
+        )
 
 
 def plan_after_sync(context: StepContext, *, library: str) -> list[tuple[str, Step]]:
@@ -159,6 +181,7 @@ async def enrich_after_sync(
     remaining = [provider for provider, _ in planned]
     try:
         for provider, step in planned:
+            scheduled.start(provider)
             try:
                 await enrich(context.database, provider=provider, step=step, trigger=trigger)
             except EnrichmentInProgressError:
