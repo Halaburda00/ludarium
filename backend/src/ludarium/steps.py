@@ -18,6 +18,7 @@ from ludarium.config import Settings
 from ludarium.covers import fetch_covers
 from ludarium.crypto import CredentialCipher
 from ludarium.db import Database
+from ludarium.details import describe_matched_works
 from ludarium.enrichment import EnrichmentInProgressError, Step, chained, enrich
 from ludarium.enums import SyncTrigger
 from ludarium.matching import anchor_epic_works, anchor_steam_works
@@ -56,12 +57,13 @@ def _anchor(context: StepContext) -> Step | None:
         context.http,
         tokens=DatabaseTokenStore(context.database, cipher),
     )
-    # One run: covers are fetched for what anchoring has just matched.
+    # One run: details and covers are fetched for what anchoring has just matched.
     return chained(
         anchor_steam_works(client),
         # After Steam, so an Epic copy of a game already anchored through its
         # appid is folded into that work rather than anchored beside it.
         anchor_epic_works(client, EpicCatalog(context.http)),
+        describe_matched_works(client),
         fetch_covers(client, settings.data_dir),
     )
 

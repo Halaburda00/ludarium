@@ -7,6 +7,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.enums import (
+    CompanyRole,
     EntityType,
     ImageKind,
     ItemKind,
@@ -26,6 +27,7 @@ from ludarium.merging import (
 )
 from ludarium.models import (
     Account,
+    Company,
     Edition,
     Entitlement,
     EntitlementWork,
@@ -35,6 +37,7 @@ from ludarium.models import (
     MatchAudit,
     UserWorkState,
     Work,
+    WorkCompany,
 )
 from ludarium.resolver import record, resolve, resolve_work_aggregates_many
 
@@ -445,6 +448,10 @@ async def world(session: AsyncSession, rename: dict[int, int] | None = None) -> 
             (w(image.entity_id), image.kind, image.source_ref, image.checksum, image.width)
             for image in await fresh(session, select(ImageAsset))
         },
+        "companies": {
+            (w(link.work_id), link.company_id, link.role, link.source_ref)
+            for link in await fresh(session, select(WorkCompany))
+        },
         "external_ids": {
             (w(row.entity_id), row.namespace, row.value)
             for row in await fresh(session, select(ExternalId))
@@ -515,6 +522,32 @@ async def test_an_undo_puts_back_everything_the_merge_moved(
             # One file the target already has, and one it does not.
             cover(source, "same-file", 264),
             cover(source, "own-file", 528),
+        ]
+    )
+    studio, porter = Company(name="Studio Red", igdb_id=501), Company(name="Port House")
+    session.add_all([studio, porter])
+    await session.flush()
+    session.add_all(
+        [
+            WorkCompany(
+                work_id=target.id,
+                company_id=studio.id,
+                role=CompanyRole.PUBLISHER,
+                source_ref="igdb",
+            ),
+            # One credit the target already has, and one it does not.
+            WorkCompany(
+                work_id=source.id,
+                company_id=studio.id,
+                role=CompanyRole.PUBLISHER,
+                source_ref="igdb",
+            ),
+            WorkCompany(
+                work_id=source.id,
+                company_id=porter.id,
+                role=CompanyRole.PORTING,
+                source_ref="manual",
+            ),
         ]
     )
     (await state_of(session, source)).rating = 7
@@ -670,3 +703,29 @@ async def test_an_orphan_stub_takes_its_image_rows_with_it(
     await collect_orphan_stubs(session)
 
     assert await session.scalar(select(func.count()).select_from(ImageAsset)) == 0
+
+
+async def test_a_credit_the_target_already_has_is_not_moved_twice(
+    session: AsyncSession, steam: Account
+) -> None:
+    target = await anchored(session, steam, "292030", "The Witcher 3: Wild Hunt")
+    source = await stub(session, steam, "499450", "The Witcher 3 GOTY")
+    studio, porter = Company(name="Studio Red"), Company(name="Port House")
+    session.add_all([studio, porter])
+    await session.flush()
+    session.add_all(
+        [
+            WorkCompany(work_id=target.id, company_id=studio.id, role=CompanyRole.PUBLISHER),
+            WorkCompany(work_id=source.id, company_id=studio.id, role=CompanyRole.PUBLISHER),
+            WorkCompany(work_id=source.id, company_id=porter.id, role=CompanyRole.PORTING),
+        ]
+    )
+    await session.flush()
+
+    await merge(session, source, target)
+
+    links = await fresh(session, select(WorkCompany))
+    assert sorted((link.work_id, link.company_id, link.role) for link in links) == [
+        (target.id, studio.id, CompanyRole.PUBLISHER),
+        (target.id, porter.id, CompanyRole.PORTING),
+    ]
