@@ -435,6 +435,69 @@ describe('Metacritic', () => {
   })
 })
 
+describe('search', () => {
+  it('asks the server once typing pauses, and says how many matched', async () => {
+    const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: THREE },
+      'GET /api/works?q=witch': {
+        body: { works: [work(3, 'The Witcher 3: Wild Hunt')], next_cursor: null },
+      },
+    })
+    renderApp(<Library />)
+    await screen.findByText('3 games')
+
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search' }), 'witch')
+
+    expect(await screen.findByText('1 match')).toBeInTheDocument()
+    expect(screen.getAllByRole('article')).toHaveLength(1)
+    // The server searches, not the page: it holds the rest of the library.
+    // And once, for the word, not once per letter typed.
+    expect(calls.filter((call) => call.path.startsWith('/api/works?q='))).toHaveLength(1)
+  })
+
+  it('says nothing matched rather than calling the library empty', async () => {
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works?q=zelda': { body: EMPTY },
+    })
+    renderApp(<Library />, { route: '/?q=zelda' })
+
+    expect(await screen.findByText('Nothing in the library matches “zelda”.')).toBeInTheDocument()
+    expect(screen.queryByText(/Nothing here yet/)).not.toBeInTheDocument()
+    // The search is still there to change: it came from the address.
+    expect(screen.getByRole('searchbox', { name: 'Search' })).toHaveValue('zelda')
+  })
+
+  it('pages a search on its own cursor', async () => {
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works?q=2': { body: { works: [work(1, 'Dota 2')], next_cursor: 'next' } },
+      'GET /api/works?q=2&cursor=next': {
+        body: { works: [work(2, 'Portal 2')], next_cursor: null },
+      },
+    })
+    renderApp(<Library />, { route: '/?q=2' })
+
+    expect(await screen.findByText('2 matches')).toBeInTheDocument()
+  })
+
+  it('is not offered over a library with nothing in it', async () => {
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: EMPTY },
+    })
+    renderApp(<Library />)
+
+    await screen.findByText(/Nothing here yet/)
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+  })
+})
+
 describe('paging', () => {
   it('follows the cursor the API handed back', async () => {
     const first: WorksPage = { works: [work(1, 'Dota 2')], next_cursor: 'page-2==' }

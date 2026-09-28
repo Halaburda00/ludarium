@@ -1,10 +1,10 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { WorksGrid } from '@/components/WorksGrid'
 import { Button } from '@/components/ui/button'
-import { Notice } from '@/components/ui/field'
+import { Field, Notice } from '@/components/ui/field'
 import {
   useAccounts,
   useEnrichment,
@@ -15,9 +15,31 @@ import {
   type SyncRun,
 } from '@/lib/queries'
 
+/** How long typing has to pause before the library is asked: a request per word, not per letter. */
+export const SEARCH_DEBOUNCE_MS = 250
+
 export default function Library() {
   const { t } = useTranslation()
-  const works = useWorks()
+  // In the address, so a search survives a reload and the back button.
+  const [params, setParams] = useSearchParams()
+  const search = params.get('q') ?? ''
+  const [typed, setTyped] = useState(search)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (typed.trim() === search) return
+      setParams(
+        (current) => {
+          const next = new URLSearchParams(current)
+          if (typed.trim()) next.set('q', typed.trim())
+          else next.delete('q')
+          return next
+        },
+        { replace: true },
+      )
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [typed, search, setParams])
+  const works = useWorks(search)
   const sync = useSync()
   const overview = useEnrichment()
   const accounts = useAccounts()
@@ -172,7 +194,28 @@ export default function Library() {
         </State>
       ) : null}
 
-      {exhausted && loaded.length === 0 ? (
+      {/* Not over a library with nothing in it: there is nothing to find, and
+          the way out of that screen is a sync. */}
+      {search || !(exhausted && loaded.length === 0) ? (
+        <search>
+          <Field
+          id="library-search"
+          type="search"
+          label={t('library.search')}
+          placeholder={t('library.searchHint')}
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+          autoComplete="off"
+          className="max-w-md"
+          />
+        </search>
+      ) : null}
+
+      {exhausted && loaded.length === 0 && search ? (
+        <p className="text-sm text-muted-foreground">{t('library.noMatches', { search })}</p>
+      ) : null}
+
+      {exhausted && loaded.length === 0 && !search ? (
         <State>
           <p className="text-sm text-muted-foreground">{t('library.empty')}</p>
           {/* An account is connected — the route guard sends anyone without one
@@ -190,7 +233,7 @@ export default function Library() {
             {/* Counted honestly: with a page still unfetched this is what has
                 been loaded, not what the library holds, and saying "40 games"
                 over the first page of four hundred is simply wrong. */}
-            {t('library.count', {
+            {t(search ? 'library.matches' : 'library.count', {
               count: loaded.length,
               context: works.hasNextPage ? 'partial' : undefined,
             })}

@@ -73,7 +73,14 @@
     "connectAccount": "Connect an account",
     "loadMore": "Load more",
     "count_partial_one": "{{count}} game so far",
-    "count_partial_other": "{{count}} games so far"
+    "count_partial_other": "{{count}} games so far",
+    "search": "Search",
+    "searchHint": "A title, or the name a store gives it",
+    "matches_one": "{{count}} match",
+    "matches_other": "{{count}} matches",
+    "matches_partial_one": "{{count}} match so far",
+    "matches_partial_other": "{{count}} matches so far",
+    "noMatches": "Nothing in the library matches “{{search}}”."
   },
   "steamRating": {
     "overwhelmingly_negative": "Overwhelmingly Negative",
