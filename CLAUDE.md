@@ -190,6 +190,7 @@ model invalidates the index.
 | Wikidata | alias dataset backbone | CC0 — redistributable |
 | Steam `GetAppList` | public catalogue | public |
 | Steam Web API | owned games, playtime | user supplies their own key |
+| Steam store `GetItems` | item kinds, user-review scores | public and unkeyed, but undocumented: every shape is measured, not promised (ADR-0020, ADR-0027); a score links to the store's reviews |
 | IGDB | metadata, canonical IDs | runtime only, non-commercial, **no redistribution** |
 | RAWG | Metacritic scores | runtime only, **no redistribution**, attribution + active link required wherever displayed |
 

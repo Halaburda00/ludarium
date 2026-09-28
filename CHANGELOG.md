@@ -93,6 +93,15 @@ shape moves.
   reloads itself when the last one ends. A step that fails is reported with its
   reason. `POST /api/sync/{provider}` now answers `{runs, enriching}` rather than
   a bare list of runs, and `GET /api/sync/runs` gains `enriching`.
+- Steam's user-review score, in a column beside Metacritic: the share of
+  positive reviews, linked to the reviews on the store page, with Steam's
+  verdict and the number of reviews in the link's name. It counts every
+  language and only copies bought on Steam, and leaves out the off-topic
+  review bombs the store leaves out by default. A game owned only on Epic gets
+  its score too, once IGDB has matched it and given it a Steam appid. Where a
+  game has several Steam apps, the most-reviewed one is used. Scores are asked
+  for with the store's other data after every Steam sync, and after matching
+  on every Epic sync, 200 apps per request, and kept for a week.
 - Metacritic scores, from RAWG, in a column of the library. Set
   `LUDARIUM_RAWG_API_KEY` to a key registered at rawg.io; without one nothing
   is fetched. Only games IGDB has matched are looked up, by IGDB's name, and a

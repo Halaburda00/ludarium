@@ -142,7 +142,7 @@ replaces it.
       notice, so the provider must fail as itself (rule 4). What it holds is a
       refresh token that is replaced on every refresh — encrypted like the
       Steam key, and written back each time, or the second sync is logged out
-- [ ] Steam review scores for every work with a Steam appid, Epic-only works
+- [x] Steam review scores for every work with a Steam appid, Epic-only works
       included: layer 1 finds their appid in IGDB `external_games`, and the
       appid is all the score needs
 
