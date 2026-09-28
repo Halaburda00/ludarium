@@ -195,7 +195,7 @@ describe('library', () => {
     renderApp(<Library />)
 
     expect(await screen.findByText('3 games')).toBeInTheDocument()
-    expect(screen.getByRole('rowheader', { name: 'The Witcher 3: Wild Hunt' })).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: 'The Witcher 3: Wild Hunt' })).toBeInTheDocument()
   })
 
   it('signs out through the endpoint rather than by forgetting locally', async () => {
@@ -236,8 +236,8 @@ describe('a partial run', () => {
   })
 })
 
-describe('the table', () => {
-  it('gives every game a row with its title and its platform', async () => {
+describe('the grid', () => {
+  it('gives every game a card with its title and its platform, in order', async () => {
     stubFetch({
       'GET /api/sync/runs': { body: IDLE },
       'GET /api/accounts': { body: ACCOUNTS },
@@ -246,13 +246,17 @@ describe('the table', () => {
     renderApp(<Library />)
 
     // Found by role rather than by text: a `<div>` full of titles would satisfy
-    // `getByText` just as well, and the issue asks for a table.
-    const rows = await screen.findAllByRole('row')
-    expect(within(rows[0]).getByRole('columnheader', { name: 'Title' })).toBeInTheDocument()
-    expect(within(rows[0]).getByRole('columnheader', { name: 'Platform' })).toBeInTheDocument()
-    expect(rows).toHaveLength(4)
-    expect(within(rows[1]).getByRole('rowheader')).toHaveTextContent('Dota 2')
-    expect(within(rows[1]).getByRole('link')).toHaveTextContent('Steam')
+    // `getByText` just as well, and a screen reader could not tell one card
+    // from the next.
+    const feed = await screen.findByRole('feed', { name: 'Your games' })
+    const cards = within(feed).getAllByRole('article')
+    expect(cards.map((card) => card.getAttribute('aria-posinset'))).toEqual(['1', '2', '3'])
+    expect(cards[0]).toHaveAccessibleName('Dota 2')
+    expect(cards[0]).toHaveAttribute('aria-setsize', '3')
+    expect(within(cards[0]).getByRole('heading', { name: 'Dota 2' })).toBeInTheDocument()
+    expect(within(cards[0]).getByRole('link', { name: 'Dota 2 on Steam' })).toHaveTextContent(
+      'Steam',
+    )
   })
 
   it('links the platform to the store page the API built', async () => {
@@ -286,7 +290,7 @@ describe('the table', () => {
     // A missing store template is our gap, not the user's: they still own it
     // there, and an empty platform cell reads as if they do not.
     expect(await screen.findByText('GOG')).toBeInTheDocument()
-    expect(within(screen.getByRole('table')).queryByRole('link')).not.toBeInTheDocument()
+    expect(within(screen.getByRole('feed')).queryByRole('link')).not.toBeInTheDocument()
   })
 
   it('shows every copy of a work owned twice', async () => {
@@ -308,9 +312,9 @@ describe('the table', () => {
 
     // One work, two entitlements — a bundle or a rebuy. Collapsing them to the
     // first would quietly answer "where do I own this" with half the truth.
-    const row = (await screen.findAllByRole('row'))[1]
-    expect(within(row).getByRole('link')).toHaveTextContent('Steam')
-    expect(within(row).getByText('GOG')).toBeInTheDocument()
+    const card = await screen.findByRole('article', { name: 'Portal 2' })
+    expect(within(card).getByRole('link')).toHaveTextContent('Steam')
+    expect(within(card).getByText('GOG')).toBeInTheDocument()
   })
 })
 
@@ -397,7 +401,7 @@ describe('Metacritic', () => {
     expect(score).toHaveTextContent('95')
     expect(score).toHaveAttribute('href', 'https://rawg.io/games/portal-2')
     expect(score).toHaveAttribute('rel', expect.stringContaining('noreferrer'))
-    const dota = screen.getAllByRole('row')[2]
+    const dota = screen.getByRole('article', { name: 'Dota 2' })
     // Metacritic's cell and Steam's: neither has anything to say about Dota.
     expect(within(dota).getAllByText('No score')).toHaveLength(2)
   })
@@ -445,15 +449,33 @@ describe('paging', () => {
     })
     renderApp(<Library />)
 
-    // Honest about what it has: one page of an unknown number is not "1 game".
-    expect(await screen.findByText('1 game so far')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
-
+    // Asked for without a click: the end of what is loaded is on screen.
     expect(await screen.findByText('2 games')).toBeInTheDocument()
-    expect(screen.getByRole('rowheader', { name: 'Portal 2' })).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: 'Portal 2' })).toBeInTheDocument()
     // Appended, not replaced: the first page is still on screen.
-    expect(screen.getByRole('rowheader', { name: 'Dota 2' })).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: 'Dota 2' })).toBeInTheDocument()
     expect(calls.filter((call) => call.path.startsWith('/api/works'))).toHaveLength(2)
+  })
+
+  it('keeps what it has when a later page fails, and offers to try again', async () => {
+    const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: { works: [work(1, 'Dota 2')], next_cursor: 'page-2' } },
+      'GET /api/works?cursor=page-2': { status: 503, body: { detail: 'the database is locked' } },
+    })
+    renderApp(<Library />)
+
+    // The first page is still the user's to read: a failed second page is not
+    // a library that failed to load.
+    expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: 'Dota 2' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    // Three attempts, `useWorks`' own retries, and then it waits for the button.
+    const asked = () => calls.filter((call) => call.path.includes('cursor')).length
+    expect(asked()).toBe(3)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(asked()).toBe(3)
   })
 
   it('offers nothing more to load on the last page', async () => {
@@ -500,7 +522,7 @@ describe('a library that would not load', () => {
     expect(screen.queryByText(/Nothing here yet/)).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByRole('rowheader', { name: 'Dota 2' })).toBeInTheDocument()
+    expect(await screen.findByRole('article', { name: 'Dota 2' })).toBeInTheDocument()
   })
 })
 
@@ -520,9 +542,9 @@ describe('a page that came back empty with a cursor after it', () => {
     })
     renderApp(<Library />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Load more' }))
-
-    expect(await screen.findByRole('rowheader', { name: 'Dota 2' })).toBeInTheDocument()
+    // Asked for on its own: an empty page with a cursor is the end of what is
+    // loaded, and the end of what is loaded is on screen.
+    expect(await screen.findByRole('article', { name: 'Dota 2' })).toBeInTheDocument()
     // "Nothing here yet. Run a sync" over a library that is merely a page
     // further on sends the user to connect an account they already have.
     expect(screen.queryByText(/Nothing here yet/)).not.toBeInTheDocument()
@@ -579,7 +601,6 @@ describe('the sync button', () => {
     )
     renderApp(<Library />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Load more' }))
     await screen.findByText('2 games')
     await userEvent.click(screen.getByRole('button', { name: 'Sync now' }))
 

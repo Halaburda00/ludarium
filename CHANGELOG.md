@@ -34,6 +34,16 @@ shape moves.
 
 ### Added
 
+- The library is a grid of covers instead of a table. Only the cards on
+  screen, and a few rows either side, are rendered, so a library of thousands
+  scrolls like one of ten. The next page is asked for before the end of what
+  is loaded comes into view, and scrolling faster than it arrives reaches a
+  loading row rather than blank space. A cover's space is kept before the image
+  loads, and nothing moves when it does. The grid is a feed to a screen reader,
+  each card with its place in the library. Tab walks the links in reading order,
+  and the arrow keys, Home and End move from card to card. If a later page
+  fails to load, the cards already loaded stay, with a retry at the end, rather
+  than giving way to an error that hid them.
 - The enrichment pipeline that M2a's metadata, covers and classification will
   fetch through. What a provider answers is cached in the database, including
   "nothing under this key", so a second run over an unchanged library asks the
