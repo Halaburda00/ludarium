@@ -34,6 +34,14 @@ shape moves.
 
 ### Added
 
+- Every game IGDB has matched now carries its summary, its release date and
+  year, and the companies behind it: developer, publisher, porting and support
+  studios. They are asked for in the same run as matching and covers, and kept
+  for a month. Measured on a real library: of 587 matched games, 587 got a
+  summary, 584 a release date and 575 a publisher. A year or summary set by hand
+  still wins. When two cards are folded into one, their companies move with
+  them, and an undo puts them back. Nothing shows them yet: the work detail view
+  does (#54).
 - Search. Type in the field above the grid, and once you pause the library
   shows only the games whose title contains what you typed, anywhere in it,
   ignoring case, accents and trademark signs as the ordering does. The name a
