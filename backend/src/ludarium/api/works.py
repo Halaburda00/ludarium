@@ -22,7 +22,7 @@ from sqlalchemy import literal, select, tuple_
 
 from ludarium.auth import CurrentSession
 from ludarium.db import SessionDep
-from ludarium.enums import EntityType, ImageKind, ItemKind, PlayStatus
+from ludarium.enums import EntityType, ImageKind, ItemKind, PlayStatus, SteamRating
 from ludarium.models import (
     Account,
     Entitlement,
@@ -46,6 +46,10 @@ MAX_CURSOR: Final = 256
 CURSOR_VERSION: Final = 2
 # Where Metacritic scores come from, and whose page each one links to.
 SCORE_SOURCE: Final = "rawg"
+# Whose store page a Steam review score links to, and where on it the reviews
+# are: the anchor the store's own "All Reviews" link uses.
+STEAM: Final = "steam"
+REVIEWS_ANCHOR: Final = "#app_reviews_hash"
 
 router = APIRouter(prefix="/works", tags=["works"])
 
@@ -75,6 +79,19 @@ class Score(BaseModel):
     value: int
     source_name: str
     source_url: str
+
+
+class SteamReviews(BaseModel):
+    """The Steam store's verdict on one of the work's apps, and where to read the reviews.
+
+    `rating` is the verdict's value rather than Steam's label, which the store
+    translates: the client names it in the user's language.
+    """
+
+    rating: SteamRating
+    percent: int
+    count: int
+    url: str
 
 
 class Cover(BaseModel):
@@ -107,6 +124,8 @@ class WorkSummary(BaseModel):
     # Null where there is no score, and where there is one but nothing to link
     # it to: a score without its attribution is not shown at all.
     metacritic: Score | None
+    # Null where the store has no verdict, or none has been asked for yet.
+    steam_reviews: SteamReviews | None
     # Null until the cover step has fetched one.
     cover: Cover | None
     entitlements: list[EntitlementSummary]
@@ -238,6 +257,7 @@ async def listing(
 
     copies = await _entitlements(session, [work.id for work, _, _ in rows], user_id)
     source = await session.scalar(select(Provider).where(Provider.key == SCORE_SOURCE))
+    steam = await session.scalar(select(Provider).where(Provider.key == STEAM))
     covers = await _covers(session, [work.id for work, _, _ in rows])
     # A work with nothing live pointing at it is dropped rather than shown
     # empty-handed: a row that contradicts the endpoint's own rule — in the list
@@ -251,7 +271,14 @@ async def listing(
     works = [(work, state, held) for work, state, held in rows if copies.get(work.id)]
     return WorksPage(
         works=[
-            _describe(work, state, copies[work.id], _score(work, source, held), covers.get(work.id))
+            _describe(
+                work,
+                state,
+                copies[work.id],
+                _score(work, source, held),
+                _steam_reviews(work, steam),
+                covers.get(work.id),
+            )
             for work, state, held in works
         ],
         # From the last row read, not the last row kept, so the listing always
@@ -271,11 +298,26 @@ def _score(work: Work, source: Provider | None, slug: str | None) -> Score | Non
     return Score(value=work.metacritic_score, source_name=source.display_name, source_url=url)
 
 
+def _steam_reviews(work: Work, steam: Provider | None) -> SteamReviews | None:
+    rating, percent, count = (
+        work.steam_review_rating,
+        work.steam_review_percent,
+        work.steam_review_count,
+    )
+    page = _store_url(steam.store_url_template, work.steam_review_appid) if steam else None
+    # All four or nothing: the step writes them together, and a user overriding
+    # one without the others leaves a verdict that no longer names its app.
+    if rating is None or percent is None or count is None or page is None:
+        return None
+    return SteamReviews(rating=rating, percent=percent, count=count, url=page + REVIEWS_ANCHOR)
+
+
 def _describe(
     work: Work,
     state: UserWorkState | None,
     copies: list[EntitlementSummary],
     metacritic: Score | None,
+    steam_reviews: SteamReviews | None,
     cover: Cover | None,
 ) -> WorkSummary:
     return WorkSummary(
@@ -294,6 +336,7 @@ def _describe(
         playtime_minutes=state.playtime_minutes if state else 0,
         last_played_at=state.last_played_at if state else None,
         metacritic=metacritic,
+        steam_reviews=steam_reviews,
         cover=cover,
         entitlements=copies,
     )

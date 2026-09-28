@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium import steps as steps_module
 from ludarium.api import works as works_module
-from ludarium.enums import EntitlementOrigin, EntityType, ImageKind, WorkLinkRole
+from ludarium.enums import EntitlementOrigin, EntityType, ImageKind, SteamRating, WorkLinkRole
 from ludarium.models import (
     Account,
     AppUser,
@@ -669,6 +669,45 @@ async def test_two_slugs_for_one_work_do_not_list_it_twice(
 
     assert titles(body) == LIBRARY
     assert metacritic(synced, "Portal 2")["source_url"] == "https://rawg.io/games/portal-2"
+
+
+async def reviewed(session: AsyncSession, title: str, appid: str | None = "620") -> None:
+    work = await session.scalar(select(Work).where(Work.title == title))
+    assert work is not None
+    work.steam_review_rating = SteamRating.OVERWHELMINGLY_POSITIVE
+    work.steam_review_percent = 98
+    work.steam_review_count = 390695
+    work.steam_review_appid = appid
+    await session.commit()
+
+
+def steam_reviews(client: TestClient, title: str) -> Any:
+    body = client.get("/api/works").json()
+    return next(work for work in body["works"] if work["title"] == title)["steam_reviews"]
+
+
+async def test_a_steam_score_links_to_the_reviews_on_its_store_page(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    await reviewed(session, "Portal 2")
+
+    assert steam_reviews(synced, "Portal 2") == {
+        "rating": "overwhelmingly_positive",
+        "percent": 98,
+        "count": 390695,
+        "url": "https://store.steampowered.com/app/620#app_reviews_hash",
+    }
+    assert steam_reviews(synced, "Dota 2") is None
+
+
+async def test_a_steam_score_that_names_no_app_is_not_served(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    """The four columns are one verdict about one app; without the app it is nobody's."""
+
+    await reviewed(session, "Portal 2", appid=None)
+
+    assert steam_reviews(synced, "Portal 2") is None
 
 
 async def covered(
