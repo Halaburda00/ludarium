@@ -904,12 +904,16 @@ def _decoded(model: type[Base], values: Mapping[str, Any]) -> dict[str, Any]:
     return decoded
 
 
+# Left out of a restored row: the id, which is new, and the folded keys, which
+# the models' validators compute from the titles and nothing sets directly.
+NOT_RESTORED: Final = frozenset({"id", "sort_key", "title_key", "provider_title_key"})
+
+
 def _restore[M: Base](model: type[M], snapshot: Mapping[str, Any]) -> M:
     """A new row from a snapshot, under a new id where the table has one.
 
-    `sort_key` is left out because nothing assigns it: `sort_title`'s validator
-    derives it.
+    See `NOT_RESTORED` for what is not copied back, and why.
     """
 
-    values = {key: value for key, value in snapshot.items() if key not in ("id", "sort_key")}
+    values = {key: value for key, value in snapshot.items() if key not in NOT_RESTORED}
     return model(**_decoded(model, values))

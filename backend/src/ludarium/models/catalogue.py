@@ -55,6 +55,9 @@ class Work(Base):
     # Matcher logic, `ludamatch`'s (MIT, M2). Nullable because nothing in M1
     # writes it, and writing it here would put matcher code in the wrong repo.
     normalised_title: Mapped[str | None]
+    # `title` folded for search, kept in step by the validator below as
+    # `sort_key` is, and rewritten at startup if the fold has moved (#53).
+    title_key: Mapped[str]
     # Null until a source has classified the work (#41). A default of `game`
     # made "nobody has looked" and "a game" the same value, and the matcher
     # must be able to skip the first: a playtest is not what a stub looks like.
@@ -88,6 +91,11 @@ class Work(Base):
     @validates("sort_title")
     def _keep_the_sort_key_in_step(self, _field: str, value: str) -> str:
         self.sort_key = titles.sort_key(value)
+        return value
+
+    @validates("title")
+    def _keep_the_title_key_in_step(self, _field: str, value: str) -> str:
+        self.title_key = titles.search_key(value)
         return value
 
 

@@ -18,7 +18,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import literal, select, tuple_
+from sqlalchemy import ColumnElement, literal, select, tuple_
 
 from ludarium.auth import CurrentSession
 from ludarium.db import SessionDep
@@ -34,10 +34,13 @@ from ludarium.models import (
     Work,
 )
 from ludarium.queries import owned_by
+from ludarium.titles import search_key
 
 DEFAULT_LIMIT: Final = 100
 MAX_LIMIT: Final = 500
 MAX_CURSOR: Final = 256
+# Longer than any title, so nothing a person types is refused.
+MAX_QUERY: Final = 200
 # Carried inside every cursor, so one issued under an older ordering is refused
 # rather than read under this one. The cursors before it were `[sort_title, id]`
 # — the same shape as `[sort_key, id]`, and a position in a different order.
@@ -196,6 +199,7 @@ async def listing(
     # Bounded like every other input a caller controls: the cursor is decoded
     # before it is judged, and there is no reason to decode a megabyte first.
     cursor: Annotated[str | None, Query(max_length=MAX_CURSOR)] = None,
+    q: Annotated[str | None, Query(max_length=MAX_QUERY)] = None,
 ) -> WorksPage:
     """One page, keyed on `(sort_key, id)` rather than an offset.
 
@@ -208,6 +212,10 @@ async def listing(
     The key and not `sort_title` itself, because the database compares bytes:
     "ARC Raiders" would file ahead of "Amnesia", and a trademark sign would split
     one series into two blocks (ADR-0018).
+
+    `q` narrows the listing without changing its order or its cursor: a
+    filtered page is still keyed on `(sort_key, id)`, so a search pages as the
+    library does.
     """
 
     user_id = record.user_id
@@ -247,6 +255,9 @@ async def listing(
         # a count and without handing the client an empty page to discover it.
         .limit(limit + 1)
     )
+    wanted = search_key(q) if q is not None else ""
+    if wanted:
+        page = page.where(_matches(wanted, user_id))
     if cursor is not None:
         key, work_id = _after(cursor)
         page = page.where(tuple_(Work.sort_key, Work.id) > tuple_(literal(key), literal(work_id)))
@@ -289,6 +300,31 @@ async def listing(
         # up again on the next refresh; a truncated library does not.
         next_cursor=_cursor(rows[-1][0]) if has_more else None,
     )
+
+
+def _matches(wanted: str, user_id: int) -> ColumnElement[bool]:
+    """A work whose title holds `wanted`, or one of whose live copies' store names does.
+
+    Both folded as the sort key is, so a result set is matched by the rule it
+    is ordered by (#53). The store's name counts because it is a different
+    field on purpose (rule 5): someone searching for the name they saw in
+    Steam should find the game under IGDB's. A removed copy's name does not,
+    as it does not put the work in the list either.
+
+    A substring, not a word prefix: "itcher" finds The Witcher. Escaped, so a
+    `%` or `_` in the query is a character to find rather than a wildcard.
+    """
+
+    named = (
+        select(EntitlementWork.work_id)
+        .join(Entitlement, Entitlement.id == EntitlementWork.entitlement_id)
+        .where(
+            EntitlementWork.work_id == Work.id,
+            *owned_by(user_id),
+            Entitlement.provider_title_key.contains(wanted, autoescape=True),
+        )
+    )
+    return Work.title_key.contains(wanted, autoescape=True) | named.exists()
 
 
 def _score(work: Work, source: Provider | None, slug: str | None) -> Score | None:

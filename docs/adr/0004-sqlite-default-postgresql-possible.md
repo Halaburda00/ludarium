@@ -1,6 +1,7 @@
 # ADR-0004 SQLite by default, PostgreSQL kept possible
 
-Status: accepted, 2026-08-10
+Status: accepted, 2026-08-10. Its choice for search is amended by ADR-0028: a
+substring over titles folded as the sort key is, the same on both engines.
 
 ## Context
 

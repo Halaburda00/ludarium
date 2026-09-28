@@ -208,6 +208,10 @@ export interface paths {
          *     The key and not `sort_title` itself, because the database compares bytes:
          *     "ARC Raiders" would file ahead of "Amnesia", and a trademark sign would split
          *     one series into two blocks (ADR-0018).
+         *
+         *     `q` narrows the listing without changing its order or its cursor: a
+         *     filtered page is still keyed on `(sort_key, id)`, so a search pages as the
+         *     library does.
          */
         get: operations["listing_api_works_get"];
         put?: never;
@@ -822,6 +826,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 cursor?: string | null;
+                q?: string | null;
             };
             header?: never;
             path?: never;

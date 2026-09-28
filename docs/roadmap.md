@@ -158,10 +158,10 @@ until there is metadata to show. It is not purely a consumer, and the estimate
 says so: search needs a backend of its own.
 
 - [x] Virtualised grid with covers and lazy loading
-- [ ] Search. The only item here with a backend half — `docs/schema.md`
-      specifies FTS5 on SQLite and `pg_trgm` on PostgreSQL, and the query has
-      to union `work.title` with `entitlement.provider_title` and still page on
-      the cursor the first item of M2a fixes. Counted as the expensive one
+- [x] Search. The only item here with a backend half: the query matches
+      `work.title` and `entitlement.provider_title` and still pages on the
+      cursor the first item of M2a fixes. A substring over the sort key's fold
+      rather than the FTS5 first planned (ADR-0028)
 - [ ] Work detail view
 - [ ] Dark mode
 

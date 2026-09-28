@@ -34,6 +34,13 @@ shape moves.
 
 ### Added
 
+- Search. Type in the field above the grid, and once you pause the library
+  shows only the games whose title contains what you typed, anywhere in it,
+  ignoring case, accents and trademark signs as the ordering does. The name a
+  store gives a game counts too, so a game IGDB renamed is still found under
+  the name you saw on Steam or Epic. Results page like the library. The search
+  is kept in the address, so a reload or the back button keeps it.
+  `GET /api/works` takes it as `q`.
 - The library is a grid of covers instead of a table. Only the cards on
   screen, and a few rows either side, are rendered, so a library of thousands
   scrolls like one of ten. The next page is asked for before the end of what

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -200,10 +201,17 @@ export function useEnrichment(): UseQueryResult<SyncOverview, ApiError> {
  * invalidating `worksKey` refetches what the user is actually looking at rather
  * than dropping them back to the top.
  */
-export function useWorks(): UseInfiniteQueryResult<InfiniteData<WorksPage>, ApiError> {
+export function useWorks(
+  search = '',
+): UseInfiniteQueryResult<InfiniteData<WorksPage>, ApiError> {
   return useInfiniteQuery({
-    queryKey: worksKey,
-    queryFn: ({ pageParam, signal }) => api<WorksPage>(pageUrl(pageParam), { signal }),
+    // Under `worksKey`, so a sync invalidating the library refetches a search
+    // too.
+    queryKey: [...worksKey, search],
+    queryFn: ({ pageParam, signal }) => api<WorksPage>(pageUrl(pageParam, search), { signal }),
+    // The last answer stays on screen while the next search is asked, rather
+    // than the grid giving way to "Loading…" on every letter typed.
+    placeholderData: keepPreviousData,
     // Annotated, and the rest inferred. A bare `null` makes TypeScript infer the
     // page param as the type `null`, which then contradicts a
     // `getNextPageParam` returning a string; the five explicit generics this
@@ -219,9 +227,13 @@ export function useWorks(): UseInfiniteQueryResult<InfiniteData<WorksPage>, ApiE
 
 type Cursor = string | null
 
-function pageUrl(cursor: Cursor): string {
+function pageUrl(cursor: Cursor, search: string): string {
   // Through `URLSearchParams` rather than by concatenation: the cursor is
-  // base64url today and opaque by design, so nothing here should depend on it
-  // staying safe to paste into a query string.
-  return cursor === null ? '/api/works' : `/api/works?${new URLSearchParams({ cursor })}`
+  // base64url today and opaque by design, and a search is whatever was typed,
+  // so nothing here should depend on either being safe to paste in.
+  const params = new URLSearchParams()
+  if (search) params.set('q', search)
+  if (cursor !== null) params.set('cursor', cursor)
+  const query = params.toString()
+  return query ? `/api/works?${query}` : '/api/works'
 }

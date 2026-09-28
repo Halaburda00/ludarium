@@ -244,6 +244,7 @@ than a creation with a different code path.
 | `id` | INTEGER | no | PK | |
 | `title` | TEXT | no | | Canonical title from the IGDB anchor once `is_matched`; on a stub it is a copy of the primary entitlement's `provider_title`. Store names are not a *source* here — they live on `entitlement.provider_title` |
 | `sort_title` | TEXT | no | | Leading article moved, so "The Witcher 3" files under W. Resolved and settable by hand, so it keeps the case and spelling it was given. Display logic, and it stays in Ludarium |
+| `title_key` | TEXT | no | | `title` folded by `titles.search_key`, which is the `sort_key` fold on purpose: search matches by the rule the grid orders by. Derived by the model, rewritten at startup like `sort_key`, and not a provenance field (ADR-0028) |
 | `sort_key` | TEXT | no | | `sort_title` folded for comparison — case, accents, `™`/`®`/`©`, runs of whitespace — and what the grid orders by; drives keyset pagination. Derived by the model on every assignment to `sort_title`, never assigned directly, and not a provenance field: nothing asserts it. `COLLATE "C"` on PostgreSQL so it compares by code point as SQLite does, and rewritten at startup wherever the running code would compute it differently (ADR-0018) |
 | `normalised_title` | TEXT | yes | | Matcher normalisation output: lowercased, punctuation and edition markers stripped, roman numerals folded. Nullable because it is `ludamatch`'s output (MIT, separate repository) and nothing writes it before M2 — populating it here would put matcher code in the wrong repository, to be extracted later. `sort_title` is the display-side counterpart and stays `NOT NULL` |
 | `item_kind` | TEXT | yes | | `ItemKind`. Null until a source has classified the work: an unclassified stub is not a game, and the matcher takes only what is known to be one (ADR-0020) |
@@ -410,6 +411,7 @@ What the user actually owns, on one account. This is the row a sync touches.
 | `origin` | TEXT | no | `'sync'` | `EntitlementOrigin`. `manual` is immutable to sync (rule 2) |
 | `provider_item_id` | TEXT | yes | | Steam appid, GOG product id. Null for `manual` |
 | `provider_title` | TEXT | no | | Exactly as the platform returned it, always requested in English. Never overwritten by metadata; it is the matcher's input and the fallback display title |
+| `provider_title_key` | TEXT | no | | `provider_title` folded as `work.title_key` is, so a search for the store's name finds the game (ADR-0028) |
 | `ownership_type` | TEXT | no | `'owned'` | `OwnershipType` |
 | `item_kind` | TEXT | yes | | As reported by the provider; the resolved value lives on `work` |
 | `playtime_minutes` | INTEGER | yes | | Playtime on this one account. Where two sources report it for the same entitlement — the platform API and the local agent — the higher figure wins, because the lower one is stale |
@@ -955,7 +957,7 @@ through `EXISTS` over `entitlement_work` → `entitlement`.
 | Owned on several platforms (`platform_count >= 2`) | `user_work_state (user_id, platform_count)` |
 | Favourites / hidden | `user_work_state (user_id, is_favourite) WHERE is_favourite` |
 | DLC folding | `work (parent_work_id) WHERE parent_work_id IS NOT NULL` |
-| Search (M2) | SQLite: FTS5 virtual table `work_fts(title, normalised_title, summary)` over `work` columns only. PostgreSQL: `pg_trgm` GIN on `work.normalised_title`. Store titles are not in it — `provider_title` lives on `entitlement`, and searching it is a separate query against `entitlement (provider_title)`, unioned into the results |
+| Search | None. A substring of `work.title_key`, or of a live copy's `entitlement.provider_title_key`, which a leading wildcard keeps off any B-tree; 14 ms at 20 000 works when nothing matches. A `pg_trgm` GIN on both key columns if a library ever needs one (ADR-0028) |
 | Default grid order | `work (sort_key, id)` — keyset pagination for the virtualised grid (ADR-0018) |
 
 ### Structural indexes
@@ -968,7 +970,6 @@ through `EXISTS` over `entitlement_work` → `entitlement`.
 | `entitlement_work` | `UNIQUE (entitlement_id) WHERE role = 'primary'` | "Exactly one `primary` per entitlement" is the single source of truth for which work an entitlement belongs to, so it is an index rather than a convention — the same reasoning as the `is_effective` guard below |
 | `work_platform` | `(platform_id, work_id)` | Reverse of the PK, matching `work_genre`. Platform overlap is a matcher feature, so it is read per candidate pair, not only for display |
 | `work_company` | `(company_id, work_id, role)` | Same, for the publisher feature |
-| `entitlement` | `(provider_title)` | The store-title half of search, which `work_fts` cannot cover |
 | `field_provenance` | `UNIQUE (entity_type, entity_id, field, source_kind, source_ref)` | One row per source per field |
 | `field_provenance` | `UNIQUE (entity_type, entity_id, field) WHERE is_effective` | Both the lookup path for the resolver and the detail view, and the guard on the flag. `is_effective` is a denormalisation; without this index a half-finished resolve could leave two winners for one field and nothing would notice |
 | `field_provenance` | `UNIQUE (entity_type, entity_id, field) WHERE sole_source` | The `single_source` strategy, which is a property of the registry rather than of any column. `record()` writes the flag from `STRATEGIES`, so the predicate names no fields and cannot drift from them (ADR-0017) |

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium import titles
 from ludarium.enums import LicenceClass, ProviderKind, SourceKind
-from ludarium.models import Provider, Work
+from ludarium.models import Entitlement, Provider, Work
 
 logger = logging.getLogger(__name__)
 
@@ -118,16 +118,17 @@ async def seed_providers(session: AsyncSession) -> None:
     await session.commit()
 
 
-async def reconcile_sort_keys(session: AsyncSession) -> int:
-    """Rewrite every stored `sort_key` the running code would not compute. Safe on every start.
+async def reconcile_folded_keys(session: AsyncSession) -> int:
+    """Rewrite every stored folded key the running code would not compute. Safe on every start.
 
     The keyset under `GET /api/works` is correct only while each stored key is
-    what `titles.sort_key` returns now, and three things can make it otherwise
+    what `titles.sort_key` returns now, and search only while each title key is
+    what `titles.search_key` returns. Three things can make them otherwise
     without an error anywhere. A newer Python brings a newer Unicode database,
     which folds characters the older one did not know — measured between 3.13
     and 3.14, 95 code points, every one unassigned in the older version, so a
     title is affected only if it holds a character that did not exist when its
-    key was computed. A bulk `UPDATE` bypasses the model's validator. And a
+    key was computed. A bulk `UPDATE` bypasses the models' validators. And a
     change to the fold can ship without the migration that recomputes the
     column.
 
@@ -140,17 +141,31 @@ async def reconcile_sort_keys(session: AsyncSession) -> int:
     how the instance was changed, and healing it silently would hide that.
     """
 
-    rows = await session.execute(select(Work.id, Work.sort_title, Work.sort_key))
-    stale = [
-        {"id": work_id, "sort_key": fresh}
-        for work_id, sort_title, stored in rows
-        if (fresh := titles.sort_key(sort_title)) != stored
-    ]
-    if stale:
-        await session.execute(update(Work), stale)
-        logger.warning(
-            "sort keys rewritten because the running code computes them differently: %d",
-            len(stale),
-        )
+    rewritten = 0
+    for model, source, key, fold in (
+        (Work, Work.sort_title, Work.sort_key, titles.sort_key),
+        (Work, Work.title, Work.title_key, titles.search_key),
+        (
+            Entitlement,
+            Entitlement.provider_title,
+            Entitlement.provider_title_key,
+            titles.search_key,
+        ),
+    ):
+        rows = await session.execute(select(model.id, source, key))
+        stale = [
+            {"id": row_id, key.key: fresh}
+            for row_id, value, stored in rows
+            if (fresh := fold(value)) != stored
+        ]
+        if stale:
+            await session.execute(update(model), stale)
+            logger.warning(
+                "%s.%s rewritten because the running code folds it differently: %d",
+                model.__tablename__,
+                key.key,
+                len(stale),
+            )
+        rewritten += len(stale)
     await session.commit()
-    return len(stale)
+    return rewritten

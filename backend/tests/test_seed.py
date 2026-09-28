@@ -3,13 +3,14 @@ import logging
 from datetime import UTC, datetime
 
 import pytest
+from conftest import make_account
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.db import Database
 from ludarium.enums import LicenceClass, ProviderKind, SourceKind, SyncStatus
-from ludarium.models import Provider, Work
-from ludarium.seed import ProviderSpec, reconcile_sort_keys, seed_providers
+from ludarium.models import Entitlement, Provider, Work
+from ludarium.seed import ProviderSpec, reconcile_folded_keys, seed_providers
 
 
 def test_every_provider_column_is_either_seeded_or_runtime() -> None:
@@ -174,7 +175,7 @@ async def test_a_key_the_running_code_would_not_compute_is_rewritten(
     await session.commit()
 
     with caplog.at_level(logging.WARNING, logger="ludarium.seed"):
-        rewritten = await reconcile_sort_keys(session)
+        rewritten = await reconcile_folded_keys(session)
 
     keys = dict((await session.execute(select(Work.title, Work.sort_key))).all())
     assert rewritten == 1
@@ -182,7 +183,7 @@ async def test_a_key_the_running_code_would_not_compute_is_rewritten(
         "ARC Raiders": "arc raiders",
         "Batman™: Arkham Knight": "batman: arkham knight",
     }
-    assert "sort keys rewritten" in caplog.text
+    assert "work.sort_key rewritten" in caplog.text
 
 
 async def test_keys_that_already_match_are_left_alone_and_unreported(
@@ -194,7 +195,26 @@ async def test_keys_that_already_match_are_left_alone_and_unreported(
     await session.commit()
 
     with caplog.at_level(logging.WARNING, logger="ludarium.seed"):
-        rewritten = await reconcile_sort_keys(session)
+        rewritten = await reconcile_folded_keys(session)
 
     assert rewritten == 0
     assert caplog.text == ""
+
+
+async def test_stale_title_keys_are_rewritten_too(session: AsyncSession) -> None:
+    """Search compares these, and a bulk `UPDATE` of a title skips the validator."""
+
+    account = await make_account(session)
+    work = Work(title="Brütal Legend", sort_title="Brütal Legend")
+    session.add(work)
+    session.add(Entitlement(account_id=account.id, provider_title="Brütal Legend™"))
+    await session.commit()
+    await session.execute(text("UPDATE work SET title_key = 'stale'"))
+    await session.execute(text("UPDATE entitlement SET provider_title_key = 'stale'"))
+    await session.commit()
+
+    rewritten = await reconcile_folded_keys(session)
+
+    assert rewritten == 2
+    assert await session.scalar(select(Work.title_key)) == "brutal legend"
+    assert await session.scalar(select(Entitlement.provider_title_key)) == "brutal legend"

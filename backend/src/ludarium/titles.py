@@ -57,3 +57,15 @@ def sort_key(value: str) -> str:
     folded = unicodedata.normalize("NFKD", decomposed.casefold())
     bare = "".join(character for character in folded if not unicodedata.combining(character))
     return " ".join(bare.split())
+
+
+def search_key(value: str) -> str:
+    """A title as search compares it: the fold `sort_key` applies, on purpose the same one.
+
+    Two folds would sort a result set by one rule and match it by another — a
+    title found under "brutal" and filed apart from "Brütal Legend". This is
+    not the matcher's normalisation either: search answers "did the user mean
+    this one", and leaves punctuation and word order alone.
+    """
+
+    return sort_key(value)

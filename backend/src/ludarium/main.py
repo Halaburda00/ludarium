@@ -12,7 +12,7 @@ from ludarium.api import sync as sync_api
 from ludarium.auth import bootstrap_user, current_session
 from ludarium.config import Settings, get_settings
 from ludarium.db import Database
-from ludarium.seed import reconcile_sort_keys, seed_providers
+from ludarium.seed import reconcile_folded_keys, seed_providers
 from ludarium.steps import Scheduled
 
 # Bounded on purpose, and not only for the user waiting on onboarding: a run
@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 # Before the first request rather than lazily: the listing pages
                 # on these keys, and one computed by a different Unicode database
                 # would be served in the wrong place until something rewrote it.
-                await reconcile_sort_keys(session)
+                await reconcile_folded_keys(session)
         except OperationalError as exc:
             # Only the ones it can actually diagnose: no schema at all, or one
             # older than the code. Startup reads `work.sort_key`, so a database

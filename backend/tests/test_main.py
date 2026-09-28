@@ -44,9 +44,9 @@ def test_startup_rewrites_a_stale_sort_key_before_serving(app: FastAPI, settings
         with engine.begin() as connection:
             connection.execute(
                 text(
-                    "INSERT INTO work (id, title, sort_title, sort_key) VALUES "
+                    "INSERT INTO work (id, title, sort_title, sort_key, title_key) VALUES "
                     "(1, 'Batman™: Arkham Knight', 'Batman™: Arkham Knight', "
-                    "'batmantm: arkham knight')"
+                    "'batmantm: arkham knight', 'batman: arkham knight')"
                 )
             )
         with TestClient(app):
