@@ -26,6 +26,7 @@ from ludarium.providers.epic import EpicCatalog
 from ludarium.providers.igdb import IgdbClient, IgdbCredentials
 from ludarium.providers.rawg import RawgClient
 from ludarium.providers.steam_store import SteamStoreClient
+from ludarium.reviews import score_steam_reviews
 from ludarium.tokens import DatabaseTokenStore
 
 logger = logging.getLogger(__name__)
@@ -72,8 +73,14 @@ def _score(context: StepContext) -> Step | None:
     return score_matched_works(RawgClient(key.get_secret_value(), context.http))
 
 
+def _store(context: StepContext) -> Step:
+    store = SteamStoreClient(context.http)
+    # One run of one endpoint, so one status: a store outage fails both.
+    return chained(classify_steam_items(store), score_steam_reviews(store))
+
+
 STEPS: Final[Mapping[str, StepBuilder]] = {
-    "steam_store": lambda context: classify_steam_items(SteamStoreClient(context.http)),
+    "steam_store": _store,
     "igdb": _anchor,
     "rawg": _score,
 }
@@ -84,9 +91,10 @@ STEPS: Final[Mapping[str, StepBuilder]] = {
 # asked only about works matching has anchored.
 FOLLOWS: Final[Mapping[str, tuple[str, ...]]] = {
     "steam": ("steam_store", "igdb", "rawg"),
-    # Epic states each item's kind in the library itself (#64), so there is no
-    # classification step to wait for.
-    "epic": ("igdb", "rawg"),
+    # Epic states each item's kind in the library itself (#64), so the store
+    # comes after matching rather than before: its review scores are for the
+    # Steam appids IGDB has just given the Epic games.
+    "epic": ("igdb", "steam_store", "rawg"),
 }
 
 
