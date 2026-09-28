@@ -9,7 +9,7 @@ from sqlalchemy.dialects import postgresql
 
 from ludarium.config import Settings
 from ludarium.models import Work
-from ludarium.titles import sort_key
+from ludarium.titles import search_key, sort_key
 
 
 def table_names(url: str) -> set[str]:
@@ -374,6 +374,38 @@ def test_the_backfill_folds_every_title_and_loses_nothing_that_points_at_one(
     assert counts == dict.fromkeys(REFERENCING_WORK, len(TITLES_BEFORE_THE_KEY))
 
 
+def test_the_search_backfill_folds_both_titles_as_the_code_does(settings: Settings) -> None:
+    """The copy of `search_key` in `d72242621625`, held to the function, over the same rows.
+
+    It rebuilds `entitlement` as well as `work`, so the rows pointing at either
+    are counted after it too.
+    """
+
+    config = alembic_config(settings.database_url)
+    command.upgrade(config, "452d07adf8a5")
+    seed_works_before_the_key(settings.database_url)
+
+    command.upgrade(config, "head")
+
+    engine = create_engine(sync_url(settings.database_url))
+    try:
+        with engine.connect() as connection:
+            works = dict(connection.execute(text("SELECT title, title_key FROM work")).all())
+            copies = dict(
+                connection.execute(
+                    text("SELECT provider_title, provider_title_key FROM entitlement")
+                ).all()
+            )
+            links = connection.scalar(text("SELECT count(*) FROM entitlement_work"))
+    finally:
+        engine.dispose()
+
+    expected = {title: search_key(title) for title in TITLES_BEFORE_THE_KEY}
+    assert works == expected
+    assert copies == expected
+    assert links == len(TITLES_BEFORE_THE_KEY)
+
+
 def test_the_revision_gives_postgresql_the_collation_the_model_declares(settings: Settings) -> None:
     """The half of this schema no SQLite test reaches, and the half a real install gets.
 
@@ -456,8 +488,9 @@ def test_a_playtest_is_accepted_and_a_downgrade_takes_it_back_out(settings: Sett
     run_sql(
         settings.database_url,
         "UPDATE work SET item_kind = 'playtest' WHERE id = 2",
-        "INSERT INTO entitlement (id, account_id, provider_item_id, provider_title, item_kind) "
-        "VALUES (1, 1, '1611740', 'BattleBit Remastered Playtest', 'playtest')",
+        "INSERT INTO entitlement (id, account_id, provider_item_id, provider_title, "
+        "provider_title_key, item_kind) VALUES (1, 1, '1611740', "
+        "'BattleBit Remastered Playtest', 'battlebit remastered playtest', 'playtest')",
         "INSERT INTO field_provenance (entity_type, entity_id, field, source_kind, source_ref, "
         "value, is_effective, observed_at) VALUES ('work', 2, 'item_kind', 'platform_api', "
         "'steam_store', '\"playtest\"', 1, CURRENT_TIMESTAMP)",

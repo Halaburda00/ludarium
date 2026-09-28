@@ -3,8 +3,9 @@ from typing import Any
 
 from sqlalchemy import JSON, CheckConstraint, ForeignKey, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
+from ludarium import titles
 from ludarium.enums import EntitlementOrigin, ItemKind, MatchLayer, OwnershipType, WorkLinkRole
 from ludarium.models.base import Base
 from ludarium.models.catalogue import Edition, Work
@@ -60,6 +61,9 @@ class Entitlement(Base):
     # Exactly as the platform returned it. Never overwritten by metadata: it is
     # the matcher's input and the fallback display title.
     provider_title: Mapped[str]
+    # Folded for search, so the name someone saw in the store finds the game
+    # (#53). Derived by the validator below, never assigned directly.
+    provider_title_key: Mapped[str]
     ownership_type: Mapped[OwnershipType] = mapped_column(
         enum_column(OwnershipType, "ownership_type"),
         default=OwnershipType.OWNED,
@@ -89,6 +93,11 @@ class Entitlement(Base):
     account: Mapped[Account] = relationship(lazy="raise_on_sql")
     edition: Mapped[Edition | None] = relationship(lazy="raise_on_sql")
     removed_by_run: Mapped[SyncRun | None] = relationship(lazy="raise_on_sql")
+
+    @validates("provider_title")
+    def _keep_the_title_key_in_step(self, _field: str, value: str) -> str:
+        self.provider_title_key = titles.search_key(value)
+        return value
 
 
 class EntitlementWork(Base):
