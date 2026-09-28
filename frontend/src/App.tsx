@@ -5,6 +5,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import RequireSession from '@/components/RequireSession'
 import { createClient } from '@/lib/client'
+import { useAppliedTheme } from '@/lib/theme'
 import Library from '@/routes/Library'
 import WorkPage from '@/routes/WorkPage'
 import Login from '@/routes/Login'
@@ -31,6 +32,7 @@ export default function App() {
   // pass, which under StrictMode is visible immediately and in production is a
   // slow leak of everything already fetched.
   const [client] = useState(createClient)
+  useAppliedTheme()
   return (
     <QueryClientProvider client={client}>
       <BrowserRouter>

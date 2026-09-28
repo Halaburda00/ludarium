@@ -239,7 +239,9 @@ function Cover({ work }: { work: WorkSummary }) {
   const cover = work.cover
   return (
     <div
-      className="overflow-hidden rounded-md bg-muted"
+      // A hairline in either theme: a white cover on the light ground and a
+      // black one on the dark have no edge of their own.
+      className="overflow-hidden rounded-md bg-muted ring-1 ring-foreground/10"
       style={{ aspectRatio: `${COVER_WIDTH} / ${COVER_HEIGHT}` }}
     >
       {cover ? (

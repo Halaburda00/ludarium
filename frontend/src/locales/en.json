@@ -117,6 +117,12 @@
     "very_positive": "Very Positive",
     "overwhelmingly_positive": "Overwhelmingly Positive"
   },
+  "theme": {
+    "label": "Theme",
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark"
+  },
   "error": {
     "offline": "Could not reach the server.",
     "unexpected": "Something went wrong."
