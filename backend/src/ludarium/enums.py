@@ -165,3 +165,17 @@ class CompanyRole(StrEnum):
     PUBLISHER = "publisher"
     PORTING = "porting"
     SUPPORT = "support"
+
+
+class SteamRating(StrEnum):
+    """The Steam store's verdict on an app's user reviews, worst first, as the store orders it."""
+
+    OVERWHELMINGLY_NEGATIVE = "overwhelmingly_negative"
+    VERY_NEGATIVE = "very_negative"
+    NEGATIVE = "negative"
+    MOSTLY_NEGATIVE = "mostly_negative"
+    MIXED = "mixed"
+    MOSTLY_POSITIVE = "mostly_positive"
+    POSITIVE = "positive"
+    VERY_POSITIVE = "very_positive"
+    OVERWHELMINGLY_POSITIVE = "overwhelmingly_positive"
