@@ -34,6 +34,13 @@ shape moves.
 
 ### Added
 
+- Dark mode. The library follows the system's light or dark setting, and
+  changes with it, until you choose one yourself in the Theme menu at the top
+  of the library or of a game's page. The choice is remembered in this browser,
+  and choosing System again goes back to following it. The theme is set before
+  the page first draws, so a dark library does not flash white on load. Covers
+  get a hairline edge, so a black cover on the dark background, or a white one
+  on the light, still reads as a card.
 - A page for each game, opened from its title in the grid. It shows the cover,
   release date, summary, the companies behind it grouped by role, both scores
   with their links, and every copy you own. Each copy has its platform, the name
