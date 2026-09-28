@@ -41,6 +41,8 @@ export type WorkSummary = Schemas['WorkSummary']
 export type Score = Schemas['Score']
 export type SteamReviews = Schemas['SteamReviews']
 export type WorksPage = Schemas['WorksPage']
+export type WorkDetail = Schemas['WorkDetail']
+export type Credit = Schemas['Credit']
 export type Connection = Schemas['ConnectRequest']
 export type Credentials = Schemas['LoginRequest']
 
@@ -236,4 +238,20 @@ function pageUrl(cursor: Cursor, search: string): string {
   if (cursor !== null) params.set('cursor', cursor)
   const query = params.toString()
   return query ? `/api/works?${query}` : '/api/works'
+}
+
+/**
+ * One work's page. Under `worksKey`, so a sync or a finished enrichment step
+ * refreshes it as it refreshes the grid.
+ *
+ * A 404 is an answer, not an outage: the work is not in the library, and
+ * asking again will not put it there.
+ */
+export function useWork(id: number, enabled = true): UseQueryResult<WorkDetail, ApiError> {
+  return useQuery<WorkDetail, ApiError>({
+    enabled,
+    queryKey: [...worksKey, 'detail', id],
+    queryFn: ({ signal }) => api<WorkDetail>(`/api/works/${id}`, { signal }),
+    retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
+  })
 }

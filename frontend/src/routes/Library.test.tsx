@@ -290,7 +290,9 @@ describe('the grid', () => {
     // A missing store template is our gap, not the user's: they still own it
     // there, and an empty platform cell reads as if they do not.
     expect(await screen.findByText('GOG')).toBeInTheDocument()
-    expect(within(screen.getByRole('feed')).queryByRole('link')).not.toBeInTheDocument()
+    expect(
+      within(screen.getByRole('feed')).queryByRole('link', { name: /on GOG/ }),
+    ).not.toBeInTheDocument()
   })
 
   it('shows every copy of a work owned twice', async () => {
@@ -313,7 +315,7 @@ describe('the grid', () => {
     // One work, two entitlements — a bundle or a rebuy. Collapsing them to the
     // first would quietly answer "where do I own this" with half the truth.
     const card = await screen.findByRole('article', { name: 'Portal 2' })
-    expect(within(card).getByRole('link')).toHaveTextContent('Steam')
+    expect(within(card).getByRole('link', { name: /on Steam/ })).toHaveTextContent('Steam')
     expect(within(card).getByText('GOG')).toBeInTheDocument()
   })
 })

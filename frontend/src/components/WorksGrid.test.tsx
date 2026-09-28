@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 
 import '@/i18n'
@@ -34,14 +35,16 @@ function library(size: number): WorkSummary[] {
 function grid(works: WorkSummary[], props: Partial<Parameters<typeof WorksGrid>[0]> = {}) {
   const onLoadMore = vi.fn()
   render(
-    <WorksGrid
-      works={works}
-      hasMore={false}
-      loadingMore={false}
-      loadFailed={false}
-      onLoadMore={onLoadMore}
-      {...props}
-    />,
+    <MemoryRouter>
+      <WorksGrid
+        works={works}
+        hasMore={false}
+        loadingMore={false}
+        loadFailed={false}
+        onLoadMore={onLoadMore}
+        {...props}
+      />
+    </MemoryRouter>,
   )
   return onLoadMore
 }
@@ -153,7 +156,7 @@ describe('the keyboard', () => {
     ])
 
     within(screen.getByRole('article', { name: 'Game 1' }))
-      .getByRole('link')
+      .getByRole('link', { name: 'Game 1 on Steam' })
       .focus()
     await userEvent.keyboard('{ArrowRight}')
 

@@ -6,6 +6,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import RequireSession from '@/components/RequireSession'
 import { createClient } from '@/lib/client'
 import Library from '@/routes/Library'
+import WorkPage from '@/routes/WorkPage'
 import Login from '@/routes/Login'
 import Onboarding from '@/routes/Onboarding'
 
@@ -18,6 +19,7 @@ export function Router() {
       </Route>
       <Route element={<RequireSession needsAccount />}>
         <Route path="/library" element={<Library />} />
+        <Route path="/library/:workId" element={<WorkPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/library" replace />} />
     </Routes>
