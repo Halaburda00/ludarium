@@ -12,19 +12,21 @@ anything having been deleted, and comes back if the entitlement is restored.
 import binascii
 import json
 from base64 import urlsafe_b64decode, urlsafe_b64encode
-from datetime import datetime
+from collections.abc import Sequence
+from datetime import date, datetime
 from typing import Annotated, Final
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import ColumnElement, literal, select, tuple_
+from sqlalchemy import ColumnElement, Select, literal, select, tuple_
 
 from ludarium.auth import CurrentSession
 from ludarium.db import SessionDep
-from ludarium.enums import EntityType, ImageKind, ItemKind, PlayStatus, SteamRating
+from ludarium.enums import CompanyRole, EntityType, ImageKind, ItemKind, PlayStatus, SteamRating
 from ludarium.models import (
     Account,
+    Company,
     Entitlement,
     EntitlementWork,
     ExternalId,
@@ -32,6 +34,7 @@ from ludarium.models import (
     Provider,
     UserWorkState,
     Work,
+    WorkCompany,
 )
 from ludarium.queries import owned_by
 from ludarium.titles import search_key
@@ -53,6 +56,13 @@ SCORE_SOURCE: Final = "rawg"
 # are: the anchor the store's own "All Reviews" link uses.
 STEAM: Final = "steam"
 REVIEWS_ANCHOR: Final = "#app_reviews_hash"
+# Who is named first on a work's page: whoever put it out, then whoever made it.
+CREDIT_ORDER: Final = (
+    CompanyRole.PUBLISHER,
+    CompanyRole.DEVELOPER,
+    CompanyRole.PORTING,
+    CompanyRole.SUPPORT,
+)
 
 router = APIRouter(prefix="/works", tags=["works"])
 
@@ -132,6 +142,23 @@ class WorkSummary(BaseModel):
     # Null until the cover step has fetched one.
     cover: Cover | None
     entitlements: list[EntitlementSummary]
+
+
+class Credit(BaseModel):
+    """One company and every role it played in the work."""
+
+    name: str
+    roles: list[CompanyRole]
+
+
+class WorkDetail(WorkSummary):
+    """One work with what the grid leaves out: its summary, date and who made it (#54)."""
+
+    summary: str | None
+    release_date: date | None
+    # Publishers first, then developers, porting and support studios
+    # (`CREDIT_ORDER`); a company in several roles is listed once.
+    companies: list[Credit]
 
 
 class WorksPage(BaseModel):
@@ -219,37 +246,8 @@ async def listing(
     """
 
     user_id = record.user_id
-    owned = (
-        select(EntitlementWork.work_id)
-        .join(Entitlement, Entitlement.id == EntitlementWork.entitlement_id)
-        .where(EntitlementWork.work_id == Work.id, *owned_by(user_id))
-    )
-    # A subquery rather than a join: nothing in the schema stops a work holding
-    # two slugs, and a join would then list the work twice.
-    slug = (
-        select(ExternalId.value)
-        .where(
-            ExternalId.entity_type == EntityType.WORK,
-            ExternalId.entity_id == Work.id,
-            ExternalId.namespace == SCORE_SOURCE,
-        )
-        .order_by(ExternalId.id.desc())
-        .limit(1)
-        .scalar_subquery()
-    )
     page = (
-        select(Work, UserWorkState, slug)
-        # Outer, because "every work reachable by a live entitlement has a
-        # `user_work_state` row" is a convention `sync._stub` keeps and no
-        # constraint enforces. An inner join makes a future write path that
-        # forgets it — a manual entry, the M2 matcher — drop games from the
-        # library with no error anywhere. A missing row shows the work with its
-        # defaults instead, which is both recoverable and visible.
-        .outerjoin(
-            UserWorkState,
-            (UserWorkState.work_id == Work.id) & (UserWorkState.user_id == user_id),
-        )
-        .where(owned.exists())
+        _owned_works(user_id)
         .order_by(Work.sort_key, Work.id)
         # One more than asked for, so "is there a next page" is answered without
         # a count and without handing the client an empty page to discover it.
@@ -262,36 +260,12 @@ async def listing(
         key, work_id = _after(cursor)
         page = page.where(tuple_(Work.sort_key, Work.id) > tuple_(literal(key), literal(work_id)))
 
-    rows = list(await session.execute(page))
+    rows = list((await session.execute(page)).tuples())
     has_more = len(rows) > limit
     rows = rows[:limit]
 
-    copies = await _entitlements(session, [work.id for work, _, _ in rows], user_id)
-    source = await session.scalar(select(Provider).where(Provider.key == SCORE_SOURCE))
-    steam = await session.scalar(select(Provider).where(Provider.key == STEAM))
-    covers = await _covers(session, [work.id for work, _, _ in rows])
-    # A work with nothing live pointing at it is dropped rather than shown
-    # empty-handed: a row that contradicts the endpoint's own rule — in the list
-    # because something live points at it, with nothing listed — is worse than a
-    # page one short.
-    #
-    # Unreachable on SQLite since ADR-0016 made the two queries one snapshot,
-    # and not on PostgreSQL, whose default READ COMMITTED gives each statement
-    # its own. ADR-0004 keeps PostgreSQL a supported target, so the defence
-    # stays and its test forces the race rather than waiting for it.
-    works = [(work, state, held) for work, state, held in rows if copies.get(work.id)]
     return WorksPage(
-        works=[
-            _describe(
-                work,
-                state,
-                copies[work.id],
-                _score(work, source, held),
-                _steam_reviews(work, steam),
-                covers.get(work.id),
-            )
-            for work, state, held in works
-        ],
+        works=await _summaries(session, rows, user_id),
         # From the last row read, not the last row kept, so the listing always
         # advances. Taken from the last kept row it would re-read whatever was
         # dropped — harmless — but a page where *everything* was dropped would
@@ -325,6 +299,122 @@ def _matches(wanted: str, user_id: int) -> ColumnElement[bool]:
         )
     )
     return Work.title_key.contains(wanted, autoescape=True) | named.exists()
+
+
+@router.get("/{work_id}")
+async def detail(work_id: int, session: SessionDep, record: CurrentSession) -> WorkDetail:
+    """One work, if it is in the user's library.
+
+    404 for a work that does not exist and for one only removed copies point
+    at, alike: the listing would not show it, so neither does this, and the
+    answer does not say which of the two it was.
+    """
+
+    rows = list(
+        (await session.execute(_owned_works(record.user_id).where(Work.id == work_id))).tuples()
+    )
+    summaries = await _summaries(session, rows, record.user_id)
+    if not summaries:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such work in the library")
+    work = rows[0][0]
+    return WorkDetail(
+        **summaries[0].model_dump(),
+        summary=work.summary,
+        release_date=work.release_date,
+        companies=await _credits(session, work_id),
+    )
+
+
+async def _credits(session: SessionDep, work_id: int) -> list[Credit]:
+    order = {role: rank for rank, role in enumerate(CREDIT_ORDER)}
+    roles: dict[int, tuple[str, set[CompanyRole]]] = {}
+    for company_id, name, role in await session.execute(
+        select(Company.id, Company.name, WorkCompany.role)
+        .join(WorkCompany, WorkCompany.company_id == Company.id)
+        .where(WorkCompany.work_id == work_id)
+    ):
+        roles.setdefault(company_id, (name, set()))[1].add(role)
+    credits = [
+        Credit(name=name, roles=sorted(held, key=order.__getitem__))
+        for name, held in roles.values()
+    ]
+    # By the company's most prominent role, then by name, so the order does not
+    # depend on which row the database returned first.
+    return sorted(credits, key=lambda credit: (order[credit.roles[0]], credit.name.casefold()))
+
+
+type Row = tuple[Work, UserWorkState | None, str | None]
+
+
+def _owned_works(user_id: int) -> Select[Row]:
+    """Every work the user still owns a copy of, with their state and its RAWG slug.
+
+    The listing orders and pages this; the detail view picks one row from it,
+    so "in the library" means the same thing to both.
+    """
+
+    owned = (
+        select(EntitlementWork.work_id)
+        .join(Entitlement, Entitlement.id == EntitlementWork.entitlement_id)
+        .where(EntitlementWork.work_id == Work.id, *owned_by(user_id))
+    )
+    # A subquery rather than a join: nothing in the schema stops a work holding
+    # two slugs, and a join would then list the work twice.
+    slug = (
+        select(ExternalId.value)
+        .where(
+            ExternalId.entity_type == EntityType.WORK,
+            ExternalId.entity_id == Work.id,
+            ExternalId.namespace == SCORE_SOURCE,
+        )
+        .order_by(ExternalId.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    return (
+        select(Work, UserWorkState, slug)
+        # Outer, because "every work reachable by a live entitlement has a
+        # `user_work_state` row" is a convention `sync._stub` keeps and no
+        # constraint enforces. An inner join makes a future write path that
+        # forgets it — a manual entry, the M2 matcher — drop games from the
+        # library with no error anywhere. A missing row shows the work with its
+        # defaults instead, which is both recoverable and visible.
+        .outerjoin(
+            UserWorkState,
+            (UserWorkState.work_id == Work.id) & (UserWorkState.user_id == user_id),
+        )
+        .where(owned.exists())
+    )
+
+
+async def _summaries(session: SessionDep, rows: Sequence[Row], user_id: int) -> list[WorkSummary]:
+    """The rows as the API describes them, in a fixed number of queries however many there are."""
+
+    copies = await _entitlements(session, [work.id for work, _, _ in rows], user_id)
+    source = await session.scalar(select(Provider).where(Provider.key == SCORE_SOURCE))
+    steam = await session.scalar(select(Provider).where(Provider.key == STEAM))
+    covers = await _covers(session, [work.id for work, _, _ in rows])
+    # A work with nothing live pointing at it is dropped rather than shown
+    # empty-handed: a row that contradicts the endpoint's own rule — in the list
+    # because something live points at it, with nothing listed — is worse than a
+    # page one short.
+    #
+    # Unreachable on SQLite since ADR-0016 made the two queries one snapshot,
+    # and not on PostgreSQL, whose default READ COMMITTED gives each statement
+    # its own. ADR-0004 keeps PostgreSQL a supported target, so the defence
+    # stays and its test forces the race rather than waiting for it.
+    return [
+        _describe(
+            work,
+            state,
+            copies[work.id],
+            _score(work, source, held),
+            _steam_reviews(work, steam),
+            covers.get(work.id),
+        )
+        for work, state, held in rows
+        if copies.get(work.id)
+    ]
 
 
 def _score(work: Work, source: Provider | None, slug: str | None) -> Score | None:

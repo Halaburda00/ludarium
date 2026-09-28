@@ -73,6 +73,16 @@
         "title": "AccountResponse",
         "type": "object"
       },
+      "CompanyRole": {
+        "enum": [
+          "developer",
+          "publisher",
+          "porting",
+          "support"
+        ],
+        "title": "CompanyRole",
+        "type": "string"
+      },
       "ConnectRequest": {
         "properties": {
           "credentials": {
@@ -141,6 +151,28 @@
           "height"
         ],
         "title": "Cover",
+        "type": "object"
+      },
+      "Credit": {
+        "description": "One company and every role it played in the work.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/CompanyRole"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "roles"
+        ],
+        "title": "Credit",
         "type": "object"
       },
       "EntitlementSummary": {
@@ -667,6 +699,164 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WorkDetail": {
+        "description": "One work with what the grid leaves out: its summary, date and who made it (#54).",
+        "properties": {
+          "companies": {
+            "items": {
+              "$ref": "#/components/schemas/Credit"
+            },
+            "title": "Companies",
+            "type": "array"
+          },
+          "cover": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Cover"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entitlements": {
+            "items": {
+              "$ref": "#/components/schemas/EntitlementSummary"
+            },
+            "title": "Entitlements",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_favourite": {
+            "title": "Is Favourite",
+            "type": "boolean"
+          },
+          "is_hidden": {
+            "title": "Is Hidden",
+            "type": "boolean"
+          },
+          "is_matched": {
+            "title": "Is Matched",
+            "type": "boolean"
+          },
+          "item_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ItemKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_played_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Played At"
+          },
+          "metacritic": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Score"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "play_status": {
+            "$ref": "#/components/schemas/PlayStatus"
+          },
+          "playtime_minutes": {
+            "title": "Playtime Minutes",
+            "type": "integer"
+          },
+          "release_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Date"
+          },
+          "release_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Year"
+          },
+          "sort_title": {
+            "title": "Sort Title",
+            "type": "string"
+          },
+          "steam_reviews": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SteamReviews"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "sort_title",
+          "is_matched",
+          "item_kind",
+          "release_year",
+          "play_status",
+          "is_favourite",
+          "is_hidden",
+          "playtime_minutes",
+          "last_played_at",
+          "metacritic",
+          "steam_reviews",
+          "cover",
+          "entitlements",
+          "summary",
+          "release_date",
+          "companies"
+        ],
+        "title": "WorkDetail",
         "type": "object"
       },
       "WorkSummary": {
@@ -1357,6 +1547,65 @@
           }
         },
         "summary": "Listing",
+        "tags": [
+          "works"
+        ]
+      }
+    },
+    "/api/works/{work_id}": {
+      "get": {
+        "description": "One work, if it is in the user's library.\n\n404 for a work that does not exist and for one only removed copies point\nat, alike: the listing would not show it, so neither does this, and the\nanswer does not say which of the two it was.",
+        "operationId": "detail_api_works__work_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "work_id",
+            "required": true,
+            "schema": {
+              "title": "Work Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Detail",
         "tags": [
           "works"
         ]

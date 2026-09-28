@@ -1,5 +1,6 @@
 import json
 from base64 import urlsafe_b64encode
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium import steps as steps_module
 from ludarium.api import works as works_module
-from ludarium.enums import EntitlementOrigin, EntityType, ImageKind, SteamRating, WorkLinkRole
+from ludarium.enums import (
+    CompanyRole,
+    EntitlementOrigin,
+    EntityType,
+    ImageKind,
+    SteamRating,
+    WorkLinkRole,
+)
 from ludarium.models import (
     Account,
     AppUser,
+    Company,
     Entitlement,
     EntitlementWork,
     ExternalId,
@@ -24,6 +33,7 @@ from ludarium.models import (
     Provider,
     UserWorkState,
     Work,
+    WorkCompany,
 )
 from ludarium.models.types import utcnow
 from ludarium.providers import steam as steam_module
@@ -854,3 +864,88 @@ def test_a_search_pages_on_the_same_cursor_as_the_library(synced: TestClient) ->
 
 def test_a_search_longer_than_any_title_is_refused(synced: TestClient) -> None:
     assert synced.get("/api/works", params={"q": "x" * 201}).status_code == 422
+
+
+def work_id(client: TestClient, title: str) -> int:
+    body = client.get("/api/works").json()
+    found: int = next(work["id"] for work in body["works"] if work["title"] == title)
+    return found
+
+
+async def test_a_work_s_page_has_what_its_card_has_and_what_the_grid_leaves_out(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    work = await session.scalar(select(Work).where(Work.title == "Portal 2"))
+    assert work is not None
+    work.summary = "Test subjects and portals."
+    work.release_date = date(2011, 4, 18)
+    work.release_year = 2011
+    await session.commit()
+    card = next(
+        entry for entry in synced.get("/api/works").json()["works"] if entry["id"] == work.id
+    )
+
+    body = synced.get(f"/api/works/{work.id}").json()
+
+    # The card's fields, unchanged: one description of a work, not two.
+    assert {key: body[key] for key in card} == card
+    assert body["summary"] == "Test subjects and portals."
+    assert body["release_date"] == "2011-04-18"
+    assert body["companies"] == []
+    # Per copy and summed, as rule 5's exception describes.
+    witcher = synced.get(f"/api/works/{work_id(synced, 'The Witcher 3: Wild Hunt')}").json()
+    per_copy = [copy["playtime_minutes"] for copy in witcher["entitlements"]]
+    assert per_copy == [3247]
+    assert witcher["playtime_minutes"] == 3247
+
+
+async def test_credits_name_each_company_once_publishers_first(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    portal = work_id(synced, "Portal 2")
+    valve, porter = Company(name="Valve"), Company(name="another port house")
+    session.add_all([valve, porter])
+    await session.flush()
+    session.add_all(
+        [
+            WorkCompany(work_id=portal, company_id=porter.id, role=CompanyRole.PORTING),
+            WorkCompany(work_id=portal, company_id=valve.id, role=CompanyRole.DEVELOPER),
+            WorkCompany(work_id=portal, company_id=valve.id, role=CompanyRole.PUBLISHER),
+        ]
+    )
+    await session.commit()
+
+    body = synced.get(f"/api/works/{portal}").json()
+
+    assert body["companies"] == [
+        {"name": "Valve", "roles": ["publisher", "developer"]},
+        {"name": "another port house", "roles": ["porting"]},
+    ]
+
+
+def test_a_work_that_does_not_exist_is_a_404(synced: TestClient) -> None:
+    assert synced.get("/api/works/999999").status_code == 404
+
+
+async def test_a_work_only_removed_copies_point_at_is_a_404_too(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    """The listing does not show it, so neither does its page (rule 1 from the read side)."""
+
+    portal = work_id(synced, "Portal 2")
+    entitlement = await session.scalar(
+        select(Entitlement).where(Entitlement.provider_item_id == "620")
+    )
+    assert entitlement is not None
+    entitlement.removed_at = utcnow()
+    await session.commit()
+
+    response = synced.get(f"/api/works/{portal}")
+
+    assert response.status_code == 404
+    # The same answer as for a work that never existed.
+    assert response.json() == synced.get("/api/works/999999").json()
+
+
+def test_a_work_s_page_needs_a_session(client: TestClient) -> None:
+    assert client.get("/api/works/1").status_code == 401

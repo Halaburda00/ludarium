@@ -222,6 +222,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/works/{work_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Detail
+         * @description One work, if it is in the user's library.
+         *
+         *     404 for a work that does not exist and for one only removed copies point
+         *     at, alike: the listing would not show it, so neither does this, and the
+         *     answer does not say which of the two it was.
+         */
+        get: operations["detail_api_works__work_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -255,6 +279,11 @@ export interface components {
             /** Provider */
             provider: string;
         };
+        /**
+         * CompanyRole
+         * @enum {string}
+         */
+        CompanyRole: "developer" | "publisher" | "porting" | "support";
         /** ConnectRequest */
         ConnectRequest: {
             /**
@@ -288,6 +317,16 @@ export interface components {
             url_2x: string | null;
             /** Width */
             width: number;
+        };
+        /**
+         * Credit
+         * @description One company and every role it played in the work.
+         */
+        Credit: {
+            /** Name */
+            name: string;
+            /** Roles */
+            roles: components["schemas"]["CompanyRole"][];
         };
         /**
          * EntitlementSummary
@@ -498,6 +537,43 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * WorkDetail
+         * @description One work with what the grid leaves out: its summary, date and who made it (#54).
+         */
+        WorkDetail: {
+            /** Companies */
+            companies: components["schemas"]["Credit"][];
+            cover: components["schemas"]["Cover"] | null;
+            /** Entitlements */
+            entitlements: components["schemas"]["EntitlementSummary"][];
+            /** Id */
+            id: number;
+            /** Is Favourite */
+            is_favourite: boolean;
+            /** Is Hidden */
+            is_hidden: boolean;
+            /** Is Matched */
+            is_matched: boolean;
+            item_kind: components["schemas"]["ItemKind"] | null;
+            /** Last Played At */
+            last_played_at: string | null;
+            metacritic: components["schemas"]["Score"] | null;
+            play_status: components["schemas"]["PlayStatus"];
+            /** Playtime Minutes */
+            playtime_minutes: number;
+            /** Release Date */
+            release_date: string | null;
+            /** Release Year */
+            release_year: number | null;
+            /** Sort Title */
+            sort_title: string;
+            steam_reviews: components["schemas"]["SteamReviews"] | null;
+            /** Summary */
+            summary: string | null;
+            /** Title */
+            title: string;
         };
         /** WorkSummary */
         WorkSummary: {
@@ -843,6 +919,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorksPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detail_api_works__work_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                work_id: number;
+            };
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkDetail"];
                 };
             };
             /** @description Validation Error */
