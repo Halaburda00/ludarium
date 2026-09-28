@@ -207,7 +207,10 @@ function Card({ work, index, setSize }: { work: WorkSummary; index: number; setS
       style={{ height: '100%' }}
     >
       <Cover work={work} />
-      <div className="grid gap-1 text-sm" style={{ height: TEXT_BLOCK - 8 }}>
+      {/* `content-start`: the height is fixed, and a grid stretches its rows
+        into whatever a one-line title leaves free, which parks the platforms
+        halfway down the block. */}
+      <div className="grid content-start gap-1 text-sm" style={{ height: TEXT_BLOCK - 8 }}>
         <h2 id={heading} className="line-clamp-2 leading-5 font-medium text-foreground">
           {work.title}
         </h2>
