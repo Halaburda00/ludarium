@@ -25,13 +25,19 @@ So matching never spends a user's rotating refresh token (ADR-0025), and runs
 without an Epic account connected to the step at all. The token is held in
 memory for its four hours.
 
-**A namespace holding several of the library's games anchors only the one
-titled as its base offer.** 17 of 514 namespaces in a measured library held a
-game beside its beta, test branch, soundtrack or editor — Killing Floor 2 and
-KillingFloor2Beta, Death Stranding and Death Stranding Content. Anchoring each
-to the namespace's one game would fold the test client into the game. The work
-whose title equals the base offer's, through `ludamatch.normalise_title`, is
-anchored; the rest stay stubs.
+**A work is anchored only if a base offer is titled as it is.** 17 of 514
+namespaces in a measured library held a game beside its beta, test branch,
+soundtrack or editor — Killing Floor 2 and KillingFloor2Beta, Death Stranding
+and Death Stranding Content — and a beta owned without its game is the only
+game-kind item in its namespace. Anchoring by namespace alone would take either
+for the game. So the work's title, through `ludamatch.normalise_title`, must
+equal a base offer's or begin it: offers carry edition suffixes the library
+leaves off ("Watch Dogs 2" / "Watch Dogs 2 Standard Edition"), betas carry
+suffixes the offer does not. Exactly one such work in the namespace is
+anchored; otherwise none. Against the 423 anchors of a first measurement
+without this check, it keeps 419 — the four lost (Assassin's Creed Syndicate,
+Shenmue 3, Ghostbusters Remastered, Shadow Tactics) spell the name differently —
+and turns the beta away.
 
 **After Steam, in the same `igdb` run.** An Epic copy of a game a Steam work
 already holds is folded into it by `merge_work`, as a second Steam stub is
@@ -50,8 +56,8 @@ all the same, and RAWG must still list it.
 
 On a copy of a real library (533 Epic games, 197 Steam), live IGDB and Epic:
 
-- 423 Epic works anchored in 84.5 s, 17 of them folded into Steam works owned
-  on both platforms. The 15 least similar title pairs were all right —
+- 423 Epic works anchored in 84.5 s before the title check, 419 with it; 17
+  folded into Steam works owned on both platforms. The 15 least similar title pairs were all right —
   subtitles and editions (`DARQ` → `Darq: Complete Edition`).
 - 371 works gained IGDB's Steam appid.
 - Of 406 anchored Epic-only works, 192 got a Metacritic score (47%; Steam's own
@@ -63,5 +69,5 @@ On a copy of a real library (533 Epic games, 197 Steam), live IGDB and Epic:
   500-namespace library on its first run.
 - A game IGDB files its Epic offer under as an edition (`Layers of Fear:
   Masterpiece Edition`) takes that entry's title and cover.
-- Games in a multi-game namespace whose title differs from the offer's stay
-  stubs. Wrongly unmatched is the cheaper mistake.
+- A game whose Epic title is spelled differently from its offer's stays a stub,
+  as four did in the measured library. Wrongly unmatched is the cheaper mistake.

@@ -281,3 +281,20 @@ async def test_a_namespace_that_would_not_be_a_path_segment_is_refused(
 ) -> None:
     with pytest.raises(ValueError):
         await catalog.offers("../../account")
+
+
+@respx.mock
+async def test_a_beta_owned_without_its_game_is_not_taken_for_the_game(
+    db: Database, session: AsyncSession, epic: Account, igdb: IgdbClient, catalog: EpicCatalog
+) -> None:
+    """The namespace's one game is Killing Floor 2; owning only the beta is not owning that."""
+
+    kf2 = next(o for o in recorded_offers(KF2_NS)["elements"] if o["offerType"] == "BASE_GAME")
+    mount_catalog()
+    Igdb([{"game": 7348, "uid": kf2["id"], "source": EPIC}], {7348: "Killing Floor 2"}).mount()
+    beta = await owned_on_epic(session, epic, KF2_NS, "KillingFloor2Beta", "b")
+    await session.commit()
+
+    await run_epic(db, igdb, catalog)
+
+    assert (await work_of(db, beta.id)).is_matched is False

@@ -418,21 +418,32 @@ def _epic_anchors(
         if len(games) != 1:
             continue
         (game,) = games
-        if len(candidates) > 1:
-            titled = {normalise_title(title) for _, title in offers}
-            candidates = [
-                (work_id, title)
-                for work_id, title in candidates
-                if normalise_title(title) in titled
-            ]
-            if len(candidates) != 1:
-                continue
+        # Every work, not only where a namespace holds several: a beta owned
+        # without its game is the only game-kind item in its namespace, and is
+        # still not the game (#77 review). Equal, or the start of the offer's
+        # title — offers carry edition suffixes ("Watch Dogs 2 Standard
+        # Edition") that the library's own titles leave off. Measured: keeps
+        # 419 of 423 right anchors and turns the beta away.
+        titled = [normalise_title(title) for _, title in offers]
+        candidates = [
+            (work_id, title)
+            for work_id, title in candidates
+            if _named_by(normalise_title(title), titled)
+        ]
+        if len(candidates) != 1:
+            continue
         ((work_id, _),) = candidates
         key = f"{namespace}/{work_id}"
         pairs.append((key, work_id))
         found[key] = game
     # Oldest first, as for Steam: the older of two works naming one game is anchored.
     return sorted(pairs, key=lambda pair: pair[1]), found
+
+
+def _named_by(title: str, offers: Sequence[str]) -> bool:
+    """Whether an offer is titled as the work, give or take an edition after it."""
+
+    return bool(title) and any(offer == title or offer.startswith(f"{title} ") for offer in offers)
 
 
 async def _unmatched_epic_games(database: Database) -> list[tuple[str, int, str]]:
