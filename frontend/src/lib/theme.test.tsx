@@ -106,5 +106,15 @@ describe('the theme', () => {
       new Function(script ?? '')()
       expect(isDark()).toBe(expected)
     }
+
+    // Storage refused outright still leaves the system's answer, as `storedTheme`
+    // does. Otherwise the page paints light and turns dark once React loads.
+    system(true)
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('denied', 'SecurityError')
+    })
+    document.documentElement.className = ''
+    new Function(script ?? '')()
+    expect(isDark()).toBe(true)
   })
 })
