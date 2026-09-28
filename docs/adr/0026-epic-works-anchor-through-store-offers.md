@@ -22,8 +22,10 @@ Two games → nothing (rule 6).
 **With the launcher's app token, not anyone's sign-in.** Measured: a
 `client_credentials` token for the launcher's client is enough for `offers`.
 So matching never spends a user's rotating refresh token (ADR-0025), and runs
-without an Epic account connected to the step at all. The token is held in
-memory for its four hours.
+without an Epic account connected to the step at all. The token is minted once
+per run and reused for every namespace in it; each run mints its own, which is
+one request against the hundreds the offers take, and not worth a token kept
+across runs.
 
 **A work is anchored only if a base offer is titled as it is.** 17 of 514
 namespaces in a measured library held a game beside its beta, test branch,
