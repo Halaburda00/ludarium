@@ -120,6 +120,8 @@ def test_upgrade_then_downgrade_leaves_an_empty_database(settings: Settings) -> 
         "external_id",
         "match_audit",
         "image_asset",
+        "company",
+        "work_company",
     }
     assert table_names(settings.database_url) == {"alembic_version"}
 

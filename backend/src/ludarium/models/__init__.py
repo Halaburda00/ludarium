@@ -1,6 +1,6 @@
 from ludarium.models.base import Base
 from ludarium.models.cache import FetchCache
-from ludarium.models.catalogue import Edition, ExternalId, ImageAsset, Work
+from ludarium.models.catalogue import Company, Edition, ExternalId, ImageAsset, Work, WorkCompany
 from ludarium.models.identity import AppUser, UserSession
 from ludarium.models.matching import MatchAudit
 from ludarium.models.ownership import Entitlement, EntitlementWork
@@ -13,6 +13,7 @@ __all__ = [
     "Account",
     "AppUser",
     "Base",
+    "Company",
     "Edition",
     "Entitlement",
     "EntitlementWork",
@@ -27,4 +28,5 @@ __all__ = [
     "UserSession",
     "UserWorkState",
     "Work",
+    "WorkCompany",
 ]
