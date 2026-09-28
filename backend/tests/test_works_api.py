@@ -791,3 +791,66 @@ async def test_a_row_pointing_outside_the_data_directory_is_not_served(
 
 def test_an_image_needs_a_session(client: TestClient) -> None:
     assert client.get("/api/images/1").status_code == 401
+
+
+async def retitled(session: AsyncSession, old: str, new: str) -> None:
+    """What the resolver does when IGDB names a work: `title` changes, the store's name does not."""
+
+    work = await session.scalar(select(Work).where(Work.title == old))
+    assert work is not None
+    work.title = new
+    await session.commit()
+
+
+def search(client: TestClient, q: str, **params: Any) -> dict[str, Any]:
+    response = client.get("/api/works", params={"q": q, **params})
+    assert response.status_code == 200
+    body: dict[str, Any] = response.json()
+    return body
+
+
+def test_a_search_finds_a_title_by_any_part_of_it_whatever_the_case(synced: TestClient) -> None:
+    assert titles(search(synced, "ITCHER")) == ["The Witcher 3: Wild Hunt"]
+    assert titles(search(synced, "wild hunt")) == ["The Witcher 3: Wild Hunt"]
+
+
+def test_a_blank_search_is_no_search(synced: TestClient) -> None:
+    assert titles(search(synced, "   ")) == LIBRARY
+
+
+async def test_a_search_folds_as_the_order_does(synced: TestClient, session: AsyncSession) -> None:
+    """Accents and trademark signs, the fold #40 orders by, match either way round."""
+
+    await retitled(session, "Dota 2", "Brütal Legend™")
+
+    assert titles(search(synced, "brutal legend")) == ["Brütal Legend™"]
+    assert titles(search(synced, "BRÜTAL")) == ["Brütal Legend™"]
+
+
+async def test_the_name_the_store_gives_a_game_finds_it(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    """Rule 5 keeps the store's name apart from the work's, and search reads both."""
+
+    await retitled(session, "Portal 2", "Portal Two")
+
+    assert titles(search(synced, "portal 2")) == ["Portal Two"]
+
+
+def test_a_wildcard_in_a_search_is_a_character_to_find(synced: TestClient) -> None:
+    assert titles(search(synced, "%")) == []
+    assert titles(search(synced, "_")) == []
+
+
+def test_a_search_pages_on_the_same_cursor_as_the_library(synced: TestClient) -> None:
+    first = search(synced, "2", limit=1)
+    assert titles(first) == ["Dota 2"]
+
+    second = search(synced, "2", limit=1, cursor=first["next_cursor"])
+
+    assert titles(second) == ["Portal 2"]
+    assert second["next_cursor"] is None
+
+
+def test_a_search_longer_than_any_title_is_refused(synced: TestClient) -> None:
+    assert synced.get("/api/works", params={"q": "x" * 201}).status_code == 422
