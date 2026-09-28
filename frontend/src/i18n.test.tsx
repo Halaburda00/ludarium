@@ -49,9 +49,9 @@ function literalText(source: string): string[] {
 
 describe('i18n', () => {
   it('has a resource for every key the screens ask for', async () => {
-    // A page with a row on it and a cursor after it, so the table's own keys —
-    // its columns, its caption, the link label and the button that asks for the
-    // next page — are rendered rather than skipped by an empty library.
+    // A page with a card on it and a cursor after it, so the grid's own keys —
+    // its label, the link and score labels and the row that asks for the next
+    // page — are rendered rather than skipped by an empty library.
     stubFetch({
       'GET /api/accounts': { body: [{ id: 1, provider: 'steam', label: 'Main' }] },
       'GET /api/works': {
@@ -69,6 +69,9 @@ describe('i18n', () => {
               is_hidden: false,
               playtime_minutes: 0,
               last_played_at: null,
+              metacritic: null,
+              steam_reviews: null,
+              cover: null,
               entitlements: [
                 {
                   id: 1,
@@ -85,9 +88,11 @@ describe('i18n', () => {
           next_cursor: 'more',
         },
       },
+      // Refused, so the grid's own retry is on screen as well as the card.
+      'GET /api/works?cursor=more': { status: 503, body: { detail: 'down' } },
     })
     renderApp(<Router />, { route: '/library' })
-    await screen.findByRole('button', { name: 'Load more' })
+    await screen.findByRole('button', { name: 'Try again' })
 
     // A typo'd key renders as the key itself, which looks like a design choice
     // in a screenshot and like nothing at all in a review.

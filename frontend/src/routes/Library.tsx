@@ -1,7 +1,8 @@
+import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 
-import { WorksTable } from '@/components/WorksTable'
+import { WorksGrid } from '@/components/WorksGrid'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/field'
 import {
@@ -56,9 +57,17 @@ export default function Library() {
   // strands the user on "connect an account" with the rest of it unread and no
   // control on the screen that would fetch it.
   const exhausted = works.isSuccess && !works.hasNextPage
+  // A later page failing puts the whole query in error, with every page before
+  // it still in hand. That is the grid with a retry at its end, not a library
+  // that failed to load: the second one hides everything the user was reading.
+  const shown = works.data !== undefined
+  const { fetchNextPage } = works
+  // Stable, so the grid's "ask for the next page" effect runs when the grid
+  // wants a page, not whenever this component renders.
+  const loadMore = useCallback(() => void fetchNextPage(), [fetchNextPage])
 
   return (
-    <main className="mx-auto grid max-w-4xl gap-6 px-6 py-10">
+    <main className="mx-auto grid max-w-6xl gap-6 px-6 py-10">
       <header className="flex items-baseline justify-between gap-4">
         <h1 className="font-heading text-2xl font-semibold">{t('library.title')}</h1>
         <div className="flex items-center gap-2">
@@ -154,7 +163,7 @@ export default function Library() {
 
       {/* The library failed to load, which is not the same as it being empty —
           and the difference matters, because one of them is worth retrying. */}
-      {works.isError ? (
+      {works.isError && !shown ? (
         <State>
           <Notice>{works.error.detail || t('error.offline')}</Notice>
           <Button variant="outline" onClick={() => void works.refetch()}>
@@ -175,7 +184,7 @@ export default function Library() {
         </State>
       ) : null}
 
-      {works.isSuccess && !(exhausted && loaded.length === 0) ? (
+      {shown && !(exhausted && loaded.length === 0) ? (
         <>
           <p className="text-sm text-muted-foreground">
             {/* Counted honestly: with a page still unfetched this is what has
@@ -186,17 +195,13 @@ export default function Library() {
               context: works.hasNextPage ? 'partial' : undefined,
             })}
           </p>
-          <WorksTable works={loaded} />
-          {works.hasNextPage ? (
-            <Button
-              variant="outline"
-              className="justify-self-start"
-              onClick={() => void works.fetchNextPage()}
-              disabled={works.isFetchingNextPage}
-            >
-              {works.isFetchingNextPage ? t('common.loading') : t('library.loadMore')}
-            </Button>
-          ) : null}
+          <WorksGrid
+            works={loaded}
+            hasMore={works.hasNextPage}
+            loadingMore={works.isFetchingNextPage}
+            loadFailed={works.isFetchNextPageError}
+            onLoadMore={loadMore}
+          />
         </>
       ) : null}
     </main>

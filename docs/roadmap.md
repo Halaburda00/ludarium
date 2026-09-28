@@ -157,7 +157,7 @@ The view half, and it follows M2a because three of its four items are useless
 until there is metadata to show. It is not purely a consumer, and the estimate
 says so: search needs a backend of its own.
 
-- [ ] Virtualised grid with covers and lazy loading
+- [x] Virtualised grid with covers and lazy loading
 - [ ] Search. The only item here with a backend half — `docs/schema.md`
       specifies FTS5 on SQLite and `pg_trgm` on PostgreSQL, and the query has
       to union `work.title` with `entitlement.provider_title` and still page on
