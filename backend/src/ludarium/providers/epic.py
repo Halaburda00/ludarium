@@ -19,7 +19,9 @@ None` (rule 7).
 
 import asyncio
 import base64
-from collections.abc import Mapping, Sequence
+import re
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final
@@ -66,6 +68,14 @@ CATALOG_BATCH: Final = 50
 AT_ONCE: Final = 4
 # A library that has not ended after this many pages is not ending.
 MAX_PAGES: Final = 1000
+# The catalogue's page of offers, and its largest. 5 of 514 measured namespaces
+# held more than 100 offers, the largest 188.
+OFFERS_PAGE: Final = 100
+# A namespace becomes a path segment. Measured ones are 32 hex characters or a
+# codename (`calluna`, `ue`).
+NAMESPACE: Final = re.compile(r"[A-Za-z0-9_-]+")
+# An app token lasts four hours; it is replaced this long before.
+TOKEN_MARGIN_SECONDS: Final = 60.0
 
 # Read at call time so a test can flatten the backoff without waiting for it.
 RETRY_ATTEMPTS: Final = 3
@@ -327,6 +337,10 @@ async def _token_once(client: httpx.AsyncClient, data: Mapping[str, str]) -> dic
     if status in (400, 401, 403):
         # `invalid_grant`, measured for a spent code; the same answer as every
         # refusal of a token request that carries nothing but the grant.
+        if data["grant_type"] == "client_credentials":
+            # Nobody's sign-in is involved: the launcher's own client was
+            # refused, which means Epic changed the flow under us.
+            raise MalformedResponseError(f"epic refused the launcher's app token with {status}")
         if data["grant_type"] == "authorization_code":
             raise InvalidCredentialsError(
                 "epic did not accept that code; it lasts a few minutes and works once, "
@@ -398,3 +412,76 @@ def _object(response: httpx.Response, what: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise MalformedResponseError(f"{what} is not a JSON object")
     return payload
+
+
+class EpicCatalog:
+    """The store catalogue, asked with the launcher's app token rather than anyone's sign-in.
+
+    Measured (#74): `client_credentials` with the launcher's client buys a token
+    the catalogue answers `offers` for, so matching Epic works to IGDB needs no
+    user's refresh token — and never spends one.
+    """
+
+    key: str = "epic"
+
+    def __init__(
+        self, client: httpx.AsyncClient, *, monotonic: Callable[[], float] = time.monotonic
+    ) -> None:
+        self._client = client
+        self._monotonic = monotonic
+        self._token: tuple[str, float] | None = None
+        self._minting = asyncio.Lock()
+
+    async def offers(self, namespace: str) -> list[dict[str, Any]]:
+        """Every offer in the namespace, active or sunset. Short is an error, not an answer."""
+
+        if not NAMESPACE.fullmatch(namespace):
+            raise ValueError(f"not an Epic namespace: {namespace!r}")
+        token = await self._app_token()
+        offers: list[dict[str, Any]] = []
+        while True:
+            page = await _get(
+                self._client,
+                f"{CATALOG}/namespace/{namespace}/offers",
+                [
+                    ("status", "SUNSET|ACTIVE"),
+                    ("country", "US"),
+                    ("locale", "en"),
+                    ("start", str(len(offers))),
+                    ("count", str(OFFERS_PAGE)),
+                ],
+                token,
+                what="the catalogue's offers",
+                missing_ok=True,
+            )
+            if not page:
+                return offers
+            elements, paging = page.get("elements"), page.get("paging")
+            total = paging.get("total") if isinstance(paging, dict) else None
+            if (
+                not isinstance(elements, list)
+                or not all(
+                    isinstance(offer, dict) and isinstance(offer.get("id"), str)
+                    for offer in elements
+                )
+                or not isinstance(total, int)
+            ):
+                raise MalformedResponseError("epic returned offers without ids or a total")
+            offers += elements
+            if len(offers) >= total or not elements:
+                if len(offers) < total:
+                    raise MalformedResponseError(
+                        f"epic listed {len(offers)} of {total} offers in {namespace}"
+                    )
+                return offers
+
+    async def _app_token(self) -> str:
+        async with self._minting:
+            if self._token is not None and self._monotonic() < self._token[1]:
+                return self._token[0]
+            payload = await _token(self._client, {"grant_type": "client_credentials"})
+            access, lifetime = payload.get("access_token"), payload.get("expires_in")
+            if not isinstance(access, str) or not access or not isinstance(lifetime, int):
+                raise MalformedResponseError("epic's app token response is incomplete")
+            self._token = (access, self._monotonic() + lifetime - TOKEN_MARGIN_SECONDS)
+            return access

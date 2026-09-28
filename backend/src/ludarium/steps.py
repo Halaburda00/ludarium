@@ -20,8 +20,9 @@ from ludarium.crypto import CredentialCipher
 from ludarium.db import Database
 from ludarium.enrichment import EnrichmentInProgressError, Step, chained, enrich
 from ludarium.enums import SyncTrigger
-from ludarium.matching import anchor_steam_works
+from ludarium.matching import anchor_epic_works, anchor_steam_works
 from ludarium.metacritic import score_matched_works
+from ludarium.providers.epic import EpicCatalog
 from ludarium.providers.igdb import IgdbClient, IgdbCredentials
 from ludarium.providers.rawg import RawgClient
 from ludarium.providers.steam_store import SteamStoreClient
@@ -55,7 +56,13 @@ def _anchor(context: StepContext) -> Step | None:
         tokens=DatabaseTokenStore(context.database, cipher),
     )
     # One run: covers are fetched for what anchoring has just matched.
-    return chained(anchor_steam_works(client), fetch_covers(client, settings.data_dir))
+    return chained(
+        anchor_steam_works(client),
+        # After Steam, so an Epic copy of a game already anchored through its
+        # appid is folded into that work rather than anchored beside it.
+        anchor_epic_works(client, EpicCatalog(context.http)),
+        fetch_covers(client, settings.data_dir),
+    )
 
 
 def _score(context: StepContext) -> Step | None:
@@ -77,6 +84,9 @@ STEPS: Final[Mapping[str, StepBuilder]] = {
 # asked only about works matching has anchored.
 FOLLOWS: Final[Mapping[str, tuple[str, ...]]] = {
     "steam": ("steam_store", "igdb", "rawg"),
+    # Epic states each item's kind in the library itself (#64), so there is no
+    # classification step to wait for.
+    "epic": ("igdb", "rawg"),
 }
 
 

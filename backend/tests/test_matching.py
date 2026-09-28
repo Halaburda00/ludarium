@@ -54,10 +54,22 @@ class Igdb:
 
     def answer_external_games(self, request: httpx.Request) -> httpx.Response:
         body = request.content.decode()
-        uids = re.findall(r'"([^"]+)"', body)
-        self.asked_appids += uids
         limit, offset = _number(r"limit (\d+);", body), _number(r"offset (\d+);", body)
-        rows = [row for row in self.external_games if row["uid"] in uids]
+        # A row's source defaults to Steam's; Epic rows say `"source": 26`.
+        source = _number(r"external_game_source = (\d+)", body)
+        by_game = re.search(r"game = \(([^)]*)\)", body)
+        if by_game is not None:
+            games = {int(n) for n in by_game[1].split(",")}
+            rows = [row for row in self.external_games if row["game"] in games]
+        else:
+            uids = re.findall(r'"([^"]+)"', body)
+            self.asked_appids += uids
+            rows = [row for row in self.external_games if row["uid"] in uids]
+        rows = [
+            {key: value for key, value in row.items() if key != "source"}
+            for row in rows
+            if row.get("source", 1) == source
+        ]
         return httpx.Response(200, json=rows[offset : offset + limit])
 
     def answer_games(self, request: httpx.Request) -> httpx.Response:
