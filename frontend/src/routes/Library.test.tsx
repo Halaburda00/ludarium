@@ -5,12 +5,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   Account,
   EntitlementSummary,
+  SteamReviews,
   SyncOverview,
   SyncResult,
   SyncRun,
   WorkSummary,
   WorksPage,
 } from '@/lib/queries'
+import i18n from '@/i18n'
 import { ENRICHMENT_POLL_MS } from '@/lib/queries'
 import Library from '@/routes/Library'
 import { renderApp, stubFetch } from '@/test/render'
@@ -312,6 +314,61 @@ describe('the table', () => {
   })
 })
 
+describe('Steam reviews', () => {
+  const PORTAL: WorksPage = {
+    works: [
+      {
+        ...work(1, 'Portal 2'),
+        steam_reviews: {
+          rating: 'overwhelmingly_positive',
+          percent: 98,
+          count: 390695,
+          url: 'https://store.steampowered.com/app/620#app_reviews_hash',
+        },
+      },
+      work(2, 'Dota 2'),
+    ],
+    next_cursor: null,
+  }
+
+  it('links the share of positive reviews to them on the store page', async () => {
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: PORTAL },
+    })
+    renderApp(<Library />)
+
+    const score = await screen.findByRole('link', {
+      name: 'Overwhelmingly Positive on Steam for Portal 2: 98% of 390,695 reviews positive',
+    })
+    expect(score).toHaveTextContent('98%')
+    expect(score).toHaveAttribute(
+      'href',
+      'https://store.steampowered.com/app/620#app_reviews_hash',
+    )
+    expect(score).toHaveAttribute('rel', expect.stringContaining('noreferrer'))
+  })
+
+  it('names every verdict the store can give', () => {
+    // A record rather than a list, so a verdict the API gains fails to compile here.
+    const verdicts: Record<SteamReviews['rating'], null> = {
+      overwhelmingly_negative: null,
+      very_negative: null,
+      negative: null,
+      mostly_negative: null,
+      mixed: null,
+      mostly_positive: null,
+      positive: null,
+      very_positive: null,
+      overwhelmingly_positive: null,
+    }
+    for (const rating of Object.keys(verdicts)) {
+      expect(i18n.exists(`steamRating.${rating}`)).toBe(true)
+    }
+  })
+})
+
 describe('Metacritic', () => {
   const PORTAL: WorksPage = {
     works: [
@@ -341,7 +398,8 @@ describe('Metacritic', () => {
     expect(score).toHaveAttribute('href', 'https://rawg.io/games/portal-2')
     expect(score).toHaveAttribute('rel', expect.stringContaining('noreferrer'))
     const dota = screen.getAllByRole('row')[2]
-    expect(within(dota).getByText('No score')).toBeInTheDocument()
+    // Metacritic's cell and Steam's: neither has anything to say about Dota.
+    expect(within(dota).getAllByText('No score')).toHaveLength(2)
   })
 
   it('credits RAWG with a link wherever a score is shown', async () => {

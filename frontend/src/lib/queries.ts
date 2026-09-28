@@ -38,6 +38,7 @@ export type EntitlementSummary = Schemas['EntitlementSummary']
 export type WorkSummary = Schemas['WorkSummary']
 /** A Metacritic score with the page it is credited to; never one without the other. */
 export type Score = Schemas['Score']
+export type SteamReviews = Schemas['SteamReviews']
 export type WorksPage = Schemas['WorksPage']
 export type Connection = Schemas['ConnectRequest']
 export type Credentials = Schemas['LoginRequest']
