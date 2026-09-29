@@ -43,6 +43,16 @@ export type SteamReviews = Schemas['SteamReviews']
 export type WorksPage = Schemas['WorksPage']
 export type WorkDetail = Schemas['WorkDetail']
 export type Credit = Schemas['Credit']
+export type PlayStatus = Schemas['PlayStatus']
+/**
+ * Any subset of what the user decides about a work. A null clears a field; a
+ * missing one is kept.
+ *
+ * `Partial`, because openapi-typescript reads a field with a default as always
+ * present — true of a response, false of this request, where leaving a field
+ * out is the point.
+ */
+export type StateUpdate = Partial<Schemas['StateUpdate']>
 export type Connection = Schemas['ConnectRequest']
 export type Credentials = Schemas['LoginRequest']
 
@@ -253,5 +263,24 @@ export function useWork(id: number, enabled = true): UseQueryResult<WorkDetail, 
     queryKey: [...worksKey, 'detail', id],
     queryFn: ({ signal }) => api<WorkDetail>(`/api/works/${id}`, { signal }),
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
+  })
+}
+
+/**
+ * Change what the user decides about a work.
+ *
+ * The answer is the work as it now is, so it replaces the cached detail
+ * outright rather than waiting for a refetch. The grid is invalidated as well:
+ * a status or a hidden flag changes what the listing shows.
+ */
+export function useUpdateState(id: number) {
+  const client = useQueryClient()
+  return useMutation<WorkDetail, ApiError, StateUpdate>({
+    mutationFn: (update) =>
+      api<WorkDetail>(`/api/works/${id}/state`, { method: 'PATCH', body: update }),
+    onSuccess: (work) => {
+      client.setQueryData([...worksKey, 'detail', id], work)
+      void client.invalidateQueries({ queryKey: worksKey, exact: false, refetchType: 'none' })
+    },
   })
 }

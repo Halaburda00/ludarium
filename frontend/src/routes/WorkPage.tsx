@@ -3,6 +3,7 @@ import { Link, useLocation, useParams } from 'react-router-dom'
 
 import { Metacritic, ScoresCredit, Steam } from '@/components/Scores'
 import { ThemePicker } from '@/components/ThemePicker'
+import { WorkState } from '@/components/WorkState'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/field'
 import { useWork, type Credit, type EntitlementSummary, type WorkDetail } from '@/lib/queries'
@@ -113,6 +114,8 @@ function Details({ work }: { work: WorkDetail }) {
           ) : null}
         </div>
       </div>
+      {/* Keyed on the work, so the notes draft starts again on another game. */}
+      <WorkState key={work.id} work={work} />
       <Copies copies={work.entitlements} total={work.playtime_minutes} />
       {/* RAWG's terms: credit and an active link wherever its data is shown. */}
       {work.metacritic ? <ScoresCredit score={work.metacritic} /> : null}

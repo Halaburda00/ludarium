@@ -106,7 +106,29 @@
     "played": "Played",
     "totalPlayed": "All copies",
     "playtime": "{{hours}} h {{minutes}} min",
-    "notPlayed": "Not played"
+    "notPlayed": "Not played",
+    "state": {
+      "heading": "Your game",
+      "status": "Status",
+      "rating": "Rating",
+      "noRating": "Not rated",
+      "favourite": "Favourite",
+      "hidden": "Hidden",
+      "hiddenHint": "A hidden game stays in your library and leaves the grid.",
+      "notes": "Notes",
+      "saveNotes": "Save notes",
+      "started": "Started {{date}}",
+      "completed": "Finished {{date}}"
+    }
+  },
+  "playStatus": {
+    "not_started": "Not started",
+    "playing": "Playing",
+    "completed": "Completed",
+    "mastered": "Mastered",
+    "on_hold": "On hold",
+    "dropped": "Dropped",
+    "wishlist": "Wishlist"
   },
   "steamRating": {
     "overwhelmingly_negative": "Overwhelmingly Negative",

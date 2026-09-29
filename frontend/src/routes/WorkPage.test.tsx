@@ -200,3 +200,70 @@ describe('the work page', () => {
     expect(await screen.findByRole('searchbox', { name: 'Search' })).toHaveValue('witch')
   })
 })
+
+describe('what the user decides about a work', () => {
+  it('saves a status as soon as it is chosen, and sends nothing else', async () => {
+    const calls = stubFetch({
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works/7': { body: WITCHER },
+      'PATCH /api/works/7/state': {
+        body: { ...WITCHER, play_status: 'playing', started_at: '2026-09-29T12:00:00Z' },
+      },
+    })
+    renderApp(<Router />, { route: '/library/7' })
+
+    await userEvent.selectOptions(await screen.findByLabelText('Status'), 'Playing')
+
+    expect(await screen.findByText(/^Started /)).toBeInTheDocument()
+    const patch = calls.find((call) => call.method === 'PATCH')
+    // Only the field that changed: anything else sent would overwrite it.
+    expect(patch?.body).toEqual({ play_status: 'playing' })
+  })
+
+  it('clears a rating with a null rather than leaving it out', async () => {
+    const calls = stubFetch({
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works/7': { body: { ...WITCHER, rating: 8 } },
+      'PATCH /api/works/7/state': { body: WITCHER },
+    })
+    renderApp(<Router />, { route: '/library/7' })
+
+    await userEvent.selectOptions(await screen.findByLabelText('Rating'), 'Not rated')
+
+    await vi.waitFor(() =>
+      expect(calls.find((call) => call.method === 'PATCH')?.body).toEqual({ rating: null }),
+    )
+  })
+
+  it('saves notes on the button, not on every key', async () => {
+    const calls = stubFetch({
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works/7': { body: WITCHER },
+      'PATCH /api/works/7/state': { body: { ...WITCHER, notes: 'Gwent first' } },
+    })
+    renderApp(<Router />, { route: '/library/7' })
+
+    await userEvent.type(await screen.findByLabelText('Notes'), 'Gwent first')
+    expect(calls.some((call) => call.method === 'PATCH')).toBe(false)
+    await userEvent.click(screen.getByRole('button', { name: 'Save notes' }))
+
+    await vi.waitFor(() =>
+      expect(calls.find((call) => call.method === 'PATCH')?.body).toEqual({
+        notes: 'Gwent first',
+      }),
+    )
+  })
+
+  it('says so when a change was not saved', async () => {
+    stubFetch({
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works/7': { body: WITCHER },
+      'PATCH /api/works/7/state': { status: 422, body: { detail: 'nothing to change' } },
+    })
+    renderApp(<Router />, { route: '/library/7' })
+
+    await userEvent.click(await screen.findByLabelText('Favourite'))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('nothing to change')
+  })
+})
