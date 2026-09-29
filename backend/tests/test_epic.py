@@ -107,8 +107,11 @@ async def test_the_library_is_every_page_one_item_per_catalogue_entry_in_english
 ) -> None:
     routes = mount()
 
-    items = (await epic.fetch_library()).items
+    fetched = await epic.fetch_library()
+    items = fetched.items
 
+    # Neither the build listed twice nor the plugin left out below was lost.
+    assert fetched.skipped == 0
     assert [(item.title, item.item_kind) for item in items] == [
         ("Gone Home", ItemKind.GAME),
         # Listed twice by the library, once per build: one entitlement.
@@ -169,6 +172,53 @@ async def test_an_item_the_catalogue_does_not_know_keeps_its_app_name(
     items = (await epic.fetch_library()).items
 
     assert ("Flier", None) in [(item.title, item.item_kind) for item in items]
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"namespace": "52326e805bac4619a4a8fac165363a42"},
+        {"namespace": "52326e805bac4619a4a8fac165363a42", "catalogItemId": ""},
+        {"namespace": None, "catalogItemId": "48171393707541359f3a7dd7257b2757"},
+        # A namespace is a path segment in the catalogue URL, so one that is not
+        # a plain token would ask another endpoint, bearer token and all.
+        {"namespace": "a/../../x", "catalogItemId": "48171393707541359f3a7dd7257b2757"},
+        {"namespace": "a?b=1", "catalogItemId": "48171393707541359f3a7dd7257b2757"},
+        {"namespace": "", "catalogItemId": "48171393707541359f3a7dd7257b2757"},
+        "48171393707541359f3a7dd7257b2757",
+    ],
+)
+@respx.mock
+async def test_a_record_it_cannot_read_is_counted_not_raised(
+    epic: EpicProvider, record: object
+) -> None:
+    """One unreadable record costs that record, not the page or the library (#87)."""
+
+    mount()
+
+    def with_one_bad_record(request: httpx.Request) -> httpx.Response:
+        page = json.loads(answer_library(request).content)
+        if not request.url.params.get("cursor"):
+            page["records"].append(record)
+        return httpx.Response(200, json=page)
+
+    respx.get(epic_module.LIBRARY).mock(side_effect=with_one_bad_record)
+
+    fetched = await epic.fetch_library()
+
+    assert fetched.skipped == 1
+    assert len(fetched.items) == 5
+
+
+@respx.mock
+async def test_a_page_without_a_list_of_records_fails_the_library(epic: EpicProvider) -> None:
+    """Nothing in it to count, so nothing to call partial."""
+
+    mount()
+    respx.get(epic_module.LIBRARY).mock(return_value=httpx.Response(200, json={"records": {}}))
+
+    with pytest.raises(MalformedResponseError, match="no list of records"):
+        await epic.fetch_library()
 
 
 @respx.mock
