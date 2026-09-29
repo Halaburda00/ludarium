@@ -180,6 +180,11 @@ async def test_an_item_the_catalogue_does_not_know_keeps_its_app_name(
         {"namespace": "52326e805bac4619a4a8fac165363a42"},
         {"namespace": "52326e805bac4619a4a8fac165363a42", "catalogItemId": ""},
         {"namespace": None, "catalogItemId": "48171393707541359f3a7dd7257b2757"},
+        # A namespace is a path segment in the catalogue URL, so one that is not
+        # a plain token would ask another endpoint, bearer token and all.
+        {"namespace": "a/../../x", "catalogItemId": "48171393707541359f3a7dd7257b2757"},
+        {"namespace": "a?b=1", "catalogItemId": "48171393707541359f3a7dd7257b2757"},
+        {"namespace": "", "catalogItemId": "48171393707541359f3a7dd7257b2757"},
         "48171393707541359f3a7dd7257b2757",
     ],
 )

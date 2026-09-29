@@ -229,9 +229,12 @@ class EpicProvider:
 
 
 def _is_record(record: object) -> TypeGuard[dict[str, Any]]:
+    # The namespace becomes a path segment of the catalogue URL, where a slash
+    # or a `?` would send the bearer token to another endpoint.
     return (
         isinstance(record, dict)
         and isinstance(record.get("namespace"), str)
+        and NAMESPACE.fullmatch(record["namespace"]) is not None
         and isinstance(record.get("catalogItemId"), str)
         and bool(record["catalogItemId"])
     )
