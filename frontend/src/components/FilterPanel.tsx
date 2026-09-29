@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,12 @@ import {
   type Hidden,
   type RangeName,
 } from '@/lib/filters'
+
+/**
+ * How long typing in a number has to pause before it filters: "85" is one
+ * question, not "8" and then "85", and not two steps in the history.
+ */
+export const BOUND_DEBOUNCE_MS = 400
 
 const CONTROL =
   'h-8 rounded-lg border border-input bg-background px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive'
@@ -192,6 +198,22 @@ function Bound({
     if (value !== parsed) setTyped(shown(value))
   }
   const acceptable = parsed !== null && parsed >= bounds.min && parsed <= bounds.max
+  const next = typed === '' ? null : acceptable ? parsed : undefined
+  const commit = () => {
+    if (next !== undefined && next !== value) onCommit(next)
+  }
+  // The latest callback, read when the timer fires. A dependency on it would
+  // restart the pause on every render of the page, and the library re-renders
+  // on its own while a sync's steps are polled.
+  const latest = useRef(onCommit)
+  useEffect(() => {
+    latest.current = onCommit
+  })
+  useEffect(() => {
+    if (next === undefined || next === value) return
+    const timer = setTimeout(() => latest.current(next), BOUND_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [next, value])
   return (
     <input
       type="number"
@@ -201,14 +223,12 @@ function Bound({
       min={Math.ceil(bounds.min / scale)}
       max={Math.floor(bounds.max / scale)}
       value={typed}
-      onChange={(event) => {
-        const next = event.target.value
-        setTyped(next)
-        if (next === '') onCommit(null)
-        else if (/^\d+$/.test(next)) {
-          const minutes = Number(next) * scale
-          if (minutes >= bounds.min && minutes <= bounds.max) onCommit(minutes)
-        }
+      onChange={(event) => setTyped(event.target.value)}
+      // Leaving the field or pressing Enter is the user saying they are done,
+      // so neither waits for the pause.
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') commit()
       }}
       className={`${CONTROL} w-24`}
     />

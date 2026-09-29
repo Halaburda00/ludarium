@@ -1063,4 +1063,20 @@ describe('the filter panel, as it is used', () => {
     // Without a checkbox it could only be removed by clearing everything.
     expect(await screen.findByLabelText('manual')).toBeChecked()
   })
+
+  it('asks once for a number typed a digit at a time', async () => {
+    const calls = stubFetch({
+      ...BASE,
+      'GET /api/works?metacritic_min=8': { body: THREE },
+      'GET /api/works?metacritic_min=85': { body: THREE },
+    })
+    renderApp(<Library />)
+
+    await userEvent.type(await screen.findByLabelText('Metacritic from'), '85')
+
+    await vi.waitFor(() =>
+      expect(calls.some((call) => call.path === '/api/works?metacritic_min=85')).toBe(true),
+    )
+    expect(calls.some((call) => call.path === '/api/works?metacritic_min=8')).toBe(false)
+  })
 })
