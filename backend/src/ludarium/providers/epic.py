@@ -31,6 +31,7 @@ from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt,
 
 from ludarium.enums import ItemKind, OwnershipType
 from ludarium.providers.base import (
+    FetchedLibrary,
     InvalidCredentialsError,
     LibraryItem,
     MalformedResponseError,
@@ -136,12 +137,12 @@ class EpicProvider:
     async def validate_credentials(self) -> None:
         await self._access_token()
 
-    async def fetch_library(self) -> list[LibraryItem]:
+    async def fetch_library(self) -> FetchedLibrary:
         token = await self._access_token()
         records = _unique(await self._records(token))
         catalog = await self._catalog(token, records)
         items = [_as_item(record, catalog.get(record["catalogItemId"])) for record in records]
-        return [item for item in items if item is not None]
+        return FetchedLibrary([item for item in items if item is not None])
 
     async def _access_token(self) -> str:
         payload = await _token(

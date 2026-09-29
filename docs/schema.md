@@ -153,8 +153,9 @@ future local agent and a manual upload are indistinguishable downstream.
 | `items_added` | INTEGER | no | `0` | |
 | `items_updated` | INTEGER | no | `0` | For an enrichment run, the keys that went to the provider rather than to the cache |
 | `items_removed` | INTEGER | no | `0` | Marked `removed_at`, never deleted |
+| `items_skipped` | INTEGER | no | `0` | Entries the provider sent and could not read. Non-zero makes the run `partial`: it keeps what arrived and sweeps nothing (#44) |
 | `error_text` | TEXT | yes | | What went wrong. Never a credential (rule 7) |
-| `error_kind` | TEXT | yes | | `SyncErrorKind`: who can fix it. `credentials` is the user's (sign in again, a new key); `unavailable` and `rate_limited` are nobody's. Null on success and on runs from before it |
+| `error_kind` | TEXT | yes | | `SyncErrorKind`: who can fix it. `credentials` is the user's (sign in again, a new key); `unavailable` and `rate_limited` are nobody's. `malformed` on a `partial` run. Null on success and on runs from before it |
 
 One open run per account (`UNIQUE (account_id) WHERE status = 'running' AND
 account_id IS NOT NULL`), and one open enrichment run per provider (`UNIQUE
@@ -909,7 +910,7 @@ IGDB or RAWG ships inside the repository or the Docker image; the alias dataset
 | Concern | Representation |
 |---|---|
 | First appearance | `entitlement.first_seen_at`, set on insert, never updated. Survives a removal and a later restore, so "owned since" stays true |
-| Still present | `entitlement.last_seen_at`, touched by every successful run that sees the item |
+| Still present | `entitlement.last_seen_at`, touched by every `success` or `partial` run that sees the item |
 | Disappearance | `entitlement.removed_at` set, plus `removed_by_run_id`. The row stays, the links stay, its own playtime stays (rule 1). The work-level aggregates in `user_work_state` are recomputed from non-removed entitlements, so a removed entitlement stops counting until it is restored |
 | Removed view | `WHERE removed_at IS NOT NULL`, with a one-click restore that nulls `removed_at` and `removed_by_run_id` |
 | Default grid | Every library query carries `removed_at IS NULL` |

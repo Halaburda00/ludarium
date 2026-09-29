@@ -39,6 +39,8 @@ class SyncRunResponse(BaseModel):
     items_added: int
     items_updated: int
     items_removed: int
+    # Entries the provider sent and could not read, which makes a run `partial`.
+    items_skipped: int
     error_text: str | None
     # Who can fix a failure: `credentials` means sign in again or a new key,
     # `unavailable` means wait. Null on success, and on runs from before it.
@@ -88,6 +90,7 @@ def describe_run(run: SyncRun, provider_key: str) -> SyncRunResponse:
         items_added=run.items_added,
         items_updated=run.items_updated,
         items_removed=run.items_removed,
+        items_skipped=run.items_skipped,
         error_text=run.error_text,
         error_kind=run.error_kind,
     )
@@ -159,7 +162,8 @@ async def run(
         except SyncInProgressError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     planned = []
-    if any(finished.status is SyncStatus.SUCCESS for finished in runs):
+    # A partial run landed new works too, and they need metadata as much.
+    if any(finished.status in (SyncStatus.SUCCESS, SyncStatus.PARTIAL) for finished in runs):
         context = StepContext(client, request.app.state.database, request.app.state.settings)
         planned = plan_after_sync(context, library=reporter.key)
         scheduled: Scheduled = request.app.state.scheduled

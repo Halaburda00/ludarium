@@ -76,6 +76,7 @@ function run(overrides: Partial<SyncRun> = {}): SyncRun {
     items_added: 3,
     items_updated: 0,
     items_removed: 0,
+    items_skipped: 0,
     error_text: null,
     error_kind: null,
     ...overrides,
@@ -233,6 +234,25 @@ describe('a partial run', () => {
     const notice = await screen.findByRole('alert')
     expect(notice).toHaveTextContent('did not hand over all of it')
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('says how many entries could not be read', async () => {
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: THREE },
+      'POST /api/sync/steam': {
+        body: synced(run({ status: 'partial', items_seen: 196, items_skipped: 1 })),
+      },
+    })
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Synced 196 games, but the platform did not hand over all of it. ' +
+        '1 entry it sent could not be read, so nothing was marked as removed.',
+    )
   })
 })
 

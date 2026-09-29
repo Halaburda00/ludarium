@@ -13,6 +13,7 @@ import httpx
 from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from ludarium.providers.base import (
+    FetchedLibrary,
     InvalidCredentialsError,
     LibraryItem,
     LibraryNotVisibleError,
@@ -59,10 +60,12 @@ class SteamProvider:
     async def validate_credentials(self) -> None:
         await self._owned_games()
 
-    async def fetch_library(self) -> list[LibraryItem]:
-        return [_as_item(game) for game in await self._owned_games()]
+    async def fetch_library(self) -> FetchedLibrary:
+        games = await self._owned_games()
+        items = [item for item in map(_as_item, games) if item is not None]
+        return FetchedLibrary(items, skipped=len(games) - len(items))
 
-    async def _owned_games(self) -> list[dict[str, Any]]:
+    async def _owned_games(self) -> list[object]:
         payload = await self._request(
             OWNED_GAMES,
             {
@@ -173,10 +176,19 @@ def _check_against_count(games: list[Any], count: object) -> None:
         raise MalformedResponseError(f"steam said it has {promised} games and sent {len(games)}")
 
 
-def _as_item(game: dict[str, Any]) -> LibraryItem:
+def _as_item(game: object) -> LibraryItem | None:
+    """The entry as a library item, or None where it has no appid or name to go by.
+
+    None rather than an error, so one unreadable row costs that row and not the
+    196 beside it (#44). The caller counts what was dropped, and the count is
+    what stops the sync from reading the shorter list as the whole library.
+    """
+
+    if not isinstance(game, dict):
+        return None
     appid, name = whole_number(game.get("appid")), game.get("name")
     if appid is None or not isinstance(name, str):
-        raise MalformedResponseError("a steam library entry has no usable appid or name")
+        return None
     return LibraryItem(
         provider_item_id=str(appid),
         title=name,

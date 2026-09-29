@@ -147,6 +147,8 @@ class SyncRun(Base):
     items_updated: Mapped[int] = mapped_column(default=0, server_default=text("0"))
     # Marked with `removed_at`, never deleted (rule 1).
     items_removed: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    # Entries the provider sent but could not read; non-zero makes a run `partial`.
+    items_skipped: Mapped[int] = mapped_column(default=0, server_default=text("0"))
     error_text: Mapped[str | None]
     # Who can fix it, where `error_text` says what happened. Null on success.
     error_kind: Mapped[SyncErrorKind | None] = mapped_column(

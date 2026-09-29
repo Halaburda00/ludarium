@@ -602,6 +602,10 @@
             "title": "Items Seen",
             "type": "integer"
           },
+          "items_skipped": {
+            "title": "Items Skipped",
+            "type": "integer"
+          },
           "items_updated": {
             "title": "Items Updated",
             "type": "integer"
@@ -634,6 +638,7 @@
           "items_added",
           "items_updated",
           "items_removed",
+          "items_skipped",
           "error_text",
           "error_kind"
         ],

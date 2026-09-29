@@ -64,6 +64,9 @@ export default function Library() {
   // the user everything arrived when it did not.
   const partial = runs.find((run) => run.status === 'partial')
   const landed = runs.reduce((total, run) => total + run.items_seen, 0)
+  // Said with the count, so "the platform did not hand over all of it" has a
+  // size: one row Steam sent and we could not read is not an outage (#44).
+  const unreadable = runs.reduce((total, run) => total + run.items_skipped, 0)
 
   const enriching = overview.data?.enriching ?? []
   const step = enriching.length > 0 ? providerName(overview.data, enriching[0]) : null
@@ -168,7 +171,10 @@ export default function Library() {
         </Notice>
       ))}
       {partial && failed.length === 0 ? (
-        <Notice tone="warn">{t('library.partial', { count: landed })}</Notice>
+        <Notice tone="warn">
+          {t('library.partial', { count: landed })}
+          {unreadable > 0 ? ` ${t('library.unreadable', { count: unreadable })}` : null}
+        </Notice>
       ) : null}
       {runs.length > 0 && failed.length === 0 && refused.length === 0 && !partial ? (
         <Notice tone="ok">{t('library.synced', { count: landed })}</Notice>

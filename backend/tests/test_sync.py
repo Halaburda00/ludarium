@@ -41,6 +41,7 @@ from ludarium.models import (
 )
 from ludarium.models.types import ScalarValue, utcnow
 from ludarium.providers import (
+    FetchedLibrary,
     InvalidCredentialsError,
     LibraryItem,
     ProviderUnavailableError,
@@ -70,21 +71,23 @@ class FakeLibrary:
         key: str = "steam",
         error: Exception | None = None,
         renewed_secret: str | None = None,
+        skipped: int = 0,
     ) -> None:
         self.key = key
         self.renewed_secret = renewed_secret
         self.calls = 0
         self._items = items or []
         self._error = error
+        self._skipped = skipped
 
     async def validate_credentials(self) -> None:
         return None
 
-    async def fetch_library(self) -> list[LibraryItem]:
+    async def fetch_library(self) -> FetchedLibrary:
         self.calls += 1
         if self._error is not None:
             raise self._error
-        return list(self._items)
+        return FetchedLibrary(list(self._items), skipped=self._skipped)
 
 
 def owned(
@@ -625,6 +628,101 @@ async def test_a_failed_run_marks_nothing_removed(
     assert still_here == 3
 
 
+async def live(session: AsyncSession) -> int:
+    total = await session.scalar(
+        select(func.count()).select_from(Entitlement).where(Entitlement.removed_at.is_(None))
+    )
+    assert total is not None
+    return total
+
+
+async def test_unreadable_entries_make_a_partial_run_that_keeps_what_arrived(
+    session: AsyncSession, account: Account
+) -> None:
+    """The run #44 was about: one bad row used to cost every good one beside it."""
+
+    run = await sync_account(
+        session, account=account, library=FakeLibrary(THREE_GAMES[:2], skipped=1)
+    )
+
+    assert run.status is SyncStatus.PARTIAL
+    assert (run.items_seen, run.items_added, run.items_skipped) == (2, 2, 1)
+    assert run.error_kind is SyncErrorKind.MALFORMED
+    assert run.error_text is not None
+    session.expire_all()
+    assert await count(session, Entitlement) == 2
+    assert await count(session, Work) == 2
+
+
+async def test_a_partial_run_marks_nothing_removed(session: AsyncSession, account: Account) -> None:
+    """The fix that would have been worse than the bug.
+
+    The games behind the unreadable entries are missing from the list, and a
+    sweep would mark them removed. Which games those are cannot be told from
+    what arrived, so a partial run does not sweep at all.
+    """
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    run = await sync_account(
+        session, account=account, library=FakeLibrary(THREE_GAMES[:1], skipped=2)
+    )
+
+    assert run.status is SyncStatus.PARTIAL
+    assert run.items_removed == 0
+    session.expire_all()
+    assert await live(session) == 3
+
+
+async def test_a_partial_run_still_restores_a_game_it_can_read(
+    session: AsyncSession, account: Account
+) -> None:
+    """Skipping the sweep is not skipping the run: what arrived is applied in full."""
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES[:2]))
+    assert (await one_entitlement(session, "570")).removed_at is not None
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES, skipped=1))
+
+    session.expire_all()
+    assert (await one_entitlement(session, "570")).removed_at is None
+
+
+async def test_a_partial_run_is_not_a_success(session: AsyncSession, account: Account) -> None:
+    """`last_success_at` means the whole library arrived, and this time it did not."""
+
+    steam = await make_provider(session)
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+    await session.refresh(steam)
+    worked_at = steam.last_success_at
+
+    run = await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES, skipped=1))
+
+    await session.refresh(steam)
+    await session.refresh(account)
+    assert steam.status is SyncStatus.PARTIAL
+    assert steam.last_error == run.error_text
+    assert steam.last_success_at == worked_at
+    assert account.last_success_at == worked_at
+
+
+async def test_a_library_with_nothing_readable_is_a_failure(
+    session: AsyncSession, account: Account
+) -> None:
+    """Nothing arrived to keep, so there is nothing partial about it."""
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    run = await sync_account(session, account=account, library=FakeLibrary([], skipped=3))
+
+    assert run.status is SyncStatus.FAILED
+    assert run.error_kind is SyncErrorKind.MALFORMED
+    assert (run.items_seen, run.items_skipped, run.items_removed) == (0, 3, 0)
+    session.expire_all()
+    assert await live(session) == 3
+
+
 async def test_a_manual_row_survives_a_sweep_that_takes_everything_else(
     session: AsyncSession, account: Account
 ) -> None:
@@ -1019,6 +1117,23 @@ async def test_a_recorded_steam_library_lands_end_to_end(
     assert entitlement.playtime_minutes == 3247
     assert entitlement.raw_payload is not None
     assert entitlement.raw_payload["appid"] == 292030
+
+
+@respx.mock
+async def test_a_nameless_steam_entry_costs_only_itself(
+    session: AsyncSession, account: Account, steam: SteamProvider
+) -> None:
+    """The reproduction from #44, which used to end `failed` with nothing stored."""
+
+    body = json.loads((FIXTURES / "owned_games.json").read_text())
+    body["response"]["games"].append({"appid": 4000})
+    body["response"]["game_count"] += 1
+    respx.get(OWNED_GAMES_URL).mock(return_value=httpx.Response(200, json=body))
+
+    run = await sync_account(session, account=account, library=steam)
+
+    assert run.status is SyncStatus.PARTIAL
+    assert (run.items_added, run.items_skipped) == (3, 1)
 
 
 async def test_a_second_run_of_one_account_is_refused(
@@ -1424,16 +1539,18 @@ async def test_more_works_than_one_in_clause_holds_still_get_their_totals(
 
 
 @pytest.mark.parametrize(
-    "error",
-    [None, ProviderUnavailableError("epic answered 503 for the library")],
-    ids=["success", "failure"],
+    ("error", "skipped"),
+    [(None, 0), (None, 1), (ProviderUnavailableError("epic answered 503 for the library"), 0)],
+    ids=["success", "partial", "failure"],
 )
 async def test_a_credential_the_platform_replaced_is_kept_whether_the_run_worked_or_not(
-    session: AsyncSession, account: Account, error: Exception | None
+    session: AsyncSession, account: Account, error: Exception | None, skipped: int
 ) -> None:
     """Epic spends its refresh token on every use; keeping the old one signs the next sync out."""
 
-    library = FakeLibrary(THREE_GAMES, error=error, renewed_secret="eg1~the-new-refresh-token")
+    library = FakeLibrary(
+        THREE_GAMES, error=error, renewed_secret="eg1~the-new-refresh-token", skipped=skipped
+    )
 
     await sync_account(session, account=account, library=library)
 
