@@ -952,7 +952,98 @@ describe('hidden games', () => {
     })
     renderApp(<Library />)
 
-    await userEvent.click(await screen.findByLabelText('Show hidden games'))
+    await userEvent.selectOptions(await screen.findByLabelText('Hidden games'), 'Show with the rest')
+
+    expect(await screen.findByText('Portal 2')).toBeInTheDocument()
+  })
+})
+
+describe('the filter panel', () => {
+  it('asks the API for what is ticked, in its own parameter names', async () => {
+    const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: THREE },
+      'GET /api/works?kind=dlc': { body: THREE },
+      'GET /api/works?kind=dlc&status=playing': { body: THREE },
+    })
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByLabelText('DLC'))
+    await userEvent.click(screen.getByLabelText('Playing'))
+
+    await vi.waitFor(() =>
+      expect(calls.map((call) => call.path)).toContain('/api/works?kind=dlc&status=playing'),
+    )
+    expect(screen.getByText('Filters (2 on)')).toBeInTheDocument()
+  })
+
+  it('opens a shared link with what it got right, and drops the rest', async () => {
+    const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works?kind=dlc&metacritic_min=80': { body: THREE },
+    })
+    renderApp(<Library />, {
+      route: '/library?kind=dlc&kind=spaceship&metacritic_min=80&year_min=1066',
+    })
+
+    expect(await screen.findByText('Portal 2')).toBeInTheDocument()
+    expect(screen.getByLabelText('DLC')).toBeChecked()
+    expect(screen.getByLabelText('Metacritic from')).toHaveValue(80)
+    expect(calls.filter((call) => call.path.startsWith('/api/works'))).toHaveLength(1)
+  })
+
+  it('says nothing matches rather than that the library is empty', async () => {
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: THREE },
+      'GET /api/works?status=mastered': { body: EMPTY },
+    })
+    renderApp(<Library />, { route: '/library?status=mastered' })
+
+    expect(await screen.findByText('No games match these filters.')).toBeInTheDocument()
+    expect(screen.queryByText(/Nothing here yet/)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Clear filters' })[0])
+
+    expect(await screen.findByText('Portal 2')).toBeInTheDocument()
+  })
+
+  it('does not send a range whose first number is above its second', async () => {
+    const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: THREE },
+      'GET /api/works?year_min=2020': { body: THREE },
+    })
+    renderApp(<Library />)
+
+    await userEvent.type(await screen.findByLabelText('Release year from'), '2020')
+    await userEvent.type(screen.getByLabelText('Release year to'), '2010')
+
+    expect(await screen.findByText(/is not applied/)).toBeInTheDocument()
+    // The API would answer `year_min=2020&year_max=2010` with a 422.
+    expect(calls.some((call) => call.path.includes('year_max'))).toBe(false)
+    // Typed a digit at a time, "2" on the way to "2020" was never a request.
+    expect(calls.some((call) => call.path === '/api/works?year_min=2')).toBe(false)
+  })
+
+  it('offers to clear filters the API refused', async () => {
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works?platform=gog': {
+        status: 422,
+        body: { detail: 'not a platform: gog' },
+      },
+      'GET /api/works': { body: THREE },
+    })
+    renderApp(<Library />, { route: '/library?platform=gog' })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('not a platform')
+    await userEvent.click(screen.getAllByRole('button', { name: 'Clear filters' })[0])
 
     expect(await screen.findByText('Portal 2')).toBeInTheDocument()
   })

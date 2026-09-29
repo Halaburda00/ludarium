@@ -3,17 +3,8 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/field'
+import { STATUSES } from '@/lib/filters'
 import { useUpdateState, type PlayStatus, type WorkDetail } from '@/lib/queries'
-
-const STATUSES: PlayStatus[] = [
-  'not_started',
-  'playing',
-  'completed',
-  'mastered',
-  'on_hold',
-  'dropped',
-  'wishlist',
-]
 
 const RATINGS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 

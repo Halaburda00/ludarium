@@ -11,6 +11,7 @@ import {
 } from '@tanstack/react-query'
 
 import { api, ApiError } from '@/lib/api'
+import { apiParams, NO_FILTERS, type Filters } from '@/lib/filters'
 import type { components } from '@/lib/api-types'
 
 /**
@@ -44,6 +45,7 @@ export type WorksPage = Schemas['WorksPage']
 export type WorkDetail = Schemas['WorkDetail']
 export type Credit = Schemas['Credit']
 export type PlayStatus = Schemas['PlayStatus']
+export type ItemKind = Schemas['ItemKind']
 /**
  * Any subset of what the user decides about a work. A null clears a field; a
  * missing one is kept.
@@ -215,14 +217,16 @@ export function useEnrichment(): UseQueryResult<SyncOverview, ApiError> {
  */
 export function useWorks(
   search = '',
-  showHidden = false,
+  filters: Filters = NO_FILTERS,
 ): UseInfiniteQueryResult<InfiniteData<WorksPage>, ApiError> {
+  // Keyed on the query string the API will be sent, so two filter states that
+  // ask the same question share a cache entry.
+  const asked = apiParams(filters).toString()
   return useInfiniteQuery({
     // Under `worksKey`, so a sync invalidating the library refetches a search
     // too.
-    queryKey: [...worksKey, search, showHidden],
-    queryFn: ({ pageParam, signal }) =>
-      api<WorksPage>(pageUrl(pageParam, search, showHidden), { signal }),
+    queryKey: [...worksKey, search, asked],
+    queryFn: ({ pageParam, signal }) => api<WorksPage>(pageUrl(pageParam, search, asked), { signal }),
     // The last answer stays on screen while the next search is asked, rather
     // than the grid giving way to "Loading…" on every letter typed.
     placeholderData: keepPreviousData,
@@ -241,15 +245,12 @@ export function useWorks(
 
 type Cursor = string | null
 
-function pageUrl(cursor: Cursor, search: string, showHidden: boolean): string {
+function pageUrl(cursor: Cursor, search: string, filters: string): string {
   // Through `URLSearchParams` rather than by concatenation: the cursor is
   // base64url today and opaque by design, and a search is whatever was typed,
   // so nothing here should depend on either being safe to paste in.
-  const params = new URLSearchParams()
+  const params = new URLSearchParams(filters)
   if (search) params.set('q', search)
-  // The API leaves hidden games out unless asked; `include` puts them back
-  // beside the rest rather than instead of them.
-  if (showHidden) params.set('hidden', 'include')
   if (cursor !== null) params.set('cursor', cursor)
   const query = params.toString()
   return query ? `/api/works?${query}` : '/api/works'

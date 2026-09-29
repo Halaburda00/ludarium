@@ -2,10 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
+import { FilterPanel } from '@/components/FilterPanel'
 import { ThemePicker } from '@/components/ThemePicker'
 import { WorksGrid } from '@/components/WorksGrid'
 import { Button } from '@/components/ui/button'
 import { Field, Notice } from '@/components/ui/field'
+import { activeCount, NO_FILTERS, readFilters, writeFilters, type Filters } from '@/lib/filters'
 import {
   useAccounts,
   useEnrichment,
@@ -40,11 +42,12 @@ export default function Library() {
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [typed, search, setParams])
-  // In the address with the search, for the same reasons. The full filter
-  // panel is #93's; this is the one control without which a hidden game has
-  // no way back into the grid.
-  const showHidden = params.get('hidden') === 'include'
-  const works = useWorks(search, showHidden)
+  // In the address with the search, for the same reasons, and pushed rather
+  // than replaced: back and forward step through filter changes.
+  const filters = readFilters(params)
+  const filtered = activeCount(filters) > 0
+  const setFilters = (next: Filters) => setParams((current) => writeFilters(next, current))
+  const works = useWorks(search, filters)
   const sync = useSync()
   const overview = useEnrichment()
   const accounts = useAccounts()
@@ -203,12 +206,19 @@ export default function Library() {
           <Button variant="outline" onClick={() => void works.refetch()}>
             {t('common.retry')}
           </Button>
+          {/* A link from an older version can name a filter value the API no
+              longer takes; retrying it would fail the same way. */}
+          {filtered ? (
+            <Button variant="outline" onClick={() => setFilters(NO_FILTERS)}>
+              {t('filters.clear')}
+            </Button>
+          ) : null}
         </State>
       ) : null}
 
       {/* Not over a library with nothing in it: there is nothing to find, and
           the way out of that screen is a sync. */}
-      {search || !(exhausted && loaded.length === 0) ? (
+      {search || filtered || !(exhausted && loaded.length === 0) ? (
         <search>
           <Field
           id="library-search"
@@ -225,30 +235,26 @@ export default function Library() {
 
       {/* Always here, over an empty grid too: a library where every game is
           hidden looks exactly like one with nothing in it. */}
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={showHidden}
-          onChange={(event) =>
-            setParams(
-              (current) => {
-                const next = new URLSearchParams(current)
-                if (event.target.checked) next.set('hidden', 'include')
-                else next.delete('hidden')
-                return next
-              },
-              { replace: true },
-            )
-          }
-        />
-        {t('library.showHidden')}
-      </label>
+      <FilterPanel
+        filters={filters}
+        platforms={platforms.map((key) => ({ key, name: providerName(overview.data, key) }))}
+        onChange={setFilters}
+      />
 
       {exhausted && loaded.length === 0 && search ? (
         <p className="text-sm text-muted-foreground">{t('library.noMatches', { search })}</p>
       ) : null}
 
-      {exhausted && loaded.length === 0 && !search ? (
+      {exhausted && loaded.length === 0 && !search && filtered ? (
+        <State>
+          <p className="text-sm text-muted-foreground">{t('filters.noMatches')}</p>
+          <Button variant="outline" onClick={() => setFilters(NO_FILTERS)}>
+            {t('filters.clear')}
+          </Button>
+        </State>
+      ) : null}
+
+      {exhausted && loaded.length === 0 && !search && !filtered ? (
         <State>
           <p className="text-sm text-muted-foreground">{t('library.empty')}</p>
           {/* An account is connected — the route guard sends anyone without one
@@ -266,7 +272,7 @@ export default function Library() {
             {/* Counted honestly: with a page still unfetched this is what has
                 been loaded, not what the library holds, and saying "40 games"
                 over the first page of four hundred is simply wrong. */}
-            {t(search ? 'library.matches' : 'library.count', {
+            {t(search || filtered ? 'library.matches' : 'library.count', {
               count: loaded.length,
               context: works.hasNextPage ? 'partial' : undefined,
             })}

@@ -78,7 +78,6 @@
     "count_partial_other": "{{count}} games so far",
     "search": "Search",
     "searchHint": "A title, or the name a store gives it",
-    "showHidden": "Show hidden games",
     "matches_one": "{{count}} match",
     "matches_other": "{{count}} matches",
     "matches_partial_one": "{{count}} match so far",
@@ -121,6 +120,36 @@
       "started": "Started {{date}}",
       "completed": "Finished {{date}}"
     }
+  },
+  "filters": {
+    "title": "Filters",
+    "titleActive_one": "Filters ({{count}} on)",
+    "titleActive_other": "Filters ({{count}} on)",
+    "platform": "Platform",
+    "kind": "Type",
+    "status": "Status",
+    "metacritic": "Metacritic",
+    "year": "Release year",
+    "playtime": "Hours played",
+    "min": "{{range}} from",
+    "max": "{{range}} to",
+    "inverted": "The first number is above the second, so this range is not applied.",
+    "hidden": "Hidden games",
+    "hiddenExclude": "Leave out",
+    "hiddenInclude": "Show with the rest",
+    "hiddenOnly": "Show only these",
+    "clear": "Clear filters",
+    "noMatches": "No games match these filters."
+  },
+  "itemKind": {
+    "game": "Game",
+    "dlc": "DLC",
+    "demo": "Demo",
+    "playtest": "Playtest",
+    "soundtrack": "Soundtrack",
+    "video": "Video",
+    "tool": "Tool",
+    "mod": "Mod"
   },
   "playStatus": {
     "not_started": "Not started",
