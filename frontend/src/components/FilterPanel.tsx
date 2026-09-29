@@ -186,9 +186,14 @@ function Bound({
   invalid: boolean
   onCommit: (value: number | null) => void
 }) {
-  const shown = (stored: number | null) => (stored === null ? '' : String(Math.round(stored / scale)))
+  // Shown exactly, to two places: a link filtering at 90 minutes shows 1.5
+  // hours, not a rounded 2 over a list cut at one and a half.
+  const shown = (stored: number | null) =>
+    stored === null ? '' : String(Number((stored / scale).toFixed(2)))
   const [typed, setTyped] = useState(shown(value))
-  const parsed = /^\d+$/.test(typed) ? Number(typed) * scale : null
+  // Fractions only where the page's unit is coarser than the API's.
+  const pattern = scale > 1 ? /^\d+(\.\d+)?$/ : /^\d+$/
+  const parsed = pattern.test(typed) ? Math.round(Number(typed) * scale) : null
   // Taken from outside only when it moved without this field: clearing the
   // filters, or going back through the history. A value this field committed
   // itself is already what is typed, and resetting to it would move the cursor.
@@ -217,11 +222,12 @@ function Bound({
   return (
     <input
       type="number"
-      inputMode="numeric"
+      inputMode={scale > 1 ? 'decimal' : 'numeric'}
       aria-label={label}
       aria-invalid={invalid || (typed !== '' && !acceptable) || undefined}
       min={Math.ceil(bounds.min / scale)}
       max={Math.floor(bounds.max / scale)}
+      step={scale > 1 ? 'any' : 1}
       value={typed}
       onChange={(event) => setTyped(event.target.value)}
       // Leaving the field or pressing Enter is the user saying they are done,

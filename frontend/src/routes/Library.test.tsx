@@ -1079,4 +1079,11 @@ describe('the filter panel, as it is used', () => {
     )
     expect(calls.some((call) => call.path === '/api/works?metacritic_min=8')).toBe(false)
   })
+
+  it('shows the hours a filter applies, not a rounding of them', async () => {
+    stubFetch({ ...BASE, 'GET /api/works?playtime_min=90': { body: THREE } })
+    renderApp(<Library />, { route: '/library?playtime_min=90' })
+
+    expect(await screen.findByLabelText('Hours played from')).toHaveValue(1.5)
+  })
 })
