@@ -61,6 +61,8 @@
     "count_other": "{{count}} games",
     "partial_one": "Synced {{count}} game, but the platform did not hand over all of it.",
     "partial_other": "Synced {{count}} games, but the platform did not hand over all of it.",
+    "unreadable_one": "{{count}} entry it sent could not be read, so nothing was marked as removed.",
+    "unreadable_other": "{{count}} entries it sent could not be read, so nothing was marked as removed.",
     "gridLabel": "Your games",
     "storeLink": "{{title}} on {{provider}}",
     "columnMetacritic": "Metacritic",
