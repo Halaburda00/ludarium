@@ -396,6 +396,12 @@ export interface components {
             version: string;
         };
         /**
+         * Hidden
+         * @description Whether the works the user hid are in the listing.
+         * @enum {string}
+         */
+        Hidden: "exclude" | "include" | "only";
+        /**
          * ItemKind
          * @enum {string}
          */
@@ -973,6 +979,8 @@ export interface operations {
                 metacritic_max?: number | null;
                 year_min?: number | null;
                 year_max?: number | null;
+                status?: components["schemas"]["PlayStatus"][];
+                hidden?: components["schemas"]["Hidden"];
                 playtime_min?: number | null;
                 playtime_max?: number | null;
                 limit?: number;

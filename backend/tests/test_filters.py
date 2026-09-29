@@ -134,6 +134,29 @@ def test_playtime_reads_a_missing_state_row_as_the_zero_the_card_shows(
     assert listed(library, playtime_min=600) == ["Celeste", "Hades"]
 
 
+async def test_status_reads_a_missing_state_row_as_not_started(
+    library: TestClient, session: AsyncSession
+) -> None:
+    hades = await session.scalar(select(Work.id).where(Work.title == "Hades"))
+    library.patch(f"/api/works/{hades}/state", json={"play_status": "playing"})
+
+    assert listed(library, status="playing") == ["Hades"]
+    not_started = listed(library, status="not_started")
+    assert "Minit" in not_started and "Hades" not in not_started
+
+
+async def test_hidden_works_leave_the_listing_but_not_the_library(
+    library: TestClient, session: AsyncSession
+) -> None:
+    hades = await session.scalar(select(Work.id).where(Work.title == "Hades"))
+    library.patch(f"/api/works/{hades}/state", json={"is_hidden": True})
+
+    assert "Hades" not in listed(library)
+    assert "Hades" in listed(library, hidden="include")
+    assert listed(library, hidden="only") == ["Hades"]
+    assert library.get(f"/api/works/{hades}").status_code == 200
+
+
 def test_filters_compose_with_each_other_and_with_search(library: TestClient) -> None:
     assert listed(library, platform="steam", year_min=2018) == ["Celeste", "Hades"]
     assert listed(library, platform="steam", year_min=2018, q="hade") == ["Hades"]

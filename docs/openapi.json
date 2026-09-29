@@ -296,6 +296,16 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "Hidden": {
+        "description": "Whether the works the user hid are in the listing.",
+        "enum": [
+          "exclude",
+          "include",
+          "only"
+        ],
+        "title": "Hidden",
+        "type": "string"
+      },
       "ItemKind": {
         "enum": [
           "game",
@@ -1675,6 +1685,28 @@
                 }
               ],
               "title": "Year Max"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "items": {
+                "$ref": "#/components/schemas/PlayStatus"
+              },
+              "maxItems": 32,
+              "title": "Status",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hidden",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Hidden",
+              "default": "exclude"
             }
           },
           {
