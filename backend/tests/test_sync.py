@@ -1539,16 +1539,18 @@ async def test_more_works_than_one_in_clause_holds_still_get_their_totals(
 
 
 @pytest.mark.parametrize(
-    "error",
-    [None, ProviderUnavailableError("epic answered 503 for the library")],
-    ids=["success", "failure"],
+    ("error", "skipped"),
+    [(None, 0), (None, 1), (ProviderUnavailableError("epic answered 503 for the library"), 0)],
+    ids=["success", "partial", "failure"],
 )
 async def test_a_credential_the_platform_replaced_is_kept_whether_the_run_worked_or_not(
-    session: AsyncSession, account: Account, error: Exception | None
+    session: AsyncSession, account: Account, error: Exception | None, skipped: int
 ) -> None:
     """Epic spends its refresh token on every use; keeping the old one signs the next sync out."""
 
-    library = FakeLibrary(THREE_GAMES, error=error, renewed_secret="eg1~the-new-refresh-token")
+    library = FakeLibrary(
+        THREE_GAMES, error=error, renewed_secret="eg1~the-new-refresh-token", skipped=skipped
+    )
 
     await sync_account(session, account=account, library=library)
 
