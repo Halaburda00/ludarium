@@ -1096,4 +1096,15 @@ describe('the filter panel, as it is used', () => {
 
     expect(screen.getByLabelText('Release year from')).toHaveValue(null)
   })
+
+  it('stays open when the filters it was opened for are cleared', async () => {
+    stubFetch({ ...BASE, 'GET /api/works?kind=dlc': { body: THREE } })
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByText('Filters'))
+    await userEvent.click(screen.getByLabelText('DLC'))
+    await userEvent.click(screen.getAllByRole('button', { name: 'Clear filters' })[0])
+
+    expect(screen.getByText('Filters').closest('details')).toHaveAttribute('open')
+  })
 })

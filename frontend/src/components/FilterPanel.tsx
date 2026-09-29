@@ -43,8 +43,15 @@ export function FilterPanel({
 }) {
   const { t } = useTranslation()
   const active = activeCount(filters)
+  // Its own state, taken from the filters once: tied to them, clearing the
+  // last one would shut the panel under the pointer that cleared it.
+  const [open, setOpen] = useState(active > 0)
   return (
-    <details open={active > 0} className="rounded-lg border border-border px-4 py-3">
+    <details
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      className="rounded-lg border border-border px-4 py-3"
+    >
       <summary className="cursor-pointer text-sm font-medium">
         {active > 0 ? t('filters.titleActive', { count: active }) : t('filters.title')}
       </summary>
