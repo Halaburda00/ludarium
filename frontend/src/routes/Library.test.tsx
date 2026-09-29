@@ -1107,4 +1107,13 @@ describe('the filter panel, as it is used', () => {
 
     expect(screen.getByText('Filters').closest('details')).toHaveAttribute('open')
   })
+
+  it('says why an inverted range is marked invalid', async () => {
+    stubFetch({ ...BASE })
+    renderApp(<Library />, { route: '/library?year_min=2020&year_max=2010' })
+
+    expect(await screen.findByLabelText('Release year from')).toHaveAccessibleDescription(
+      /is not applied/,
+    )
+  })
 })

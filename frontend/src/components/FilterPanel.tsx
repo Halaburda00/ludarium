@@ -168,12 +168,19 @@ function Range({
             value={filters[`${name}_${end}`]}
             bounds={RANGES[name]}
             scale={scale}
+            // Why, not only that: a screen reader otherwise hears "invalid" and
+            // nothing it could act on.
+            describedBy={inverted ? `filter-${name}-inverted` : undefined}
             invalid={inverted}
             onCommit={(value) => onChange({ ...filters, [`${name}_${end}`]: value })}
           />
         ))}
       </div>
-      {inverted ? <p className="text-xs text-destructive">{t('filters.inverted')}</p> : null}
+      {inverted ? (
+        <p id={`filter-${name}-inverted`} className="text-xs text-destructive">
+          {t('filters.inverted')}
+        </p>
+      ) : null}
     </fieldset>
   )
 }
@@ -184,6 +191,7 @@ function Bound({
   bounds,
   scale,
   invalid,
+  describedBy,
   onCommit,
 }: {
   label: string
@@ -191,6 +199,7 @@ function Bound({
   bounds: { min: number; max: number }
   scale: number
   invalid: boolean
+  describedBy?: string
   onCommit: (value: number | null) => void
 }) {
   // Shown exactly, to two places: a link filtering at 90 minutes shows 1.5
@@ -232,6 +241,7 @@ function Bound({
       inputMode={scale > 1 ? 'decimal' : 'numeric'}
       aria-label={label}
       aria-invalid={invalid || (typed !== '' && !acceptable) || undefined}
+      aria-describedby={describedBy}
       min={Math.ceil(bounds.min / scale)}
       max={Math.floor(bounds.max / scale)}
       step={scale > 1 ? 'any' : 1}
