@@ -215,12 +215,14 @@ export function useEnrichment(): UseQueryResult<SyncOverview, ApiError> {
  */
 export function useWorks(
   search = '',
+  showHidden = false,
 ): UseInfiniteQueryResult<InfiniteData<WorksPage>, ApiError> {
   return useInfiniteQuery({
     // Under `worksKey`, so a sync invalidating the library refetches a search
     // too.
-    queryKey: [...worksKey, search],
-    queryFn: ({ pageParam, signal }) => api<WorksPage>(pageUrl(pageParam, search), { signal }),
+    queryKey: [...worksKey, search, showHidden],
+    queryFn: ({ pageParam, signal }) =>
+      api<WorksPage>(pageUrl(pageParam, search, showHidden), { signal }),
     // The last answer stays on screen while the next search is asked, rather
     // than the grid giving way to "Loading…" on every letter typed.
     placeholderData: keepPreviousData,
@@ -239,12 +241,15 @@ export function useWorks(
 
 type Cursor = string | null
 
-function pageUrl(cursor: Cursor, search: string): string {
+function pageUrl(cursor: Cursor, search: string, showHidden: boolean): string {
   // Through `URLSearchParams` rather than by concatenation: the cursor is
   // base64url today and opaque by design, and a search is whatever was typed,
   // so nothing here should depend on either being safe to paste in.
   const params = new URLSearchParams()
   if (search) params.set('q', search)
+  // The API leaves hidden games out unless asked; `include` puts them back
+  // beside the rest rather than instead of them.
+  if (showHidden) params.set('hidden', 'include')
   if (cursor !== null) params.set('cursor', cursor)
   const query = params.toString()
   return query ? `/api/works?${query}` : '/api/works'

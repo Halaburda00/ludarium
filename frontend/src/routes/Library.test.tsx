@@ -940,3 +940,20 @@ describe('connecting another platform', () => {
     )
   })
 })
+
+describe('hidden games', () => {
+  it('can be shown again from a library where every game is hidden', async () => {
+    // Hiding the only game used to leave "Nothing here yet" with no way back.
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: EMPTY },
+      'GET /api/works?hidden=include': { body: THREE },
+    })
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByLabelText('Show hidden games'))
+
+    expect(await screen.findByText('Portal 2')).toBeInTheDocument()
+  })
+})

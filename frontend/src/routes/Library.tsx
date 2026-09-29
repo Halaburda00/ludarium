@@ -40,7 +40,11 @@ export default function Library() {
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [typed, search, setParams])
-  const works = useWorks(search)
+  // In the address with the search, for the same reasons. The full filter
+  // panel is #93's; this is the one control without which a hidden game has
+  // no way back into the grid.
+  const showHidden = params.get('hidden') === 'include'
+  const works = useWorks(search, showHidden)
   const sync = useSync()
   const overview = useEnrichment()
   const accounts = useAccounts()
@@ -218,6 +222,27 @@ export default function Library() {
           />
         </search>
       ) : null}
+
+      {/* Always here, over an empty grid too: a library where every game is
+          hidden looks exactly like one with nothing in it. */}
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={showHidden}
+          onChange={(event) =>
+            setParams(
+              (current) => {
+                const next = new URLSearchParams(current)
+                if (event.target.checked) next.set('hidden', 'include')
+                else next.delete('hidden')
+                return next
+              },
+              { replace: true },
+            )
+          }
+        />
+        {t('library.showHidden')}
+      </label>
 
       {exhausted && loaded.length === 0 && search ? (
         <p className="text-sm text-muted-foreground">{t('library.noMatches', { search })}</p>
