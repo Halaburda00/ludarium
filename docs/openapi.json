@@ -43,6 +43,17 @@
             "title": "Label",
             "type": "string"
           },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
           "last_success_at": {
             "anyOf": [
               {
@@ -58,6 +69,9 @@
           "provider": {
             "title": "Provider",
             "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SyncStatus"
           }
         },
         "required": [
@@ -68,6 +82,8 @@
           "is_active",
           "created_at",
           "last_success_at",
+          "status",
+          "last_error",
           "credentials"
         ],
         "title": "AccountResponse",

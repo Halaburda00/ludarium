@@ -1017,6 +1017,111 @@ async def test_a_failure_records_itself_without_erasing_the_last_success(
     assert steam.last_success_at == worked_at
 
 
+OUTAGE = ProviderUnavailableError("steam answered 503")
+
+
+async def test_each_account_reports_its_own_last_run(
+    session: AsyncSession, account: Account
+) -> None:
+    second = await make_account(session, external_account_id="765611980")
+
+    await sync_account(session, account=account, library=FakeLibrary(error=OUTAGE))
+    await sync_account(session, account=second, library=FakeLibrary(THREE_GAMES))
+
+    for instance in (account, second):
+        await session.refresh(instance)
+    assert (account.status, account.last_error) == (SyncStatus.FAILED, "steam answered 503")
+    assert account.last_success_at is None
+    assert (second.status, second.last_error) == (SyncStatus.SUCCESS, None)
+    assert second.last_success_at is not None
+
+
+async def test_a_healthy_account_does_not_hide_a_broken_one(
+    session: AsyncSession, account: Account
+) -> None:
+    """The order #26 was about: the failure used to vanish when the other account synced."""
+
+    steam = await make_provider(session)
+    second = await make_account(session, external_account_id="765611980")
+
+    await sync_account(session, account=account, library=FakeLibrary(error=OUTAGE))
+    await sync_account(session, account=second, library=FakeLibrary(THREE_GAMES))
+
+    await session.refresh(steam)
+    assert (steam.status, steam.last_error) == (SyncStatus.FAILED, "steam answered 503")
+    # "Worked this morning" is still true of the provider: one of its accounts did.
+    assert steam.last_success_at is not None
+
+
+async def test_a_broken_account_that_recovers_clears_the_provider(
+    session: AsyncSession, account: Account
+) -> None:
+    """Only each account's latest run counts, so a fixed failure stops being reported."""
+
+    steam = await make_provider(session)
+    second = await make_account(session, external_account_id="765611980")
+    await sync_account(session, account=account, library=FakeLibrary(error=OUTAGE))
+    await sync_account(session, account=second, library=FakeLibrary(THREE_GAMES))
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    await session.refresh(steam)
+    assert (steam.status, steam.last_error) == (SyncStatus.SUCCESS, None)
+
+
+async def test_a_partial_account_outranks_a_healthy_one_and_a_failed_one_outranks_both(
+    session: AsyncSession, account: Account
+) -> None:
+    steam = await make_provider(session)
+    second = await make_account(session, external_account_id="765611980")
+    third = await make_account(session, external_account_id="765611981")
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+    await sync_account(session, account=second, library=FakeLibrary(THREE_GAMES, skipped=1))
+    await session.refresh(steam)
+    assert steam.status is SyncStatus.PARTIAL
+
+    await sync_account(session, account=third, library=FakeLibrary(error=OUTAGE))
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+    await session.refresh(steam)
+    assert (steam.status, steam.last_error) == (SyncStatus.FAILED, "steam answered 503")
+
+
+async def test_an_inactive_account_s_failure_is_not_the_provider_s(
+    session: AsyncSession, account: Account
+) -> None:
+    """A disconnected account is not something the user can be asked to fix."""
+
+    steam = await make_provider(session)
+    second = await make_account(session, external_account_id="765611980")
+    await sync_account(session, account=account, library=FakeLibrary(error=OUTAGE))
+    account.is_active = False
+    await session.commit()
+
+    await sync_account(session, account=second, library=FakeLibrary(THREE_GAMES))
+
+    await session.refresh(steam)
+    assert (steam.status, steam.last_error) == (SyncStatus.SUCCESS, None)
+
+
+async def test_an_inactive_account_alone_says_nothing_about_the_provider(
+    session: AsyncSession, account: Account
+) -> None:
+    """With no active account left there is nothing to report, not this run's result."""
+
+    steam = await make_provider(session)
+    account.is_active = False
+    await session.commit()
+
+    await sync_account(session, account=account, library=FakeLibrary(error=OUTAGE))
+
+    await session.refresh(steam)
+    await session.refresh(account)
+    assert (steam.status, steam.last_error) == (SyncStatus.PENDING, None)
+    # The account's own row still says what happened to it.
+    assert account.status is SyncStatus.FAILED
+
+
 async def test_a_successful_sync_sweeps_only_its_own_account(
     session: AsyncSession, account: Account
 ) -> None:

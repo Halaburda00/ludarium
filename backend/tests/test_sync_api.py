@@ -89,6 +89,21 @@ def test_a_sync_returns_the_run_counters(connected: TestClient) -> None:
 
 
 @respx.mock
+def test_the_account_listing_says_what_each_account_s_last_sync_did(
+    connected: TestClient,
+) -> None:
+    (before,) = connected.get("/api/accounts").json()
+    assert (before["status"], before["last_error"]) == (SyncStatus.PENDING, None)
+    respx.get(OWNED_GAMES_URL).mock(return_value=httpx.Response(503))
+
+    connected.post("/api/sync/steam")
+
+    (after,) = connected.get("/api/accounts").json()
+    assert after["status"] == SyncStatus.FAILED
+    assert after["last_error"]
+
+
+@respx.mock
 def test_a_partial_sync_says_how_many_entries_it_could_not_read(connected: TestClient) -> None:
     body = recorded("owned_games.json")
     body["response"]["games"].append({"appid": 4000})

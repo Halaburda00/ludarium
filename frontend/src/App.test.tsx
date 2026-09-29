@@ -16,6 +16,8 @@ const ACCOUNT: Account = {
   is_active: true,
   created_at: '2026-08-01T09:00:00Z',
   last_success_at: null,
+  status: 'success',
+  last_error: null,
   credentials: '••••••••',
 }
 const EMPTY_LIBRARY: WorksPage = { works: [], next_cursor: null }

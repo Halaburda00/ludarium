@@ -16,6 +16,8 @@ const ACCOUNTS: Account[] = [
     credentials: '••••',
     is_active: true,
     last_success_at: null,
+    status: 'success',
+    last_error: null,
     created_at: '2026-08-21T10:00:00Z',
   },
 ]

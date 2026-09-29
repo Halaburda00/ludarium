@@ -274,10 +274,13 @@ export interface components {
             is_active: boolean;
             /** Label */
             label: string;
+            /** Last Error */
+            last_error: string | null;
             /** Last Success At */
             last_success_at: string | null;
             /** Provider */
             provider: string;
+            status: components["schemas"]["SyncStatus"];
         };
         /**
          * CompanyRole

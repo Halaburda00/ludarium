@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from typing import Final
 
 import httpx
-from sqlalchemy import ColumnElement, select, update
+from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -408,46 +408,82 @@ async def _close(
     if renewed is not None:
         account.credentials_encrypted = get_cipher().encrypt(renewed)
         account.credentials_updated_at = moment
-    _report(reporter, account, status, error, moment)
+    await _report(session, reporter, account, status, error, moment)
     await session.commit()
 
 
-def _report(
+async def _report(
+    session: AsyncSession,
     reporter: Provider,
     account: Account,
     status: SyncStatus,
     error: str | None,
     moment: datetime,
 ) -> None:
-    """Rule 4: one provider's outage stays one provider's outage.
+    """Rule 4, kept per account as well as per provider.
+
+    The account's own columns say what its last run did. The reporter's row
+    summarises every account it reports for, which is what a status panel asks
+    of a provider: is anything wrong here? Taken as "the last run of any of its
+    accounts", a failing account would vanish from it the moment a healthy one
+    synced after it (#26).
 
     The reporter's row, not the account's provider — a Galaxy import is Galaxy's
     health, and the Battle.net account it writes to has never been asked
     anything itself.
 
-    `status` and `last_error` say what the provider's *last run* did, across all
-    of its accounts, because that is the only thing the columns can say: they
-    sit on the provider row and there is no per-account equivalent. Two Steam
-    accounts therefore overwrite each other here, and the later run wins whether
-    it failed or succeeded. That is a summary going stale, not a fact being
-    lost — `sync_run` keeps every attempt with its `account_id`, and
-    `account.last_success_at` below is per account and never moves backwards.
-    Per-account health columns arrive with the multi-account UI in M4.
-
-    `last_success_at` only ever moves forward. A failure records that it broke
-    without erasing when it last worked, which is the pair the status panel
-    needs to tell "never worked" from "worked this morning".
+    `last_success_at` only ever moves forward, on both rows. A failure records
+    that it broke without erasing when it last worked, which is the pair the
+    status panel needs to tell "never worked" from "worked this morning".
 
     `last_error` takes the same string the run row got, and for the same reason
     (rule 7): a `ProviderError` message is contractually credential-free, and
     anything else has already been reduced to its type name by the caller.
     """
 
-    reporter.status = status
-    reporter.last_error = error
+    account.status = status
+    account.last_error = error
     if status is SyncStatus.SUCCESS:
         reporter.last_success_at = moment
         account.last_success_at = moment
+    reporter.status, reporter.last_error = await _summary(session, reporter)
+
+
+# Worst first: a panel that says "fine" over one broken account hides it.
+_SEVERITY: Final = (SyncStatus.FAILED, SyncStatus.PARTIAL, SyncStatus.SUCCESS)
+
+
+async def _summary(session: AsyncSession, reporter: Provider) -> tuple[SyncStatus, str | None]:
+    """The worst of the latest finished run of each active account this reporter syncs.
+
+    Read from `sync_run` rather than from the account columns, because those
+    say what an account's last run did whoever reported it, and this is the
+    reporter's health. The run being closed is in the session and is flushed
+    into the read, so it counts as its account's latest.
+
+    `pending` where no active account has finished a run. The run being closed
+    is then an inactive account's, and a disconnected account is nothing the
+    user can be asked to fix.
+    """
+
+    latest = (
+        select(func.max(SyncRun.id))
+        .where(SyncRun.provider_id == reporter.id, SyncRun.status.in_(_SEVERITY))
+        .group_by(SyncRun.account_id)
+    )
+    rows = (
+        await session.execute(
+            select(SyncRun.status, SyncRun.error_text)
+            .join(Account, Account.id == SyncRun.account_id)
+            .where(SyncRun.id.in_(latest), Account.is_active)
+            .order_by(SyncRun.id.desc())
+        )
+    ).all()
+    if not rows:
+        return SyncStatus.PENDING, None
+    # Most recent first, so a tie on status is won by the newer error.
+    status, error = min(rows, key=lambda row: _SEVERITY.index(row.status))
+    return status, error
 
 
 async def _apply(

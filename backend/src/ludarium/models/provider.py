@@ -81,6 +81,15 @@ class Account(Base):
     is_active: Mapped[bool] = mapped_column(default=True, server_default=true())
     created_at: Mapped[CreatedAt]
     last_success_at: Mapped[datetime | None]
+    # What this account's last run did. `provider.status` summarises every
+    # account a provider reports for, so it cannot say which one broke (#26).
+    status: Mapped[SyncStatus] = mapped_column(
+        enum_column(SyncStatus, "sync_status"),
+        default=SyncStatus.PENDING,
+        server_default=text(f"'{SyncStatus.PENDING.value}'"),
+    )
+    # Message only, never a payload that could hold a token (rule 7).
+    last_error: Mapped[str | None]
 
     provider: Mapped[Provider] = relationship(lazy="raise_on_sql")
 

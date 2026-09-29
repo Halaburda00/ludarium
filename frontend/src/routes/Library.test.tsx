@@ -116,6 +116,8 @@ function account(provider: string, id = 1): Account {
     is_active: true,
     created_at: '2026-08-21T09:00:00Z',
     last_success_at: null,
+    status: 'success',
+    last_error: null,
     credentials: '••••••••',
   }
 }

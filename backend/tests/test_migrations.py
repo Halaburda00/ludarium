@@ -508,3 +508,42 @@ def test_a_playtest_is_accepted_and_a_downgrade_takes_it_back_out(settings: Sett
     ]
     assert query(url, "SELECT item_kind FROM entitlement") == [(None,)]
     assert query(url, "SELECT source_ref FROM field_provenance") == [("igdb",)]
+
+
+def test_each_account_starts_with_what_its_latest_finished_run_did(settings: Settings) -> None:
+    """An account that has synced should not read `pending` until it syncs again.
+
+    An open run has said nothing yet, so the finished one before it is the answer.
+    """
+
+    config = alembic_config(settings.database_url)
+    command.upgrade(config, "0e652a2e8cf9")
+    run_sql(
+        settings.database_url,
+        "INSERT INTO app_user (id, username, password_hash, locale, created_at) "
+        "VALUES (1, 'owner', 'not-a-hash', 'en', CURRENT_TIMESTAMP)",
+        "INSERT INTO provider (id, key, kind, source_kind, licence_class, display_name, "
+        "precedence_weight, enabled, status) VALUES (1, 'steam', 'platform', 'platform_api', "
+        "'redistributable', 'Steam', 100, 1, 'pending')",
+        "INSERT INTO account (id, user_id, provider_id, label, is_derived, is_active, "
+        "created_at) VALUES (1, 1, 1, 'Recovered', 0, 1, CURRENT_TIMESTAMP), "
+        "(2, 1, 1, 'Broken', 0, 1, CURRENT_TIMESTAMP), "
+        "(3, 1, 1, 'Never synced', 0, 1, CURRENT_TIMESTAMP)",
+        "INSERT INTO sync_run (id, provider_id, account_id, trigger, status, started_at, "
+        "error_text) VALUES "
+        "(1, 1, 1, 'manual', 'failed', CURRENT_TIMESTAMP, 'steam answered 503'), "
+        "(2, 1, 2, 'manual', 'success', CURRENT_TIMESTAMP, NULL), "
+        "(3, 1, 1, 'manual', 'success', CURRENT_TIMESTAMP, NULL), "
+        "(4, 1, 2, 'manual', 'failed', CURRENT_TIMESTAMP, 'steam answered 503'), "
+        "(5, 1, 2, 'manual', 'running', CURRENT_TIMESTAMP, NULL)",
+    )
+
+    command.upgrade(config, "head")
+
+    assert query(
+        settings.database_url, "SELECT id, status, last_error FROM account ORDER BY id"
+    ) == [
+        (1, "success", None),
+        (2, "failed", "steam answered 503"),
+        (3, "pending", None),
+    ]
