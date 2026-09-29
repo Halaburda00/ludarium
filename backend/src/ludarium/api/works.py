@@ -383,13 +383,16 @@ async def update_state(
         changes["notes"] = None
     for field, value in changes.items():
         setattr(state, field, value)
-    moment = utcnow()
     # Set on the first move into each state and never cleared by moving back:
     # "finished it in 2024" stays true after a replay puts it back to playing.
-    if state.play_status is PlayStatus.PLAYING and state.started_at is None:
-        state.started_at = moment
-    if state.play_status in FINISHED and state.completed_at is None:
-        state.completed_at = moment
+    # Only when this request moved the status: a rating given today is not the
+    # day a game already marked playing was started.
+    if "play_status" in changes:
+        moment = utcnow()
+        if state.play_status is PlayStatus.PLAYING and state.started_at is None:
+            state.started_at = moment
+        if state.play_status in FINISHED and state.completed_at is None:
+            state.completed_at = moment
     await session.commit()
     return await _detail(session, work_id, user_id)
 

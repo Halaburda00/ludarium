@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from test_filters import library  # noqa: F401 — the fixture, shared rather than copied
 
+from ludarium.enums import PlayStatus
 from ludarium.models import UserWorkState, Work
 from ludarium.resolver import resolve_work_aggregates_many
 
@@ -73,6 +74,23 @@ async def test_starting_and_finishing_are_dated_once_and_never_undated(
     assert started is not None and finished["completed_at"] is not None
     assert finished["started_at"] == started
     assert (again["started_at"], again["completed_at"]) == (started, finished["completed_at"])
+
+
+async def test_only_a_change_of_status_dates_anything(
+    library: TestClient,  # noqa: F811
+    session: AsyncSession,
+) -> None:
+    """A rating given today is not the day the game was started."""
+
+    hades = await work_id(session, "Hades")
+    state = await session.get(UserWorkState, (1, hades))
+    assert state is not None
+    # Playing with no date: how a row carried over by a merge, or set before
+    # this endpoint existed, can look.
+    state.play_status = PlayStatus.PLAYING
+    await session.commit()
+
+    assert patch(library, hades, rating=7)["started_at"] is None
 
 
 async def test_a_work_with_no_state_row_gets_one(
