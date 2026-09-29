@@ -1048,3 +1048,19 @@ describe('the filter panel', () => {
     expect(await screen.findByText('Portal 2')).toBeInTheDocument()
   })
 })
+
+describe('the filter panel, as it is used', () => {
+  const BASE = {
+    'GET /api/sync/runs': { body: IDLE },
+    'GET /api/accounts': { body: ACCOUNTS },
+    'GET /api/works': { body: THREE },
+  }
+
+  it('offers a platform the address names even without an account on it', async () => {
+    stubFetch({ ...BASE, 'GET /api/works?platform=manual': { body: THREE } })
+    renderApp(<Library />, { route: '/library?platform=manual' })
+
+    // Without a checkbox it could only be removed by clearing everything.
+    expect(await screen.findByLabelText('manual')).toBeChecked()
+  })
+})

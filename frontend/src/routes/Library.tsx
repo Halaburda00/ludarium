@@ -60,6 +60,16 @@ export default function Library() {
         .map((account) => account.provider),
     ),
   ].filter((provider) => SYNCABLE.has(provider))
+  // Every platform a copy can be on here, which is wider than what can be
+  // synced: a deactivated account's copies are still listed, and a manual
+  // entry is a platform with no sync at all. Plus whatever the address names,
+  // so a filter from a shared link can be unticked on its own.
+  const offered = [
+    ...new Set([
+      ...(accounts.data ?? []).map((account) => account.provider),
+      ...filters.platform,
+    ]),
+  ]
   const logout = useLogout()
   const navigate = useNavigate()
 
@@ -237,7 +247,7 @@ export default function Library() {
           hidden looks exactly like one with nothing in it. */}
       <FilterPanel
         filters={filters}
-        platforms={platforms.map((key) => ({ key, name: providerName(overview.data, key) }))}
+        platforms={offered.map((key) => ({ key, name: providerName(overview.data, key) }))}
         onChange={setFilters}
       />
 
