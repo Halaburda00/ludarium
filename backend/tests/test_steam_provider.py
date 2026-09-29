@@ -80,7 +80,7 @@ async def test_a_library_comes_back_normalised(provider: SteamProvider) -> None:
         return_value=httpx.Response(200, json=recorded_json("owned_games.json"))
     )
 
-    items = await provider.fetch_library()
+    items = (await provider.fetch_library()).items
 
     assert [item.provider_item_id for item in items] == ["292030", "620", "570"]
     witcher, portal, _ = items
@@ -135,7 +135,7 @@ async def test_an_empty_library_is_not_a_failure(provider: SteamProvider) -> Non
         return_value=httpx.Response(200, json=recorded_json("owned_games_empty.json"))
     )
 
-    assert await provider.fetch_library() == []
+    assert (await provider.fetch_library()).items == []
 
 
 @pytest.mark.parametrize("fixture", ["count_without_games.json", "short_library.json"])
@@ -186,7 +186,7 @@ async def test_more_games_than_the_count_is_accepted(provider: SteamProvider) ->
         )
     )
 
-    assert len(await provider.fetch_library()) == 2
+    assert len((await provider.fetch_library()).items) == 2
 
 
 @respx.mock
@@ -283,7 +283,7 @@ async def test_a_transport_failure_is_retried_and_may_still_succeed(
         ]
     )
 
-    items = await provider.fetch_library()
+    items = (await provider.fetch_library()).items
 
     assert len(items) == 3
     assert route.call_count == 2
@@ -365,7 +365,7 @@ async def test_a_playtime_that_is_not_a_duration_is_dropped(provider: SteamProvi
         )
     )
 
-    item = (await provider.fetch_library())[0]
+    item = (await provider.fetch_library()).items[0]
 
     assert (item.playtime_minutes, item.last_played_at) == (None, None)
 

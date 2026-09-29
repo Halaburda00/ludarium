@@ -41,6 +41,7 @@ from ludarium.models import (
 )
 from ludarium.models.types import ScalarValue, utcnow
 from ludarium.providers import (
+    FetchedLibrary,
     InvalidCredentialsError,
     LibraryItem,
     ProviderUnavailableError,
@@ -80,11 +81,11 @@ class FakeLibrary:
     async def validate_credentials(self) -> None:
         return None
 
-    async def fetch_library(self) -> list[LibraryItem]:
+    async def fetch_library(self) -> FetchedLibrary:
         self.calls += 1
         if self._error is not None:
             raise self._error
-        return list(self._items)
+        return FetchedLibrary(list(self._items))
 
 
 def owned(

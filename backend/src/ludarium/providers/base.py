@@ -124,6 +124,19 @@ class LibraryItem:
     raw: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class FetchedLibrary:
+    """What a provider handed over: the items it could read, and how many it could not.
+
+    Two answers rather than one, because an entry the provider cannot name and a
+    library that did not arrive are different failures (#44). The first costs
+    that entry; the second costs the run.
+    """
+
+    items: list[LibraryItem]
+    skipped: int = 0
+
+
 class LibraryProvider(Protocol):
     """A connected account, ready to be asked what it owns."""
 
@@ -141,6 +154,10 @@ class LibraryProvider(Protocol):
         """
         ...
 
-    async def fetch_library(self) -> list[LibraryItem]:
-        """Everything the account owns. Partial results are a failure, not a library."""
+    async def fetch_library(self) -> FetchedLibrary:
+        """Everything the account owns.
+
+        A truncated answer is still a failure, not a library. An entry that
+        arrived but cannot be read is counted in `skipped` instead of raised.
+        """
         ...

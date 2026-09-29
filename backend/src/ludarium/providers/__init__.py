@@ -1,4 +1,5 @@
 from ludarium.providers.base import (
+    FetchedLibrary,
     InvalidCredentialsError,
     LibraryItem,
     LibraryNotVisibleError,
@@ -23,6 +24,7 @@ from ludarium.providers.steam_store import SteamStoreClient
 
 __all__ = [
     "AppToken",
+    "FetchedLibrary",
     "IgdbClient",
     "IgdbCredentials",
     "InvalidCredentialsError",

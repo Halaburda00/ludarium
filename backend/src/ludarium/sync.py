@@ -43,7 +43,7 @@ from ludarium.models import (
     Work,
 )
 from ludarium.models.types import ScalarValue, utcnow
-from ludarium.providers import LibraryItem, LibraryProvider, ProviderError
+from ludarium.providers import FetchedLibrary, LibraryItem, LibraryProvider, ProviderError
 from ludarium.providers.base import error_kind
 from ludarium.providers.registry import build_library
 from ludarium.queries import in_batches
@@ -86,7 +86,7 @@ class _Unusable:
     async def validate_credentials(self) -> None:
         raise ProviderError(self._reason)
 
-    async def fetch_library(self) -> list[LibraryItem]:
+    async def fetch_library(self) -> FetchedLibrary:
         raise ProviderError(self._reason)
 
 
@@ -161,7 +161,7 @@ async def sync_account(
 
     seen = _Progress()
     try:
-        items = await library.fetch_library()
+        items = (await library.fetch_library()).items
         seen.items_seen = len(items)
         await _apply(session, run=run, account=account, reporter=reporter, items=items)
     except ProviderError as exc:

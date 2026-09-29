@@ -13,6 +13,7 @@ import httpx
 from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from ludarium.providers.base import (
+    FetchedLibrary,
     InvalidCredentialsError,
     LibraryItem,
     LibraryNotVisibleError,
@@ -59,8 +60,8 @@ class SteamProvider:
     async def validate_credentials(self) -> None:
         await self._owned_games()
 
-    async def fetch_library(self) -> list[LibraryItem]:
-        return [_as_item(game) for game in await self._owned_games()]
+    async def fetch_library(self) -> FetchedLibrary:
+        return FetchedLibrary([_as_item(game) for game in await self._owned_games()])
 
     async def _owned_games(self) -> list[dict[str, Any]]:
         payload = await self._request(

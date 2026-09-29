@@ -107,7 +107,7 @@ async def test_the_library_is_every_page_one_item_per_catalogue_entry_in_english
 ) -> None:
     routes = mount()
 
-    items = await epic.fetch_library()
+    items = (await epic.fetch_library()).items
 
     assert [(item.title, item.item_kind) for item in items] == [
         ("Gone Home", ItemKind.GAME),
@@ -166,7 +166,7 @@ async def test_an_item_the_catalogue_does_not_know_keeps_its_app_name(
     mount()
     respx.get(url__startswith=epic_module.CATALOG).mock(return_value=httpx.Response(200, json={}))
 
-    items = await epic.fetch_library()
+    items = (await epic.fetch_library()).items
 
     assert ("Flier", None) in [(item.title, item.item_kind) for item in items]
 
