@@ -109,9 +109,9 @@ rows too, so that every entitlement has a source and no FK needs to be nullable.
 | `store_url_template` | TEXT | yes | | Takes `provider_item_id`, e.g. `https://store.steampowered.com/app/{id}`. We never launch a game, so a link to the store page is the answer to "where do I find this". For `rawg` it is the game's page, `https://rawg.io/games/{id}`, filled with the work's `rawg` external id: the active link RAWG's terms require beside every score |
 | `precedence_weight` | INTEGER | no | `100` | Tie-break within one `SourceKind`; higher wins |
 | `enabled` | BOOLEAN | no | `true` | |
-| `status` | TEXT | no | `'pending'` | `SyncStatus` of the most recent run |
-| `last_success_at` | TIMESTAMP | yes | | Rule 4: each provider reports its own health |
-| `last_error` | TEXT | yes | | Message only, never a payload that could hold a token |
+| `status` | TEXT | no | `'pending'` | `SyncStatus`. For a library provider, the worst of the latest finished run of each active account it reports for — `failed` over `partial` over `success` — so a healthy account cannot hide a broken one (#26). For an enrichment step, its most recent run |
+| `last_success_at` | TIMESTAMP | yes | | Rule 4: each provider reports its own health. The last time any of its runs succeeded; never moves backwards |
+| `last_error` | TEXT | yes | | The error of the run that decided `status`. Message only, never a payload that could hold a token |
 
 #### `account`
 
@@ -130,7 +130,9 @@ labelled (M4).
 | `credentials_updated_at` | TIMESTAMP | yes | | |
 | `is_active` | BOOLEAN | no | `true` | |
 | `created_at` | TIMESTAMP | no | `now()` | |
-| `last_success_at` | TIMESTAMP | yes | | |
+| `last_success_at` | TIMESTAMP | yes | | Never moves backwards |
+| `status` | TEXT | no | `'pending'` | `SyncStatus` of this account's latest finished run |
+| `last_error` | TEXT | yes | | That run's error. Message only (rule 7) |
 
 `UNIQUE (provider_id, external_account_id)` where `external_account_id IS NOT NULL`.
 
