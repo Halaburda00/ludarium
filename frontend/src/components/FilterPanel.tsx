@@ -231,8 +231,13 @@ function Bound({
       value={typed}
       onChange={(event) => setTyped(event.target.value)}
       // Leaving the field or pressing Enter is the user saying they are done,
-      // so neither waits for the pause.
-      onBlur={commit}
+      // so neither waits for the pause. A number the API would refuse is not
+      // kept past that: left in the field, it would sit there after the
+      // filters were cleared, marked invalid and applying nothing.
+      onBlur={() => {
+        if (next === undefined) setTyped(shown(value))
+        else commit()
+      }}
       onKeyDown={(event) => {
         if (event.key === 'Enter') commit()
       }}

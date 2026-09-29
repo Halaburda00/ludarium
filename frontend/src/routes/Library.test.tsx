@@ -1086,4 +1086,14 @@ describe('the filter panel, as it is used', () => {
 
     expect(await screen.findByLabelText('Hours played from')).toHaveValue(1.5)
   })
+
+  it('does not keep a half-typed number once the field is left', async () => {
+    stubFetch({ ...BASE, 'GET /api/works?kind=dlc': { body: THREE } })
+    renderApp(<Library />, { route: '/library?kind=dlc' })
+
+    await userEvent.type(await screen.findByLabelText('Release year from'), '20')
+    await userEvent.click(screen.getAllByRole('button', { name: 'Clear filters' })[0])
+
+    expect(screen.getByLabelText('Release year from')).toHaveValue(null)
+  })
 })
