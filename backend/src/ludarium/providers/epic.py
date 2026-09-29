@@ -24,7 +24,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Final
+from typing import Any, Final, TypeGuard
 
 import httpx
 from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -139,10 +139,19 @@ class EpicProvider:
 
     async def fetch_library(self) -> FetchedLibrary:
         token = await self._access_token()
-        records = _unique(await self._records(token))
+        found = await self._records(token)
+        # A record with nothing to key it by costs that record, not the library
+        # (#87). Counted rather than dropped, so the sync knows the list is
+        # short and sweeps nothing.
+        usable = [record for record in found if _is_record(record)]
+        records = _unique(usable)
         catalog = await self._catalog(token, records)
         items = [_as_item(record, catalog.get(record["catalogItemId"])) for record in records]
-        return FetchedLibrary([item for item in items if item is not None])
+        # Not counted: content `_as_item` drops is not a library item by
+        # design, and a record listed twice is one item, not a lost one.
+        return FetchedLibrary(
+            [item for item in items if item is not None], skipped=len(found) - len(usable)
+        )
 
     async def _access_token(self) -> str:
         payload = await _token(
@@ -163,18 +172,22 @@ class EpicProvider:
             raise MalformedResponseError("epic's token response has no access_token")
         return access
 
-    async def _records(self, token: str) -> list[dict[str, Any]]:
-        """Every page, or an error. A library read short is not a library (rule 1)."""
+    async def _records(self, token: str) -> list[object]:
+        """Every page, or an error. A library read short is not a library (rule 1).
 
-        records: list[dict[str, Any]] = []
+        Only the page is checked here. A page without a list of records has
+        nothing in it to count; a record inside one is `fetch_library`'s to judge.
+        """
+
+        records: list[object] = []
         cursor: str | None = None
         seen: set[str] = set()
         for _ in range(MAX_PAGES):
             params = [("includeMetadata", "true"), *([("cursor", cursor)] if cursor else [])]
             page = await _get(self._client, LIBRARY, params, token, what="the library")
             found = page.get("records")
-            if not isinstance(found, list) or not all(_is_record(record) for record in found):
-                raise MalformedResponseError("epic returned a library page without usable records")
+            if not isinstance(found, list):
+                raise MalformedResponseError("epic returned a library page with no list of records")
             records += found
             metadata = page.get("responseMetadata")
             cursor = metadata.get("nextCursor") if isinstance(metadata, dict) else None
@@ -215,7 +228,7 @@ class EpicProvider:
         return found
 
 
-def _is_record(record: object) -> bool:
+def _is_record(record: object) -> TypeGuard[dict[str, Any]]:
     return (
         isinstance(record, dict)
         and isinstance(record.get("namespace"), str)
