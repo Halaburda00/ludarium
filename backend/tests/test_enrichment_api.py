@@ -333,6 +333,24 @@ async def test_the_sync_names_the_steps_it_queued_and_only_those_set_up(
 
 
 @respx.mock
+async def test_a_partial_sync_is_followed_by_classifying_what_it_kept(
+    connected: TestClient,
+) -> None:
+    """What a partial run keeps is new works like any other, and they need a kind."""
+
+    body = recorded("steam/owned_games.json")
+    body["response"]["games"].append({"appid": 4000})
+    body["response"]["game_count"] += 1
+    respx.get(OWNED_GAMES_URL).mock(return_value=httpx.Response(200, json=body))
+    respx.get(GET_ITEMS_URL).mock(return_value=store())
+
+    response = connected.post("/api/sync/steam").json()
+
+    assert response["runs"][0]["status"] == SyncStatus.PARTIAL
+    assert response["enriching"] == ["steam_store"]
+
+
+@respx.mock
 async def test_a_failed_sync_queues_nothing(connected: TestClient) -> None:
     respx.get(OWNED_GAMES_URL).mock(return_value=httpx.Response(503))
 

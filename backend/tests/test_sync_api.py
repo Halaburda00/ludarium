@@ -89,6 +89,20 @@ def test_a_sync_returns_the_run_counters(connected: TestClient) -> None:
 
 
 @respx.mock
+def test_a_partial_sync_says_how_many_entries_it_could_not_read(connected: TestClient) -> None:
+    body = recorded("owned_games.json")
+    body["response"]["games"].append({"appid": 4000})
+    body["response"]["game_count"] += 1
+    respx.get(OWNED_GAMES_URL).mock(return_value=httpx.Response(200, json=body))
+
+    (run,) = connected.post("/api/sync/steam").json()["runs"]
+
+    assert run["status"] == SyncStatus.PARTIAL
+    assert (run["items_seen"], run["items_added"], run["items_skipped"]) == (3, 3, 1)
+    assert run["error_kind"] == "malformed"
+
+
+@respx.mock
 async def test_a_failure_partway_is_a_status_not_a_500(
     connected: TestClient, session: AsyncSession
 ) -> None:

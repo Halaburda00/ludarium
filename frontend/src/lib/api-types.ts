@@ -503,6 +503,8 @@ export interface components {
             items_removed: number;
             /** Items Seen */
             items_seen: number;
+            /** Items Skipped */
+            items_skipped: number;
             /** Items Updated */
             items_updated: number;
             /** Provider */

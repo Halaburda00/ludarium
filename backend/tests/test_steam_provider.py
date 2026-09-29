@@ -370,22 +370,37 @@ async def test_a_playtime_that_is_not_a_duration_is_dropped(provider: SteamProvi
     assert (item.playtime_minutes, item.last_played_at) == (None, None)
 
 
-@pytest.mark.parametrize("appid", [None, "620", True])
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"appid": None, "name": "Half-Life"},
+        {"appid": "620", "name": "Half-Life"},
+        # `True` is an `int` in Python, and `provider_item_id="True"` is not an id.
+        {"appid": True, "name": "Half-Life"},
+        {"appid": 70},
+        {"appid": 70, "name": 70},
+        "70",
+    ],
+)
 @respx.mock
-async def test_an_entry_without_a_usable_appid_is_malformed(
-    provider: SteamProvider, appid: object
+async def test_an_entry_it_cannot_read_is_counted_not_raised(
+    provider: SteamProvider, entry: object
 ) -> None:
-    """`True` included: it is an `int` in Python, and `provider_item_id="True"` is not an id."""
+    """One unreadable row costs that row, not the library beside it (#44)."""
 
     respx.get(OWNED_GAMES_URL).mock(
         return_value=httpx.Response(
             200,
-            json={"response": {"game_count": 1, "games": [{"appid": appid, "name": "Portal 2"}]}},
+            json={
+                "response": {"game_count": 2, "games": [{"appid": 620, "name": "Portal 2"}, entry]}
+            },
         )
     )
 
-    with pytest.raises(MalformedResponseError, match="appid"):
-        await provider.fetch_library()
+    fetched = await provider.fetch_library()
+
+    assert [item.provider_item_id for item in fetched.items] == ["620"]
+    assert fetched.skipped == 1
 
 
 @respx.mock

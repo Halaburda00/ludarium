@@ -76,6 +76,7 @@ function run(overrides: Partial<SyncRun> = {}): SyncRun {
     items_added: 3,
     items_updated: 0,
     items_removed: 0,
+    items_skipped: 0,
     error_text: null,
     error_kind: null,
     ...overrides,

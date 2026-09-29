@@ -3,13 +3,14 @@
 The transaction boundaries are the design. The `sync_run` row is committed
 before the fetch, so a process killed mid-run leaves a `running` row to explain
 itself rather than no evidence at all; everything the run then changes lands in
-a second transaction that commits together with `status = success`. There is no
-moment where a partial result is committed and still looks like a finished sync,
-which is what rule 1 needs from the write side.
+a second transaction that commits together with its status. There is no moment
+where a partial result is committed and still looks like a finished sync, which
+is what rule 1 needs from the write side.
 
-That boundary is also the whole of "only a `success` run may mark anything
-removed". It is not a check anywhere — the sweep's updates commit with the
-status or roll back with it, so no failed run can leave a removal behind.
+A `failed` run rolls that transaction back, and with it any removal. A
+`partial` run — the provider answered, but some of its entries could not be
+read — keeps what arrived and never sweeps: a list known to be short is the one
+answer whose absences prove nothing (#44).
 
 Unlike the resolver, which leaves the transaction to its caller, this owns it.
 """
@@ -44,7 +45,7 @@ from ludarium.models import (
 )
 from ludarium.models.types import ScalarValue, utcnow
 from ludarium.providers import FetchedLibrary, LibraryItem, LibraryProvider, ProviderError
-from ludarium.providers.base import error_kind
+from ludarium.providers.base import MalformedResponseError, error_kind
 from ludarium.providers.registry import build_library
 from ludarium.queries import in_batches
 from ludarium.resolver import record_many, resolve, resolve_work_aggregates_many
@@ -138,6 +139,9 @@ class _Progress:
     """
 
     items_seen: int = 0
+    # Entries the provider sent and could not read. Kept here for the same
+    # reason: a run that failed because none could be read should still say so.
+    items_skipped: int = 0
 
 
 async def sync_account(
@@ -161,9 +165,19 @@ async def sync_account(
 
     seen = _Progress()
     try:
-        items = (await library.fetch_library()).items
-        seen.items_seen = len(items)
-        await _apply(session, run=run, account=account, reporter=reporter, items=items)
+        fetched = await library.fetch_library()
+        seen.items_seen, seen.items_skipped = len(fetched.items), fetched.skipped
+        if fetched.skipped and not fetched.items:
+            # Nothing to keep, so nothing partial about it.
+            raise MalformedResponseError(_unreadable(fetched.skipped))
+        await _apply(
+            session,
+            run=run,
+            account=account,
+            reporter=reporter,
+            items=fetched.items,
+            sweep=not fetched.skipped,
+        )
     except ProviderError as exc:
         # Safe to store: `ProviderError` never carries a credential, which is
         # the contract `providers.base` states rather than a hope (rule 7).
@@ -201,10 +215,27 @@ async def sync_account(
             renewed=library.renewed_secret,
         )
         raise
+    if seen.items_skipped:
+        await _close(
+            session,
+            run,
+            reporter,
+            account,
+            seen,
+            SyncStatus.PARTIAL,
+            error=_unreadable(seen.items_skipped),
+            kind=SyncErrorKind.MALFORMED,
+            renewed=library.renewed_secret,
+        )
+        return run
     await _close(
         session, run, reporter, account, seen, SyncStatus.SUCCESS, renewed=library.renewed_secret
     )
     return run
+
+
+def _unreadable(skipped: int) -> str:
+    return f"library entries the provider sent that could not be read: {skipped}"
 
 
 async def _open(
@@ -339,19 +370,20 @@ async def _close(
     kind: SyncErrorKind | None = None,
     renewed: str | None = None,
 ) -> None:
-    """Finish the run and report the provider's health. Anything short of success rolls back.
+    """Finish the run and report the provider's health. A failed run rolls back.
 
     The rollback is the enforcement of rule 1 in its plainest form, and it comes
     before the status is written so the two can never disagree: there is no
     committed state in which a run reports `failed` over changes it kept, and
-    none in which a failed run left a removal behind.
+    none in which a failed run left a removal behind. A `partial` run keeps its
+    changes, which never include a removal — `_apply` was told not to sweep.
 
     Which is also why the health columns are written after it rather than
     before: they describe the run, not the library, and must survive the
     rollback that takes everything the run did.
 
-    `items_seen` is set here for the same reason — it describes the provider's
-    answer rather than anything this run wrote.
+    `items_seen` and `items_skipped` are set here for the same reason — they
+    describe the provider's answer rather than anything this run wrote.
 
     So is a credential the platform replaced (`renewed`). Epic spends its
     refresh token on every use: the old one is gone whether the library then
@@ -359,7 +391,7 @@ async def _close(
     the account holding a spent token and the next sync signed out.
     """
 
-    if status is not SyncStatus.SUCCESS:
+    if status not in (SyncStatus.SUCCESS, SyncStatus.PARTIAL):
         await session.rollback()
         # Expired by the rollback, and assigning to an expired column attribute
         # would load it lazily — which is an error on an async session.
@@ -368,6 +400,7 @@ async def _close(
 
     moment = utcnow()
     run.items_seen = seen.items_seen
+    run.items_skipped = seen.items_skipped
     run.status = status
     run.finished_at = moment
     run.error_text = error
@@ -424,6 +457,7 @@ async def _apply(
     account: Account,
     reporter: Provider,
     items: list[LibraryItem],
+    sweep: bool,
 ) -> None:
     """One library, in phases rather than one item at a time.
 
@@ -473,9 +507,10 @@ async def _apply(
     run.items_updated = len(seen) - len(fresh)
 
     touched = [entitlement.id for entitlement in seen]
-    # A removal changes its work's totals as surely as an update does, so the
-    # swept rows join the list the aggregates are recomputed from.
-    touched += _sweep(run=run, known=known, items=items)
+    if sweep:
+        # A removal changes its work's totals as surely as an update does, so
+        # the swept rows join the list the aggregates are recomputed from.
+        touched += _sweep(run=run, known=known, items=items)
     # The stub's last phase and the sweep in one flush, because the aggregates
     # below read both back.
     await session.flush()
@@ -552,9 +587,10 @@ def _sweep(*, run: SyncRun, known: dict[str, Entitlement], items: list[LibraryIt
     `first_seen_at`, its playtime and the user's own state, and the removed view
     offers it back in one click.
 
-    "Only a `success` run may do this" is not a check here; it is the
-    transaction. These updates commit with the status or roll back with it, so
-    there is no path by which a failed run leaves a removal behind.
+    "Only a `success` run may do this" is two guards rather than one. A failed
+    run rolls these updates back with everything else; a partial run, which
+    keeps its changes, never calls this — the entries it could not read are
+    missing from `items`, and this would mark the games behind them removed.
 
     An empty library sweeps everything, deliberately: that is what a platform
     saying "you own nothing" looks like, and telling it apart from a truncated
