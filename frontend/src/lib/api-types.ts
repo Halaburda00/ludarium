@@ -209,9 +209,9 @@ export interface paths {
          *     "ARC Raiders" would file ahead of "Amnesia", and a trademark sign would split
          *     one series into two blocks (ADR-0018).
          *
-         *     `q` narrows the listing without changing its order or its cursor: a
-         *     filtered page is still keyed on `(sort_key, id)`, so a search pages as the
-         *     library does.
+         *     `q` and the filters narrow the listing without changing its order or its
+         *     cursor: a filtered page is still keyed on `(sort_key, id)`, so a search
+         *     pages as the library does. The filters are declared in `ludarium.filters`.
          */
         get: operations["listing_api_works_get"];
         put?: never;
@@ -905,6 +905,14 @@ export interface operations {
     listing_api_works_get: {
         parameters: {
             query?: {
+                platform?: string[];
+                kind?: components["schemas"]["ItemKind"][];
+                metacritic_min?: number | null;
+                metacritic_max?: number | null;
+                year_min?: number | null;
+                year_max?: number | null;
+                playtime_min?: number | null;
+                playtime_max?: number | null;
                 limit?: number;
                 cursor?: string | null;
                 q?: string | null;

@@ -24,8 +24,11 @@ class Work(Base):
     __tablename__ = "work"
     __table_args__ = (
         # Keyset pagination for the virtualised grid, on the folded key rather
-        # than on `sort_title` (ADR-0018). The M3 filter indexes are
-        # deliberately absent until there is a query to size them against.
+        # than on `sort_title` (ADR-0018). There are no filter indexes, and that
+        # was measured rather than assumed (#90): the listing walks this index
+        # and stops at a page, so on 20,000 works a filter answers in about
+        # 1 ms, and one that matches nothing in 8. An index on `item_kind` or
+        # `release_year` made the planner seek and then sort, which took 3 ms.
         Index("ix_work_sort_key_id", "sort_key", "id"),
         Index(
             "uq_work_igdb_id",
