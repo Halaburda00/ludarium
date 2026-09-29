@@ -18,12 +18,13 @@ every threshold.
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Annotated, Any, Self
 
 from pydantic import AfterValidator, BaseModel, Field, model_validator
-from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import ColumnElement, false, func, select, true
 
-from ludarium.enums import ItemKind, ProviderKind
+from ludarium.enums import ItemKind, PlayStatus, ProviderKind
 from ludarium.models import Account, Entitlement, EntitlementWork, Provider, UserWorkState, Work
 from ludarium.queries import owned_by
 from ludarium.seed import PROVIDER_SEED
@@ -76,9 +77,31 @@ def _on_platform(keys: list[str], user_id: int) -> ColumnElement[bool]:
     )
 
 
-# What the listing shows for a work with no state row (`_describe`), so the
-# filter agrees with the number printed on the card.
+# What the listing shows for a work with no state row (`_describe`), so each
+# filter agrees with what is printed on the card.
 _playtime = func.coalesce(UserWorkState.playtime_minutes, 0)
+_status = func.coalesce(UserWorkState.play_status, PlayStatus.NOT_STARTED.value)
+_hidden = func.coalesce(UserWorkState.is_hidden, false())
+
+
+class Hidden(StrEnum):
+    """Whether the works the user hid are in the listing."""
+
+    # The default: hidden means "not in my library view", which is the point of
+    # hiding something. The work stays owned and counted; only the view skips it.
+    EXCLUDE = "exclude"
+    INCLUDE = "include"
+    ONLY = "only"
+
+
+def _on_hidden(hidden: Hidden, _: int) -> ColumnElement[bool]:
+    match hidden:
+        case Hidden.EXCLUDE:
+            return _hidden.is_(false())
+        case Hidden.ONLY:
+            return _hidden.is_(true())
+        case Hidden.INCLUDE:
+            return true()
 
 
 class LibraryFilters(BaseModel):
@@ -116,6 +139,12 @@ class LibraryFilters(BaseModel):
         Field(default=None, ge=1950, le=2100),
         Predicate(lambda year, _: Work.release_year <= year),
     ]
+    status: Annotated[
+        list[PlayStatus],
+        Field(default_factory=list, max_length=MAX_CHOICES),
+        Predicate(lambda statuses, _: _status.in_([status.value for status in statuses])),
+    ]
+    hidden: Annotated[Hidden, Field(default=Hidden.EXCLUDE), Predicate(_on_hidden)]
     # Minutes, as `playtime_minutes` is everywhere else in the API.
     playtime_min: Annotated[
         int | None,

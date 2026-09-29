@@ -246,6 +246,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/works/{work_id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update State
+         * @description Change what the user decides about a work, and answer with the work as it now is.
+         *
+         *     The same 404 as the detail view: a work that is not in the library has no
+         *     state worth keeping, and the answer does not say whether it exists.
+         *
+         *     A work with no state row gets one. Nothing enforces the row (`_owned_works`
+         *     outer-joins it for that reason), so its absence is a gap to fill, not a
+         *     missing work.
+         */
+        patch: operations["update_state_api_works__work_id__state_patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -369,6 +396,12 @@ export interface components {
             version: string;
         };
         /**
+         * Hidden
+         * @description Whether the works the user hid are in the listing.
+         * @enum {string}
+         */
+        Hidden: "exclude" | "include" | "only";
+        /**
          * ItemKind
          * @enum {string}
          */
@@ -438,6 +471,33 @@ export interface components {
             expires_at: string;
             /** Username */
             username: string;
+        };
+        /**
+         * StateUpdate
+         * @description Any subset of what the user decides about a work.
+         *
+         *     A field left out is left alone; one sent as null is cleared. That is the
+         *     difference `model_fields_set` keeps, and the reason every field has a
+         *     default. `play_status` and the two flags are never null, so a null for them
+         *     is refused by their types.
+         */
+        StateUpdate: {
+            /**
+             * Is Favourite
+             * @default false
+             */
+            is_favourite: boolean;
+            /**
+             * Is Hidden
+             * @default false
+             */
+            is_hidden: boolean;
+            /** Notes */
+            notes?: string | null;
+            /** @default not_started */
+            play_status: components["schemas"]["PlayStatus"];
+            /** Rating */
+            rating?: number | null;
         };
         /**
          * SteamRating
@@ -550,6 +610,8 @@ export interface components {
         WorkDetail: {
             /** Companies */
             companies: components["schemas"]["Credit"][];
+            /** Completed At */
+            completed_at: string | null;
             cover: components["schemas"]["Cover"] | null;
             /** Entitlements */
             entitlements: components["schemas"]["EntitlementSummary"][];
@@ -565,15 +627,21 @@ export interface components {
             /** Last Played At */
             last_played_at: string | null;
             metacritic: components["schemas"]["Score"] | null;
+            /** Notes */
+            notes: string | null;
             play_status: components["schemas"]["PlayStatus"];
             /** Playtime Minutes */
             playtime_minutes: number;
+            /** Rating */
+            rating: number | null;
             /** Release Date */
             release_date: string | null;
             /** Release Year */
             release_year: number | null;
             /** Sort Title */
             sort_title: string;
+            /** Started At */
+            started_at: string | null;
             steam_reviews: components["schemas"]["SteamReviews"] | null;
             /** Summary */
             summary: string | null;
@@ -911,6 +979,8 @@ export interface operations {
                 metacritic_max?: number | null;
                 year_min?: number | null;
                 year_max?: number | null;
+                status?: components["schemas"]["PlayStatus"][];
+                hidden?: components["schemas"]["Hidden"];
                 playtime_min?: number | null;
                 playtime_max?: number | null;
                 limit?: number;
@@ -957,6 +1027,43 @@ export interface operations {
             };
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_state_api_works__work_id__state_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                work_id: number;
+            };
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StateUpdate"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

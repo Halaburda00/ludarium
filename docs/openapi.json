@@ -296,6 +296,16 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "Hidden": {
+        "description": "Whether the works the user hid are in the listing.",
+        "enum": [
+          "exclude",
+          "include",
+          "only"
+        ],
+        "title": "Hidden",
+        "type": "string"
+      },
       "ItemKind": {
         "enum": [
           "game",
@@ -440,6 +450,53 @@
           "expires_at"
         ],
         "title": "SessionResponse",
+        "type": "object"
+      },
+      "StateUpdate": {
+        "additionalProperties": false,
+        "description": "Any subset of what the user decides about a work.\n\nA field left out is left alone; one sent as null is cleared. That is the\ndifference `model_fields_set` keeps, and the reason every field has a\ndefault. `play_status` and the two flags are never null, so a null for them\nis refused by their types.",
+        "properties": {
+          "is_favourite": {
+            "default": false,
+            "title": "Is Favourite",
+            "type": "boolean"
+          },
+          "is_hidden": {
+            "default": false,
+            "title": "Is Hidden",
+            "type": "boolean"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "play_status": {
+            "$ref": "#/components/schemas/PlayStatus",
+            "default": "not_started"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          }
+        },
+        "title": "StateUpdate",
         "type": "object"
       },
       "SteamRating": {
@@ -732,6 +789,18 @@
             "title": "Companies",
             "type": "array"
           },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
           "cover": {
             "anyOf": [
               {
@@ -797,12 +866,34 @@
               }
             ]
           },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
           "play_status": {
             "$ref": "#/components/schemas/PlayStatus"
           },
           "playtime_minutes": {
             "title": "Playtime Minutes",
             "type": "integer"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
           },
           "release_date": {
             "anyOf": [
@@ -830,6 +921,18 @@
           "sort_title": {
             "title": "Sort Title",
             "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
           },
           "steam_reviews": {
             "anyOf": [
@@ -875,7 +978,11 @@
           "entitlements",
           "summary",
           "release_date",
-          "companies"
+          "companies",
+          "rating",
+          "notes",
+          "started_at",
+          "completed_at"
         ],
         "title": "WorkDetail",
         "type": "object"
@@ -1582,6 +1689,28 @@
           },
           {
             "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "items": {
+                "$ref": "#/components/schemas/PlayStatus"
+              },
+              "maxItems": 32,
+              "title": "Status",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hidden",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Hidden",
+              "default": "exclude"
+            }
+          },
+          {
+            "in": "query",
             "name": "playtime_min",
             "required": false,
             "schema": {
@@ -1761,6 +1890,75 @@
           }
         },
         "summary": "Detail",
+        "tags": [
+          "works"
+        ]
+      }
+    },
+    "/api/works/{work_id}/state": {
+      "patch": {
+        "description": "Change what the user decides about a work, and answer with the work as it now is.\n\nThe same 404 as the detail view: a work that is not in the library has no\nstate worth keeping, and the answer does not say whether it exists.\n\nA work with no state row gets one. Nothing enforces the row (`_owned_works`\nouter-joins it for that reason), so its absence is a gap to fill, not a\nmissing work.",
+        "operationId": "update_state_api_works__work_id__state_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "work_id",
+            "required": true,
+            "schema": {
+              "title": "Work Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StateUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update State",
         "tags": [
           "works"
         ]
