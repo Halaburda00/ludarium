@@ -254,6 +254,24 @@ describe('what the user decides about a work', () => {
     )
   })
 
+  it('takes the saved notes back from the server, as it stored them', async () => {
+    stubFetch({
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works/7': { body: WITCHER },
+      // Blank notes are stored as none.
+      'PATCH /api/works/7/state': { body: { ...WITCHER, notes: null } },
+    })
+    renderApp(<Router />, { route: '/library/7' })
+
+    await userEvent.type(await screen.findByLabelText('Notes'), '   ')
+    await userEvent.click(screen.getByRole('button', { name: 'Save notes' }))
+
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Save notes' })).toBeDisabled(),
+    )
+    expect(screen.getByLabelText('Notes')).toHaveValue('')
+  })
+
   it('says so when a change was not saved', async () => {
     stubFetch({
       'GET /api/accounts': { body: ACCOUNTS },

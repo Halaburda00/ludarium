@@ -114,7 +114,14 @@ export function WorkState({ work }: { work: WorkDetail }) {
           <Button
             variant="outline"
             disabled={saving || !notesChanged}
-            onClick={() => update.mutate({ notes: notes || null })}
+            onClick={() =>
+              update.mutate(
+                { notes: notes || null },
+                // The server's copy, not the draft: it stores blank notes as
+                // none, and a draft left at "   " would never read as saved.
+                { onSuccess: (saved) => setNotes(saved.notes ?? '') },
+              )
+            }
           >
             {t('work.state.saveNotes')}
           </Button>
