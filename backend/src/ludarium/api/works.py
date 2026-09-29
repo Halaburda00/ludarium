@@ -14,11 +14,11 @@ import json
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections.abc import Sequence
 from datetime import date, datetime
-from typing import Annotated, Final
+from typing import Annotated, Final, Self
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import ColumnElement, Select, literal, select, tuple_
 
 from ludarium.auth import CurrentSession
@@ -37,6 +37,7 @@ from ludarium.models import (
     Work,
     WorkCompany,
 )
+from ludarium.models.types import utcnow
 from ludarium.queries import owned_by
 from ludarium.titles import search_key
 
@@ -45,6 +46,10 @@ MAX_LIMIT: Final = 500
 MAX_CURSOR: Final = 256
 # Longer than any title, so nothing a person types is refused.
 MAX_QUERY: Final = 200
+# Room for a long review, not for a document.
+MAX_NOTES: Final = 10_000
+# The statuses that mean the user got to the end.
+FINISHED: Final = frozenset({PlayStatus.COMPLETED, PlayStatus.MASTERED})
 # Carried inside every cursor, so one issued under an older ordering is refused
 # rather than read under this one. The cursors before it were `[sort_title, id]`
 # — the same shape as `[sort_key, id]`, and a position in a different order.
@@ -142,9 +147,9 @@ class WorkSummary(BaseModel):
     release_year: int | None
     play_status: PlayStatus
     is_favourite: bool
-    # Hidden is returned, not applied: "excluded from the default grid" is a
-    # filter the grid owns (M3), and a list that quietly drops rows is worse
-    # than one that says which rows are marked.
+    # Left out of the listing by the `hidden` filter's default, and still
+    # returned: `hidden=include` lists hidden works beside the rest, and a list
+    # that quietly dropped rows would give the client no way to mark them.
     is_hidden: bool
     # The sum across this work's entitlements, resolved (rule 5).
     playtime_minutes: int
@@ -174,6 +179,35 @@ class WorkDetail(WorkSummary):
     # Publishers first, then developers, porting and support studios
     # (`CREDIT_ORDER`); a company in several roles is listed once.
     companies: list[Credit]
+    # The user's own, from `user_work_state`, which no provider writes (rule 3).
+    rating: int | None
+    notes: str | None
+    started_at: datetime | None
+    completed_at: datetime | None
+
+
+class StateUpdate(BaseModel):
+    """Any subset of what the user decides about a work.
+
+    A field left out is left alone; one sent as null is cleared. That is the
+    difference `model_fields_set` keeps, and the reason every field has a
+    default. `play_status` and the two flags are never null, so a null for them
+    is refused by their types.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    play_status: PlayStatus = PlayStatus.NOT_STARTED
+    rating: int | None = Field(default=None, ge=1, le=10)
+    notes: str | None = Field(default=None, max_length=MAX_NOTES)
+    is_favourite: bool = False
+    is_hidden: bool = False
+
+    @model_validator(mode="after")
+    def _says_something(self) -> Self:
+        if not self.model_fields_set:
+            raise ValueError("nothing to change")
+        return self
 
 
 class WorksPage(BaseModel):
@@ -322,18 +356,82 @@ async def detail(work_id: int, session: SessionDep, record: CurrentSession) -> W
     answer does not say which of the two it was.
     """
 
-    rows = list(
-        (await session.execute(_owned_works(record.user_id).where(Work.id == work_id))).tuples()
+    return await _detail(session, work_id, record.user_id)
+
+
+@router.patch("/{work_id}/state")
+async def update_state(
+    work_id: int, update: StateUpdate, session: SessionDep, record: CurrentSession
+) -> WorkDetail:
+    """Change what the user decides about a work, and answer with the work as it now is.
+
+    The same 404 as the detail view: a work that is not in the library has no
+    state worth keeping, and the answer does not say whether it exists.
+
+    A work with no state row gets one. Nothing enforces the row (`_owned_works`
+    outer-joins it for that reason), so its absence is a gap to fill, not a
+    missing work.
+    """
+
+    user_id = record.user_id
+    if not (await session.execute(_owned_works(user_id).where(Work.id == work_id))).first():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such work in the library")
+    state = await _state_row(session, user_id=user_id, work_id=work_id)
+    changes = update.model_dump(include=update.model_fields_set)
+    if "notes" in changes and not (changes["notes"] or "").strip():
+        # Blank notes are no notes, so the detail view has one empty state.
+        changes["notes"] = None
+    for field, value in changes.items():
+        setattr(state, field, value)
+    moment = utcnow()
+    # Set on the first move into each state and never cleared by moving back:
+    # "finished it in 2024" stays true after a replay puts it back to playing.
+    if state.play_status is PlayStatus.PLAYING and state.started_at is None:
+        state.started_at = moment
+    if state.play_status in FINISHED and state.completed_at is None:
+        state.completed_at = moment
+    await session.commit()
+    return await _detail(session, work_id, user_id)
+
+
+async def _state_row(session: SessionDep, *, user_id: int, work_id: int) -> UserWorkState:
+    """The row, created with its defaults spelled out if it was missing.
+
+    Spelled out for the reason `_describe` gives: a new instance has no column
+    defaults until it is flushed, and the caller reads it before then.
+    """
+
+    state = await session.get(UserWorkState, (user_id, work_id))
+    if state is not None:
+        return state
+    state = UserWorkState(
+        user_id=user_id,
+        work_id=work_id,
+        play_status=PlayStatus.NOT_STARTED,
+        is_favourite=False,
+        is_hidden=False,
+        playtime_minutes=0,
+        platform_count=0,
     )
-    summaries = await _summaries(session, rows, record.user_id)
+    session.add(state)
+    return state
+
+
+async def _detail(session: SessionDep, work_id: int, user_id: int) -> WorkDetail:
+    rows = list((await session.execute(_owned_works(user_id).where(Work.id == work_id))).tuples())
+    summaries = await _summaries(session, rows, user_id)
     if not summaries:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such work in the library")
-    work = rows[0][0]
+    work, state = rows[0][0], rows[0][1]
     return WorkDetail(
         **summaries[0].model_dump(),
         summary=work.summary,
         release_date=work.release_date,
         companies=await _credits(session, work_id),
+        rating=state.rating if state else None,
+        notes=state.notes if state else None,
+        started_at=state.started_at if state else None,
+        completed_at=state.completed_at if state else None,
     )
 
 

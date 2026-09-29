@@ -80,6 +80,10 @@ const WITCHER: WorkDetail = {
     { name: 'CD Projekt Red', roles: ['developer'] },
     { name: 'Bandai Namco', roles: ['publisher'] },
   ],
+  rating: null,
+  notes: null,
+  started_at: null,
+  completed_at: null,
 }
 
 describe('the work page', () => {
