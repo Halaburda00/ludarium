@@ -157,6 +157,9 @@ def test_a_filtered_listing_pages_on_the_same_cursor(library: TestClient) -> Non
         {"playtime_min": -1},
         {"kind": "not-a-kind"},
         {"platform": ["steam"] * 33},
+        # Past SQLite's INTEGER: validated, then a 500 from the driver.
+        {"playtime_min": 10**20},
+        {"playtime_max": 10**20},
     ],
 )
 def test_a_filter_that_cannot_mean_anything_is_refused(

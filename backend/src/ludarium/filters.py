@@ -31,6 +31,10 @@ from ludarium.queries import owned_by
 # are a dozen provider keys and eight kinds — and short enough that no caller
 # builds an `IN (...)` near the bind limit.
 MAX_CHOICES = 32
+# A century of play, in minutes. Far past any library, and far inside the
+# 64-bit integer SQLite binds: past that the driver raises and the answer is a
+# 500 rather than a refusal.
+MAX_MINUTES = 60 * 24 * 365 * 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,12 +99,12 @@ class LibraryFilters(BaseModel):
     # Minutes, as `playtime_minutes` is everywhere else in the API.
     playtime_min: Annotated[
         int | None,
-        Field(default=None, ge=0),
+        Field(default=None, ge=0, le=MAX_MINUTES),
         Predicate(lambda minutes, _: _playtime >= minutes),
     ]
     playtime_max: Annotated[
         int | None,
-        Field(default=None, ge=0),
+        Field(default=None, ge=0, le=MAX_MINUTES),
         Predicate(lambda minutes, _: _playtime <= minutes),
     ]
 
