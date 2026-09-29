@@ -1104,6 +1104,24 @@ async def test_an_inactive_account_s_failure_is_not_the_provider_s(
     assert (steam.status, steam.last_error) == (SyncStatus.SUCCESS, None)
 
 
+async def test_an_inactive_account_alone_says_nothing_about_the_provider(
+    session: AsyncSession, account: Account
+) -> None:
+    """With no active account left there is nothing to report, not this run's result."""
+
+    steam = await make_provider(session)
+    account.is_active = False
+    await session.commit()
+
+    await sync_account(session, account=account, library=FakeLibrary(error=OUTAGE))
+
+    await session.refresh(steam)
+    await session.refresh(account)
+    assert (steam.status, steam.last_error) == (SyncStatus.PENDING, None)
+    # The account's own row still says what happened to it.
+    assert account.status is SyncStatus.FAILED
+
+
 async def test_a_successful_sync_sweeps_only_its_own_account(
     session: AsyncSession, account: Account
 ) -> None:

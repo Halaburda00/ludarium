@@ -446,16 +446,14 @@ async def _report(
     if status is SyncStatus.SUCCESS:
         reporter.last_success_at = moment
         account.last_success_at = moment
-    reporter.status, reporter.last_error = await _summary(session, reporter) or (status, error)
+    reporter.status, reporter.last_error = await _summary(session, reporter)
 
 
 # Worst first: a panel that says "fine" over one broken account hides it.
 _SEVERITY: Final = (SyncStatus.FAILED, SyncStatus.PARTIAL, SyncStatus.SUCCESS)
 
 
-async def _summary(
-    session: AsyncSession, reporter: Provider
-) -> tuple[SyncStatus, str | None] | None:
+async def _summary(session: AsyncSession, reporter: Provider) -> tuple[SyncStatus, str | None]:
     """The worst of the latest finished run of each active account this reporter syncs.
 
     Read from `sync_run` rather than from the account columns, because those
@@ -463,8 +461,9 @@ async def _summary(
     reporter's health. The run being closed is in the session and is flushed
     into the read, so it counts as its account's latest.
 
-    None where no active account has finished a run, which leaves the caller's
-    own answer standing.
+    `pending` where no active account has finished a run. The run being closed
+    is then an inactive account's, and a disconnected account is nothing the
+    user can be asked to fix.
     """
 
     latest = (
@@ -481,7 +480,7 @@ async def _summary(
         )
     ).all()
     if not rows:
-        return None
+        return SyncStatus.PENDING, None
     # Most recent first, so a tie on status is won by the newer error.
     status, error = min(rows, key=lambda row: _SEVERITY.index(row.status))
     return status, error
