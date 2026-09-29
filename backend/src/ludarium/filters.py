@@ -20,12 +20,13 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Annotated, Any, Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AfterValidator, BaseModel, Field, model_validator
 from sqlalchemy import ColumnElement, func, select
 
-from ludarium.enums import ItemKind
+from ludarium.enums import ItemKind, ProviderKind
 from ludarium.models import Account, Entitlement, EntitlementWork, Provider, UserWorkState, Work
 from ludarium.queries import owned_by
+from ludarium.seed import PROVIDER_SEED
 
 # The widest a list parameter may be. Longer than any real selection — there
 # are a dozen provider keys and eight kinds — and short enough that no caller
@@ -35,6 +36,24 @@ MAX_CHOICES = 32
 # 64-bit integer SQLite binds: past that the driver raises and the answer is a
 # 500 rather than a refusal.
 MAX_MINUTES = 60 * 24 * 365 * 100
+
+
+# Where a copy can be owned. Taken from the seed rather than the table: the keys
+# are code-owned (`seed.py`), and a metadata provider holds no copies, so naming
+# one could only ever answer with nothing.
+PLATFORMS = frozenset(
+    spec.key for spec in PROVIDER_SEED if spec.kind in (ProviderKind.PLATFORM, ProviderKind.MANUAL)
+)
+
+
+def _known_platforms(keys: list[str]) -> list[str]:
+    # A typo answered with an empty page reads as "you own nothing there", the
+    # same false claim an inverted range would make.
+    unknown = sorted(set(keys) - PLATFORMS)
+    if unknown:
+        known = ", ".join(sorted(PLATFORMS))
+        raise ValueError(f"not a platform: {', '.join(unknown)}; expected one of {known}")
+    return keys
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +87,7 @@ class LibraryFilters(BaseModel):
     platform: Annotated[
         list[str],
         Field(default_factory=list, max_length=MAX_CHOICES),
+        AfterValidator(_known_platforms),
         Predicate(_on_platform),
     ]
     kind: Annotated[
