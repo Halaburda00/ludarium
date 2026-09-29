@@ -18,6 +18,7 @@ from ludarium.api.common import provider_or_404
 from ludarium.auth import CurrentSession
 from ludarium.crypto import get_cipher
 from ludarium.db import SessionDep
+from ludarium.enums import SyncStatus
 from ludarium.models import Account, Provider
 from ludarium.models.types import utcnow
 from ludarium.providers import (
@@ -63,6 +64,10 @@ class AccountResponse(BaseModel):
     is_active: bool
     created_at: datetime
     last_success_at: datetime | None
+    # What this account's last sync did, where the provider's status is the
+    # worst across its accounts and cannot say which one (#26).
+    status: SyncStatus
+    last_error: str | None
     credentials: str | None
 
 
@@ -75,6 +80,8 @@ def _describe(account: Account, provider_key: str) -> AccountResponse:
         is_active=account.is_active,
         created_at=account.created_at,
         last_success_at=account.last_success_at,
+        status=account.status,
+        last_error=account.last_error,
         credentials=MASK if account.credentials_encrypted else None,
     )
 
