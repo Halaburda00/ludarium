@@ -18,12 +18,13 @@ from typing import Annotated, Final
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import ColumnElement, Select, literal, select, tuple_
 
 from ludarium.auth import CurrentSession
 from ludarium.db import SessionDep
 from ludarium.enums import CompanyRole, EntityType, ImageKind, ItemKind, PlayStatus, SteamRating
+from ludarium.filters import LibraryFilters
 from ludarium.models import (
     Account,
     Company,
@@ -65,6 +66,20 @@ CREDIT_ORDER: Final = (
 )
 
 router = APIRouter(prefix="/works", tags=["works"])
+
+
+class ListingParams(LibraryFilters):
+    """The whole query string of a listing: the page, the search, and every filter.
+
+    One model rather than separate parameters, because FastAPI expands a query
+    model into its fields only when it is the sole query parameter.
+    """
+
+    limit: int = Field(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT)
+    # Bounded like every other input a caller controls: the cursor is decoded
+    # before it is judged, and there is no reason to decode a megabyte first.
+    cursor: str | None = Field(default=None, max_length=MAX_CURSOR)
+    q: str | None = Field(default=None, max_length=MAX_QUERY)
 
 
 class EntitlementSummary(BaseModel):
@@ -222,11 +237,7 @@ def _summarise(entitlement: Entitlement, provider: Provider) -> EntitlementSumma
 async def listing(
     session: SessionDep,
     record: CurrentSession,
-    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
-    # Bounded like every other input a caller controls: the cursor is decoded
-    # before it is judged, and there is no reason to decode a megabyte first.
-    cursor: Annotated[str | None, Query(max_length=MAX_CURSOR)] = None,
-    q: Annotated[str | None, Query(max_length=MAX_QUERY)] = None,
+    params: Annotated[ListingParams, Query()],
 ) -> WorksPage:
     """One page, keyed on `(sort_key, id)` rather than an offset.
 
@@ -240,12 +251,12 @@ async def listing(
     "ARC Raiders" would file ahead of "Amnesia", and a trademark sign would split
     one series into two blocks (ADR-0018).
 
-    `q` narrows the listing without changing its order or its cursor: a
-    filtered page is still keyed on `(sort_key, id)`, so a search pages as the
-    library does.
+    `q` and the filters narrow the listing without changing its order or its
+    cursor: a filtered page is still keyed on `(sort_key, id)`, so a search
+    pages as the library does. The filters are declared in `ludarium.filters`.
     """
 
-    user_id = record.user_id
+    user_id, limit, cursor = record.user_id, params.limit, params.cursor
     page = (
         _owned_works(user_id)
         .order_by(Work.sort_key, Work.id)
@@ -253,9 +264,10 @@ async def listing(
         # a count and without handing the client an empty page to discover it.
         .limit(limit + 1)
     )
-    wanted = search_key(q) if q is not None else ""
+    wanted = search_key(params.q) if params.q is not None else ""
     if wanted:
         page = page.where(_matches(wanted, user_id))
+    page = page.where(*params.predicates(user_id))
     if cursor is not None:
         key, work_id = _after(cursor)
         page = page.where(tuple_(Work.sort_key, Work.id) > tuple_(literal(key), literal(work_id)))

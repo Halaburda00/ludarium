@@ -1,0 +1,134 @@
+"""The library's filters, declared once each: a query parameter and the SQL it means.
+
+Every filter is a field on `LibraryFilters` whose annotation carries its
+`Predicate`. FastAPI reads the same model to validate the query string and to
+document it, so a filter cannot exist in the schema without SQL behind it, nor
+in SQL without a place in the schema. Adding one is adding a field.
+
+The predicates are written against `_owned_works` in `api.works`: `Work` in the
+FROM clause and `UserWorkState` outer-joined for this user. They narrow the
+listing and never reorder it, so a filtered page is still keyed on
+`(sort_key, id)` and pages as the library does.
+
+A null is "not known", never zero or "every value". SQL's comparison already
+behaves that way — `NULL >= 80` is not true — and each predicate is written so
+it keeps doing so. A work with no Metacritic score is not a work scored below
+every threshold.
+"""
+
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
+from typing import Annotated, Any, Self
+
+from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import ColumnElement, func, select
+
+from ludarium.enums import ItemKind
+from ludarium.models import Account, Entitlement, EntitlementWork, Provider, UserWorkState, Work
+from ludarium.queries import owned_by
+
+# The widest a list parameter may be. Longer than any real selection — there
+# are a dozen provider keys and eight kinds — and short enough that no caller
+# builds an `IN (...)` near the bind limit.
+MAX_CHOICES = 32
+
+
+@dataclass(frozen=True, slots=True)
+class Predicate:
+    """What a filter's value means in SQL, given the user whose library it narrows."""
+
+    build: Callable[[Any, int], ColumnElement[bool]]
+
+
+def _on_platform(keys: list[str], user_id: int) -> ColumnElement[bool]:
+    # A live copy, by the same `owned_by` the listing itself uses: a work kept
+    # by its Steam copy does not match GOG because its GOG copy was removed.
+    return (
+        select(EntitlementWork.work_id)
+        .join(Entitlement, Entitlement.id == EntitlementWork.entitlement_id)
+        .join(Account, Account.id == Entitlement.account_id)
+        .join(Provider, Provider.id == Account.provider_id)
+        .where(EntitlementWork.work_id == Work.id, *owned_by(user_id), Provider.key.in_(keys))
+        .exists()
+    )
+
+
+# What the listing shows for a work with no state row (`_describe`), so the
+# filter agrees with the number printed on the card.
+_playtime = func.coalesce(UserWorkState.playtime_minutes, 0)
+
+
+class LibraryFilters(BaseModel):
+    """Every filter the listing accepts. Unset means "do not narrow"."""
+
+    platform: Annotated[
+        list[str],
+        Field(default_factory=list, max_length=MAX_CHOICES),
+        Predicate(_on_platform),
+    ]
+    kind: Annotated[
+        list[ItemKind],
+        Field(default_factory=list, max_length=MAX_CHOICES),
+        # An unclassified work has no kind, so it matches no choice of kinds.
+        Predicate(lambda kinds, _: Work.item_kind.in_(kinds)),
+    ]
+    metacritic_min: Annotated[
+        int | None,
+        Field(default=None, ge=0, le=100),
+        Predicate(lambda score, _: Work.metacritic_score >= score),
+    ]
+    metacritic_max: Annotated[
+        int | None,
+        Field(default=None, ge=0, le=100),
+        Predicate(lambda score, _: Work.metacritic_score <= score),
+    ]
+    year_min: Annotated[
+        int | None,
+        Field(default=None, ge=1950, le=2100),
+        Predicate(lambda year, _: Work.release_year >= year),
+    ]
+    year_max: Annotated[
+        int | None,
+        Field(default=None, ge=1950, le=2100),
+        Predicate(lambda year, _: Work.release_year <= year),
+    ]
+    # Minutes, as `playtime_minutes` is everywhere else in the API.
+    playtime_min: Annotated[
+        int | None,
+        Field(default=None, ge=0),
+        Predicate(lambda minutes, _: _playtime >= minutes),
+    ]
+    playtime_max: Annotated[
+        int | None,
+        Field(default=None, ge=0),
+        Predicate(lambda minutes, _: _playtime <= minutes),
+    ]
+
+    @model_validator(mode="after")
+    def _ranges_are_ranges(self) -> Self:
+        # Refused rather than answered with nothing: an empty page for
+        # `year_min=2020&year_max=2010` reads as "you own no such games", which
+        # is a claim about the library, not about the query.
+        for name in ("metacritic", "year", "playtime"):
+            low, high = getattr(self, f"{name}_min"), getattr(self, f"{name}_max")
+            if low is not None and high is not None and low > high:
+                raise ValueError(f"{name}_min is greater than {name}_max")
+        return self
+
+    def predicates(self, user_id: int) -> Iterator[ColumnElement[bool]]:
+        """One clause per filter that was set, in declaration order."""
+
+        # The filters' own fields, not a subclass's: `ListingParams` adds the
+        # page and the search, which are not filters and carry no predicate.
+        for name, field in LibraryFilters.model_fields.items():
+            value = getattr(self, name)
+            if value is None or value == []:
+                continue
+            yield _predicate_of(name, field.metadata).build(value, user_id)
+
+
+def _predicate_of(name: str, metadata: list[Any]) -> Predicate:
+    found = [item for item in metadata if isinstance(item, Predicate)]
+    if len(found) != 1:
+        raise TypeError(f"filter `{name}` must declare exactly one Predicate")
+    return found[0]
