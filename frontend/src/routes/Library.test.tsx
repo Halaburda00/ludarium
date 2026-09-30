@@ -1196,6 +1196,18 @@ describe('the filter panel, as it is used', () => {
     expect(screen.getByText('Filters (1 on)')).toBeInTheDocument()
   })
 
+  it('clears a changed review threshold like any filter, without counting it as one', async () => {
+    const calls = stubFetch({ ...BASE, 'GET /api/works?steam_reviews_min=50': { body: THREE } })
+    renderApp(<Library />, { route: '/library?steam_reviews_min=50' })
+
+    expect(await screen.findByLabelText('Minimum reviews')).toHaveValue(50)
+    expect(screen.getByText('Filters')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+
+    await vi.waitFor(() => expect(screen.getByLabelText('Minimum reviews')).toHaveValue(10))
+    expect(calls.map((call) => call.path)).toContain('/api/works')
+  })
+
   it('turns typed hours into the minutes the API filters on', async () => {
     const calls = stubFetch({ ...BASE, 'GET /api/works?playtime_min=90': { body: THREE } })
     renderApp(<Library />)

@@ -121,7 +121,13 @@ export function FilterPanel({
               <option value="only">{t('filters.hiddenOnly')}</option>
             </select>
           </label>
-          <Button variant="outline" disabled={active === 0} onClick={() => onChange(NO_FILTERS)}>
+          {/* Also for a changed review threshold alone: it is not counted as a
+              filter, since it narrows nothing, but it is still something to clear. */}
+          <Button
+            variant="outline"
+            disabled={active === 0 && filters.steam_reviews_min === STEAM_REVIEWS.default}
+            onClick={() => onChange(NO_FILTERS)}
+          >
             {t('filters.clear')}
           </Button>
         </div>
