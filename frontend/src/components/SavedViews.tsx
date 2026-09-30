@@ -42,7 +42,11 @@ export function SavedViews({
 
   const list = views.data ?? []
   const opened = list.find((view) => view.id === openedId)
-  const failed = [save, rename, reorder, remove].find((mutation) => mutation.isError)?.error
+  const mutations = [save, rename, reorder, remove]
+  const failed = mutations.find((mutation) => mutation.isError)?.error
+  // Every action starts by forgetting the last one's refusal: a 409 from a
+  // save is not news once a delete has gone through.
+  const forget = () => mutations.forEach((mutation) => mutation.reset())
   // Said while the view is still what is on the screen, and not after: once
   // a filter has changed, the grid is no longer the view the notice is about.
   const partial =
@@ -51,6 +55,7 @@ export function SavedViews({
   const move = (index: number, by: -1 | 1) => {
     const ids = list.map((view) => view.id)
     ;[ids[index], ids[index + by]] = [ids[index + by], ids[index]]
+    forget()
     reorder.mutate(ids)
   }
 
@@ -75,7 +80,13 @@ export function SavedViews({
         {list.map((view, index) =>
           editing ? (
             <li key={view.id} className="flex flex-wrap items-end gap-2">
-              <Rename view={view} onRename={(next) => rename.mutate({ id: view.id, name: next })} />
+              <Rename
+                view={view}
+                onRename={(next) => {
+                  forget()
+                  rename.mutate({ id: view.id, name: next })
+                }}
+              />
               <Button
                 variant="outline"
                 size="sm"
@@ -98,7 +109,10 @@ export function SavedViews({
                 variant="outline"
                 size="sm"
                 aria-label={t('views.delete', { name: view.name })}
-                onClick={() => remove.mutate(view.id)}
+                onClick={() => {
+                  forget()
+                  remove.mutate(view.id)
+                }}
               >
                 {t('views.deleteShort')}
               </Button>
@@ -132,6 +146,7 @@ export function SavedViews({
         className="flex flex-wrap items-end gap-2"
         onSubmit={(event) => {
           event.preventDefault()
+          forget()
           save.mutate({ name: name.trim(), query: current }, { onSuccess: () => setName('') })
         }}
       >

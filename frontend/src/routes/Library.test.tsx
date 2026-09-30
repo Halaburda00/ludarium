@@ -1342,6 +1342,26 @@ describe('saved views', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('already a view named')
   })
 
+  it('stops showing a refusal once something else has worked', async () => {
+    stubFetch({
+      ...BASE,
+      'POST /api/views': { status: 409, body: { detail: 'there is already a view named “Backlog”' } },
+      'DELETE /api/views/2': { status: 204 },
+    })
+    renderApp(<Library />)
+
+    await userEvent.type(await screen.findByLabelText('Name this view'), 'Backlog')
+    await userEvent.click(screen.getByRole('button', { name: 'Save view' }))
+    expect(await screen.findByText(/already a view named/)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit views' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete “Old one”' }))
+
+    await vi.waitFor(() =>
+      expect(screen.queryByText(/already a view named/)).not.toBeInTheDocument(),
+    )
+  })
+
   it('moves, renames and deletes, each through the API', async () => {
     const calls = stubFetch({
       ...BASE,
