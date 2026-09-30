@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { FilterPanel } from '@/components/FilterPanel'
+import { SavedViews } from '@/components/SavedViews'
 import { SortControl } from '@/components/SortControl'
 import { ThemePicker } from '@/components/ThemePicker'
 import { WorksGrid } from '@/components/WorksGrid'
@@ -10,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Field, Notice } from '@/components/ui/field'
 import { activeCount, NO_FILTERS, readFilters, writeFilters, type Filters } from '@/lib/filters'
 import { readSorting, writeSorting, type Sorting } from '@/lib/sorting'
+import { viewQuery } from '@/lib/views'
 import {
   useAccounts,
   useEnrichment,
@@ -256,6 +258,13 @@ export default function Library() {
           />
         </search>
       ) : null}
+
+      {/* A view replaces the whole address, search included: it is a named
+          link, and a link opens as it was saved. */}
+      <SavedViews
+        current={viewQuery(filters, sorting)}
+        onOpen={(query) => setParams(new URLSearchParams(query))}
+      />
 
       {/* Always here, over an empty grid too: a library where every game is
           hidden looks exactly like one with nothing in it. */}

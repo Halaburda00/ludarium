@@ -218,5 +218,20 @@
   "error": {
     "offline": "Could not reach the server.",
     "unexpected": "Something went wrong."
+  },
+  "views": {
+    "title": "Saved views",
+    "none": "No saved views yet. Set filters and an order, then name them below.",
+    "name": "Name this view",
+    "save": "Save view",
+    "edit": "Edit views",
+    "done": "Done",
+    "rename": "Rename",
+    "renameLabel": "Name of “{{name}}”",
+    "moveUp": "Move “{{name}}” up",
+    "moveDown": "Move “{{name}}” down",
+    "delete": "Delete “{{name}}”",
+    "deleteShort": "Delete",
+    "dropped": "“{{name}}” opened without what the library no longer has: {{dropped}}."
   }
 }
