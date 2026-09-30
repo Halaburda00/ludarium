@@ -317,7 +317,7 @@ row (ADR-0021, ADR-0022).
 | `genre.name` | TEXT | no | | English; the UI translates via i18next keys where a translation exists |
 | `work_genre.work_id` | INTEGER | no | | FK, PK part, `ON DELETE CASCADE` |
 | `work_genre.genre_id` | INTEGER | no | | FK, PK part |
-| `work_genre.source_ref` | TEXT | yes | | Which provider asserted the genre |
+| `work_genre.source_ref` | TEXT | yes | | Which provider asserted the genre. The IGDB details step replaces its own rows on each run and leaves any other source's (#92) |
 
 #### `company`, `work_company`
 
@@ -777,7 +777,7 @@ table that references the source is dealt with explicitly:
 | `work.parent_work_id` | Children of the source are repointed at the target, and a source that was itself a child carries its parent over only if the target has none. Missing this leaves the `ON DELETE RESTRICT` on the self-FK blocking the final delete |
 | `work` (source) | Deleted last, in the same transaction |
 
-Rows of tables that do not exist yet — `field_pin`, the genre, company and
+Rows of tables that do not exist yet — `field_pin`, the
 platform links, images, embeddings, aliases and `match_candidate` — are the
 business of the change that creates each table, which adds its line to
 `ludarium.merging`.

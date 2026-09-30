@@ -123,6 +123,8 @@ def test_upgrade_then_downgrade_leaves_an_empty_database(settings: Settings) -> 
         "image_asset",
         "company",
         "work_company",
+        "genre",
+        "work_genre",
     }
     assert table_names(settings.database_url) == {"alembic_version"}
 
@@ -548,3 +550,23 @@ def test_each_account_starts_with_what_its_latest_finished_run_did(settings: Set
         (2, "failed", "steam answered 503"),
         (3, "pending", None),
     ]
+
+
+def test_igdb_details_cached_without_genres_are_asked_for_again(settings: Settings) -> None:
+    """The cached details have no genres; kept, they would hide them for a month (#92)."""
+
+    config = alembic_config(settings.database_url)
+    command.upgrade(config, "b844c9abe67b")
+    run_sql(
+        settings.database_url,
+        "INSERT INTO provider (id, key, kind, source_kind, licence_class, display_name, "
+        "precedence_weight, enabled, status) VALUES (1, 'igdb', 'metadata', 'platform_api', "
+        "'runtime_only', 'IGDB', 10, 1, 'pending')",
+        "INSERT INTO fetch_cache (provider_id, resource, key, payload, fetched_at) VALUES "
+        "(1, 'games/details', '9001', '{}', CURRENT_TIMESTAMP), "
+        "(1, 'games', '9001', '{}', CURRENT_TIMESTAMP)",
+    )
+
+    command.upgrade(config, "head")
+
+    assert query(settings.database_url, "SELECT resource FROM fetch_cache") == [("games",)]

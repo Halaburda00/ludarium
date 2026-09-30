@@ -15,7 +15,15 @@ from ludarium.db import Database
 from ludarium.details import describe_matched_works, released_on
 from ludarium.enrichment import enrich
 from ludarium.enums import CompanyRole, EntityType, SourceKind, SyncStatus
-from ludarium.models import Company, ExternalId, FieldProvenance, Work, WorkCompany
+from ludarium.models import (
+    Company,
+    ExternalId,
+    FieldProvenance,
+    Genre,
+    Work,
+    WorkCompany,
+    WorkGenre,
+)
 from ludarium.providers import IgdbClient, IgdbCredentials, MemoryTokenStore, RequestLimiter
 from ludarium.providers import igdb as igdb_module
 from ludarium.resolver import record, resolve
@@ -49,6 +57,10 @@ GAMES: dict[int, dict[str, Any]] = {
                 "porting": True,
                 "supporting": False,
             },
+        ],
+        "genres": [
+            {"id": 31, "slug": "adventure", "name": "Adventure"},
+            {"id": 32, "slug": "puzzle", "name": "Puzzle"},
         ],
     },
     9002: {"id": 9002},
@@ -192,6 +204,75 @@ async def test_the_values_are_igdb_s_provenance_and_a_user_s_own_wins(
     assert {row.source_kind for row in rows} == {SourceKind.METADATA_PROVIDER}
 
 
+async def genres(db: Database, work_id: int) -> set[tuple[str, str, str | None]]:
+    async with db.session_factory() as reader:
+        rows = await reader.execute(
+            select(Genre.slug, Genre.name, WorkGenre.source_ref)
+            .join(Genre, Genre.id == WorkGenre.genre_id)
+            .where(WorkGenre.work_id == work_id)
+        )
+        return {(slug, name, source) for slug, name, source in rows}
+
+
+@respx.mock
+async def test_a_matched_work_gets_its_genres_with_igdb_as_their_source(
+    db: Database, session: AsyncSession, client: IgdbClient
+) -> None:
+    igdb = Igdb(GAMES).mount()
+    work = await anchored(session, 9001)
+
+    await describe(db, client)
+
+    assert await genres(db, work.id) == {
+        ("adventure", "Adventure", "igdb"),
+        ("puzzle", "Puzzle", "igdb"),
+    }
+    assert "genres.slug" in igdb.bodies[0] and "genres.name" in igdb.bodies[0]
+
+
+@respx.mock
+async def test_a_second_run_replaces_igdb_s_genres_and_leaves_anyone_else_s(
+    db: Database, session: AsyncSession, client: IgdbClient
+) -> None:
+    igdb = Igdb(GAMES).mount()
+    work = await anchored(session, 9001)
+    await describe(db, client)
+    own = Genre(slug="cosy", name="Cosy")
+    session.add(own)
+    await session.flush()
+    session.add(WorkGenre(work_id=work.id, genre_id=own.id, source_ref="manual"))
+    await session.commit()
+    # IGDB reconsiders: not a puzzle game, and "Adventure" is now worded differently.
+    igdb.games = {
+        9001: {**GAMES[9001], "genres": [{"id": 31, "slug": "adventure", "name": "Adventures"}]}
+    }
+    await session.execute(text("DELETE FROM fetch_cache WHERE resource = 'games/details'"))
+    await session.commit()
+
+    await describe(db, client)
+
+    assert await genres(db, work.id) == {
+        ("adventure", "Adventures", "igdb"),
+        ("cosy", "Cosy", "manual"),
+    }
+
+
+@respx.mock
+async def test_one_genre_is_one_row_however_many_games_have_it(
+    db: Database, session: AsyncSession, client: IgdbClient
+) -> None:
+    Igdb({**GAMES, 9003: {**GAMES[9001], "id": 9003}}).mount()
+    await anchored(session, 9001, "One")
+    await anchored(session, 9003, "Two")
+
+    await describe(db, client)
+
+    assert (await session.scalars(select(Genre.slug).order_by(Genre.slug))).all() == [
+        "adventure",
+        "puzzle",
+    ]
+
+
 @respx.mock
 async def test_a_game_igdb_says_nothing_about_asserts_nothing(
     db: Database, session: AsyncSession, client: IgdbClient
@@ -203,6 +284,7 @@ async def test_a_game_igdb_says_nothing_about_asserts_nothing(
 
     assert (await session.scalars(select(FieldProvenance))).all() == []
     assert await credits(db, work.id) == set()
+    assert await genres(db, work.id) == set()
 
 
 @respx.mock

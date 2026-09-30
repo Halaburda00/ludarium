@@ -4,7 +4,7 @@
 row and everything it took with it on a `match_audit` row, and `undo_merge`
 rebuilds the source from that record (rule 6). The table in `docs/schema.md`,
 "Merging stubs", is the specification; tables it names that do not exist yet —
-`field_pin`, the genre, company and platform links, embeddings, aliases and the
+`field_pin`, the platform links, embeddings, aliases and the
 review queue — are left for the change that creates them to add here.
 
 The undo restores the source under a new id. SQLite reuses the highest rowid
@@ -48,6 +48,7 @@ from ludarium.models import (
     UserWorkState,
     Work,
     WorkCompany,
+    WorkGenre,
 )
 from ludarium.queries import in_batches
 from ludarium.resolver import resolve, resolve_work_aggregates_many
@@ -73,6 +74,7 @@ USER_DEFAULTS: Final[Mapping[str, object]] = {
 NO_IMAGES: Final[Mapping[str, list[Any]]] = {"moved": [], "dropped": []}
 # The same, for a payload written before companies were.
 NO_COMPANIES: Final[Mapping[str, list[Any]]] = {"moved": [], "dropped": []}
+NO_LINKS: Final[Mapping[str, list[Any]]] = {"moved": [], "dropped": []}
 
 # Bumped when the shape of `details` changes, so an undo can refuse a payload
 # it would misread instead of half-restoring it.
@@ -146,6 +148,7 @@ async def merge_work(
     details["states"] = await _merge_states(session, source_id, target_id)
     details["images"] = await _move_images(session, source_id, target_id)
     details["companies"] = await _move_companies(session, source_id, target_id)
+    details["genres"] = await _move_genres(session, source_id, target_id)
     details["audits"] = await _repoint(
         session, MatchAudit.id, MatchAudit.work_id, source_id, target_id
     )
@@ -221,6 +224,8 @@ async def undo_merge(session: AsyncSession, *, audit_id: int, actor: MatchActor)
     # A payload written before images were moved has none to put back.
     await _unmove_images(session, details.get("images", NO_IMAGES), target_id, work.id)
     await _unmove_companies(session, details.get("companies", NO_COMPANIES), target_id, work.id)
+    # A payload written before genres existed (#92) has none to put back.
+    await _unmove_genres(session, details.get("genres", NO_LINKS), target_id, work.id)
     await _repoint_back(
         session, MatchAudit.id, MatchAudit.work_id, details["audits"], target_id, work.id
     )
@@ -800,6 +805,44 @@ async def _unmove_companies(
         )
     for snapshot in [*record["moved"], *record["dropped"]]:
         session.add(_restore(WorkCompany, {**snapshot, "work_id": restored_id}))
+    await session.flush()
+
+
+async def _move_genres(session: AsyncSession, source_id: int, target_id: int) -> dict[str, Any]:
+    """The source's genres, onto the target, but not one the target already has.
+
+    As `_move_companies`, keyed on the genre alone: a work is in a genre once,
+    whichever source said so first.
+    """
+
+    held = set(
+        await session.scalars(select(WorkGenre.genre_id).where(WorkGenre.work_id == target_id))
+    )
+    moved: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    for link in list(
+        await session.scalars(select(WorkGenre).where(WorkGenre.work_id == source_id))
+    ):
+        (dropped if link.genre_id in held else moved).append(_snapshot(link))
+        await session.delete(link)
+    await session.flush()
+    for snapshot in moved:
+        session.add(_restore(WorkGenre, {**snapshot, "work_id": target_id}))
+    await session.flush()
+    return {"moved": moved, "dropped": dropped}
+
+
+async def _unmove_genres(
+    session: AsyncSession, record: Mapping[str, Any], target_id: int, restored_id: int
+) -> None:
+    for snapshot in record["moved"]:
+        await session.execute(
+            delete(WorkGenre).where(
+                WorkGenre.work_id == target_id, WorkGenre.genre_id == snapshot["genre_id"]
+            )
+        )
+    for snapshot in [*record["moved"], *record["dropped"]]:
+        session.add(_restore(WorkGenre, {**snapshot, "work_id": restored_id}))
     await session.flush()
 
 
