@@ -36,9 +36,12 @@ export function SavedViews({
   const remove = useDeleteView()
   const [name, setName] = useState('')
   const [editing, setEditing] = useState(false)
-  const [opened, setOpened] = useState<SavedView | null>(null)
+  // The id, not the view: looked up in the list, so a rename shows the new
+  // name and a deleted view has nothing left to warn about.
+  const [openedId, setOpenedId] = useState<number | null>(null)
 
   const list = views.data ?? []
+  const opened = list.find((view) => view.id === openedId)
   const failed = [save, rename, reorder, remove].find((mutation) => mutation.isError)?.error
   // Said while the view is still what is on the screen, and not after: once
   // a filter has changed, the grid is no longer the view the notice is about.
@@ -107,7 +110,7 @@ export function SavedViews({
                 size="sm"
                 aria-current={sameQuery(view.query, current) ? 'true' : undefined}
                 onClick={() => {
-                  setOpened(view)
+                  setOpenedId(view.id)
                   onOpen(view.query)
                 }}
               >

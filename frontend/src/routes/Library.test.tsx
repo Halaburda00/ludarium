@@ -1283,6 +1283,32 @@ describe('saved views', () => {
     await vi.waitFor(() => expect(screen.queryByText(/opened without/)).not.toBeInTheDocument())
   })
 
+  it('names the view as it is now, and says nothing once it is deleted', async () => {
+    const routes = {
+      ...BASE,
+      'GET /api/views': { body: VIEWS },
+      'GET /api/works?kind=dlc&sort=metacritic&order=desc': { body: THREE },
+      'PATCH /api/views/2': { body: { ...VIEWS[1], name: 'Older one' } },
+      'DELETE /api/views/2': { status: 204 },
+    }
+    stubFetch(routes)
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Old one' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Edit views' }))
+    routes['GET /api/views'] = { body: [VIEWS[0], { ...VIEWS[1], name: 'Older one' }] }
+    const name = screen.getByLabelText('Name of “Old one”')
+    await userEvent.clear(name)
+    await userEvent.type(name, 'Older one{Enter}')
+
+    expect(await screen.findByText(/“Older one” opened without/)).toBeInTheDocument()
+
+    routes['GET /api/views'] = { body: [VIEWS[0]] }
+    await userEvent.click(screen.getByRole('button', { name: 'Delete “Older one”' }))
+
+    await vi.waitFor(() => expect(screen.queryByText(/opened without/)).not.toBeInTheDocument())
+  })
+
   it('saves the filters and order on the screen under a name', async () => {
     const calls = stubFetch({
       ...BASE,
