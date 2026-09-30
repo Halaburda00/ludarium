@@ -25,11 +25,20 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Any, Self
 
-from pydantic import AfterValidator, BaseModel, Field, model_validator
+from pydantic import AfterValidator, BaseModel, Field, StringConstraints, model_validator
 from sqlalchemy import ColumnElement, false, func, select, true
 
 from ludarium.enums import ItemKind, PlayStatus, ProviderKind
-from ludarium.models import Account, Entitlement, EntitlementWork, Provider, UserWorkState, Work
+from ludarium.models import (
+    Account,
+    Entitlement,
+    EntitlementWork,
+    Genre,
+    Provider,
+    UserWorkState,
+    Work,
+    WorkGenre,
+)
 from ludarium.queries import owned_by
 from ludarium.scores import DEFAULT_STEAM_REVIEWS, MAX_STEAM_REVIEWS, steam_score
 from ludarium.seed import PROVIDER_SEED
@@ -120,6 +129,21 @@ def _on_steam(
     return Predicate(lambda percent, scope: bound(steam_score(scope.steam_reviews), percent))
 
 
+# IGDB's slug shape: lowercase words joined by hyphens, "role-playing-rpg".
+GENRE_SLUG = r"^[a-z0-9]+(-[a-z0-9]+)*$"
+
+
+def _in_genre(slugs: list[str], _: Scope) -> ColumnElement[bool]:
+    # A work with no genres — every work IGDB has not matched — is in none of
+    # them, which is what EXISTS says of it without a word.
+    return (
+        select(WorkGenre.work_id)
+        .join(Genre, Genre.id == WorkGenre.genre_id)
+        .where(WorkGenre.work_id == Work.id, Genre.slug.in_(slugs))
+        .exists()
+    )
+
+
 class Hidden(StrEnum):
     """Whether the works the user hid are in the listing."""
 
@@ -154,6 +178,14 @@ class LibraryFilters(BaseModel):
         Field(default_factory=list, max_length=MAX_CHOICES),
         # An unclassified work has no kind, so it matches no choice of kinds.
         Predicate(lambda kinds, _: Work.item_kind.in_(kinds)),
+    ]
+    # Any of them. A slug no work has matches nothing, as a kind would: unlike
+    # a platform, the set of genres is data rather than code, and a genre IGDB
+    # retires should not make an old link fail.
+    genre: Annotated[
+        list[Annotated[str, StringConstraints(max_length=64, pattern=GENRE_SLUG)]],
+        Field(default_factory=list, max_length=MAX_CHOICES),
+        Predicate(_in_genre),
     ]
     metacritic_min: Annotated[
         int | None,

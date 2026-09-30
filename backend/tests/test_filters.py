@@ -9,7 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.enums import ItemKind
 from ludarium.filters import LibraryFilters, Predicate, Setting
-from ludarium.models import Account, Entitlement, EntitlementWork, UserWorkState, Work
+from ludarium.models import (
+    Account,
+    Entitlement,
+    EntitlementWork,
+    Genre,
+    UserWorkState,
+    Work,
+    WorkGenre,
+)
 from ludarium.models.types import utcnow
 from ludarium.titles import sort_title
 
@@ -28,6 +36,8 @@ class Game:
     playtime: int | None = 0
     # Platforms whose copy is removed rather than live.
     removed_on: tuple[str, ...] = ()
+    # Invented slugs: IGDB's data is not recorded in the repository.
+    genres: tuple[str, ...] = ()
 
 
 LIBRARY = (
@@ -39,6 +49,7 @@ LIBRARY = (
         reviews=60_000,
         year=2018,
         playtime=900,
+        genres=("platformer",),
     ),
     Game(
         "Dead Cells",
@@ -48,6 +59,7 @@ LIBRARY = (
         reviews=120_000,
         year=2018,
         playtime=30,
+        genres=("platformer", "roguelike"),
     ),
     Game(
         "Hades",
@@ -57,6 +69,7 @@ LIBRARY = (
         reviews=250_000,
         year=2020,
         playtime=3000,
+        genres=("roguelike",),
     ),
     # 100% of three reviews: under the default threshold, over a lowered one.
     Game("Hollow Knight: Soundtrack", kind=ItemKind.SOUNDTRACK, steam=100, reviews=3, year=2017),
@@ -69,12 +82,14 @@ LIBRARY = (
         reviews=400_000,
         year=2011,
         removed_on=("epic",),
+        genres=("puzzle",),
     ),
     Game("Unsorted Stub", kind=None),
 )
 
 
 async def seed(session: AsyncSession, games: tuple[Game, ...] = LIBRARY) -> None:
+    found: dict[str, Genre] = {}
     accounts: dict[str, Account] = {}
     for key, external in (("steam", "765611979"), ("epic", "0123456789abcdef")):
         accounts[key] = await make_account(session, key, external_account_id=external)
@@ -101,6 +116,12 @@ async def seed(session: AsyncSession, games: tuple[Game, ...] = LIBRARY) -> None
             session.add(entitlement)
             await session.flush()
             session.add(EntitlementWork(entitlement_id=entitlement.id, work_id=work.id))
+        for slug in game.genres:
+            if slug not in found:
+                found[slug] = Genre(slug=slug, name=slug.title())
+                session.add(found[slug])
+                await session.flush()
+            session.add(WorkGenre(work_id=work.id, genre_id=found[slug].id, source_ref="igdb"))
         if game.playtime is not None:
             session.add(UserWorkState(user_id=1, work_id=work.id, playtime_minutes=game.playtime))
     await session.commit()
@@ -210,6 +231,14 @@ def test_a_filtered_listing_pages_on_the_same_cursor(library: TestClient) -> Non
     assert [work["title"] for work in first["works"] + second["works"]] == whole[:4]
 
 
+def test_a_genre_is_any_of_those_chosen_and_never_an_unmatched_work(library: TestClient) -> None:
+    """Minit and the stub have no genres, so no choice of genres reaches them."""
+
+    assert listed(library, genre="roguelike") == ["Dead Cells", "Hades"]
+    assert listed(library, genre=["platformer", "puzzle"]) == ["Celeste", "Dead Cells", "Portal 2"]
+    assert listed(library, genre="no-such-genre") == []
+
+
 def test_a_steam_range_counts_a_score_over_ten_reviews_by_default(library: TestClient) -> None:
     """The soundtrack's 100% is of three reviews: below no bound, above none."""
 
@@ -253,6 +282,9 @@ def test_a_threshold_alone_narrows_nothing(library: TestClient) -> None:
         {"steam_max": -1},
         {"steam_min": 90, "steam_max": 80},
         {"steam_reviews_min": 0},
+        {"genre": "Role Playing"},
+        {"genre": "x" * 65},
+        {"genre": ["a"] * 33},
         {"steam_reviews_min": 10**12},
         {"playtime_min": -1},
         {"kind": "not-a-kind"},
