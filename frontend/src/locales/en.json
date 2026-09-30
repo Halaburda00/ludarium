@@ -141,6 +141,44 @@
     "clear": "Clear filters",
     "noMatches": "No games match these filters."
   },
+  "sorting": {
+    "label": "Sort by",
+    "direction": "Order",
+    "by": {
+      "title": "Title",
+      "metacritic": "Metacritic",
+      "steam_reviews": "Steam reviews",
+      "playtime": "Hours played",
+      "last_played": "Last played",
+      "release_date": "Release date"
+    },
+    "order": {
+      "title": {
+        "asc": "A to Z",
+        "desc": "Z to A"
+      },
+      "metacritic": {
+        "asc": "Lowest first",
+        "desc": "Highest first"
+      },
+      "steam_reviews": {
+        "asc": "Lowest first",
+        "desc": "Highest first"
+      },
+      "playtime": {
+        "asc": "Least first",
+        "desc": "Most first"
+      },
+      "last_played": {
+        "asc": "Longest ago first",
+        "desc": "Most recent first"
+      },
+      "release_date": {
+        "asc": "Oldest first",
+        "desc": "Newest first"
+      }
+    }
+  },
   "itemKind": {
     "game": "Game",
     "dlc": "DLC",
