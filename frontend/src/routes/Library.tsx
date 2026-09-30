@@ -27,6 +27,15 @@ export default function Library() {
   const [params, setParams] = useSearchParams()
   const search = params.get('q') ?? ''
   const [typed, setTyped] = useState(search)
+  // Taken from the address when it moved without the field: back and forward,
+  // now that filter changes are steps in the history. Left alone, the field
+  // would keep the old text and the effect below would write it back over the
+  // entry the user just returned to.
+  const [seenSearch, setSeenSearch] = useState(search)
+  if (search !== seenSearch) {
+    setSeenSearch(search)
+    if (search !== typed.trim()) setTyped(search)
+  }
   useEffect(() => {
     const timer = setTimeout(() => {
       if (typed.trim() === search) return

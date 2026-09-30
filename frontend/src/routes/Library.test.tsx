@@ -14,8 +14,9 @@ import type {
 } from '@/lib/queries'
 import i18n from '@/i18n'
 import { ENRICHMENT_POLL_MS } from '@/lib/queries'
-import Library from '@/routes/Library'
+import Library, { SEARCH_DEBOUNCE_MS } from '@/routes/Library'
 import { renderApp, stubFetch } from '@/test/render'
+import { useNavigate } from 'react-router-dom'
 
 // Typed, so that a field the backend renames is a compile error here rather
 // than a fixture and a type quietly drifting together (#35).
@@ -1116,4 +1117,47 @@ describe('the filter panel, as it is used', () => {
       /is not applied/,
     )
   })
+
+  it('turns typed hours into the minutes the API filters on', async () => {
+    const calls = stubFetch({ ...BASE, 'GET /api/works?playtime_min=90': { body: THREE } })
+    renderApp(<Library />)
+
+    await userEvent.type(await screen.findByLabelText('Hours played from'), '1.5{Enter}')
+
+    await vi.waitFor(() =>
+      expect(calls.map((call) => call.path)).toContain('/api/works?playtime_min=90'),
+    )
+  })
+
+  it('steps back through filter changes, and through the search with them', async () => {
+    stubFetch({
+      ...BASE,
+      'GET /api/works?kind=dlc': { body: THREE },
+      'GET /api/works?q=portal': { body: THREE },
+      'GET /api/works?kind=dlc&q=portal': { body: THREE },
+    })
+    renderApp(
+      <>
+        <Library />
+        <Back />
+      </>,
+    )
+
+    await userEvent.click(await screen.findByLabelText('DLC'))
+    await userEvent.type(screen.getByLabelText('Search'), 'portal')
+    await vi.waitFor(() => expect(screen.getByLabelText('Search')).toHaveValue('portal'))
+    await new Promise((resolve) => setTimeout(resolve, SEARCH_DEBOUNCE_MS + 50))
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    // The entry before the tick: no filter, and no search either, because
+    // the search was typed after it.
+    await vi.waitFor(() => expect(screen.getByLabelText('DLC')).not.toBeChecked())
+    await new Promise((resolve) => setTimeout(resolve, SEARCH_DEBOUNCE_MS + 50))
+    expect(screen.getByLabelText('Search')).toHaveValue('')
+  })
 })
+
+function Back() {
+  const navigate = useNavigate()
+  return <button onClick={() => void navigate(-1)}>Back</button>
+}
