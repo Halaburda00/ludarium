@@ -89,7 +89,11 @@ def read_query(query: str) -> tuple[ListingParams, list[str]]:
         if key not in VIEW_KEYS:
             dropped += _pairs(key, values)
         elif _is_list(key):
-            for value in values:
+            # Once each: a value repeated says nothing more, and counted every
+            # time it would overflow the list's bound with no two values that
+            # differ. Every list takes one of a few known values, so what is
+            # left is always inside it.
+            for value in dict.fromkeys(values):
                 if _accepts({key: [value]}):
                     kept.setdefault(key, []).append(value)
                 else:

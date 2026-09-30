@@ -223,3 +223,22 @@ async def test_another_user_s_views_are_not_theirs_to_see_or_change(
     )
     # And their name is not taken from this user.
     assert save(signed_in, "Theirs")["name"] == "Theirs"
+
+
+async def test_a_value_repeated_past_the_list_bound_is_read_once(
+    signed_in: TestClient, session: AsyncSession
+) -> None:
+    """Forty `kind=game` are one kind, not forty: counted as forty they overflow the bound."""
+
+    repeated = "&".join(["kind=game"] * 40)
+
+    saved = signed_in.post("/api/views", json={"name": "Repeated", "query": repeated})
+    session.add(SavedView(user_id=1, name="Stored", query=repeated))
+    await session.commit()
+
+    assert saved.status_code == 201
+    assert saved.json()["query"] == "kind=game"
+    assert [view["query"] for view in signed_in.get("/api/views").json()] == [
+        "kind=game",
+        "kind=game",
+    ]
