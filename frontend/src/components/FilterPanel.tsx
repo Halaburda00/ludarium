@@ -76,8 +76,11 @@ export function FilterPanel({
             onChange={(status) => onChange({ ...filters, status })}
           />
         </div>
-        <div className="grid gap-5 sm:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-4">
           <Range name="metacritic" filters={filters} onChange={onChange} />
+          {/* Said on the panel, because a game at 100% is left out and the
+              reason is not on its card: Steam gave too few reviews a verdict. */}
+          <Range name="steam" filters={filters} onChange={onChange} hint={t('filters.steamHint')} />
           <Range name="year" filters={filters} onChange={onChange} />
           {/* Hours on the page, minutes in the address: the API's unit, and
               the one `playtime_minutes` is reported in everywhere else. */}
@@ -149,14 +152,20 @@ function Range({
   filters,
   onChange,
   scale = 1,
+  hint,
 }: {
   name: RangeName
   filters: Filters
   onChange: (filters: Filters) => void
   scale?: number
+  hint?: string
 }) {
   const { t } = useTranslation()
   const inverted = isInverted(filters, name)
+  const described = [
+    hint ? `filter-${name}-hint` : null,
+    inverted ? `filter-${name}-inverted` : null,
+  ].filter((id) => id !== null)
   return (
     <fieldset className="grid content-start gap-1.5 text-sm">
       <legend className="mb-1 font-medium">{t(`filters.${name}`)}</legend>
@@ -170,12 +179,17 @@ function Range({
             scale={scale}
             // Why, not only that: a screen reader otherwise hears "invalid" and
             // nothing it could act on.
-            describedBy={inverted ? `filter-${name}-inverted` : undefined}
+            describedBy={described.length > 0 ? described.join(' ') : undefined}
             invalid={inverted}
             onCommit={(value) => onChange({ ...filters, [`${name}_${end}`]: value })}
           />
         ))}
       </div>
+      {hint ? (
+        <p id={`filter-${name}-hint`} className="text-xs text-muted-foreground">
+          {hint}
+        </p>
+      ) : null}
       {inverted ? (
         <p id={`filter-${name}-inverted`} className="text-xs text-destructive">
           {t('filters.inverted')}

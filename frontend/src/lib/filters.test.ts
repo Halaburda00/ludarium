@@ -53,6 +53,7 @@ describe('writing filters to the address', () => {
     const filters: Filters = {
       ...NO_FILTERS,
       platform: ['steam'],
+      steam_min: 80,
       year_min: 2010,
       year_max: 2020,
       playtime_max: 0,

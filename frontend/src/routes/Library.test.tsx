@@ -1128,6 +1128,20 @@ describe('the filter panel, as it is used', () => {
     )
   })
 
+  it('filters on the Steam score, and says which games it leaves out', async () => {
+    const calls = stubFetch({ ...BASE, 'GET /api/works?steam_min=90': { body: THREE } })
+    renderApp(<Library />)
+
+    const from = await screen.findByLabelText('Steam reviews (%) from')
+    await userEvent.type(from, '90')
+    await userEvent.tab()
+
+    await vi.waitFor(() =>
+      expect(calls.map((call) => call.path)).toContain('/api/works?steam_min=90'),
+    )
+    expect(from).toHaveAccessibleDescription(/too few reviews/)
+  })
+
   it('turns typed hours into the minutes the API filters on', async () => {
     const calls = stubFetch({ ...BASE, 'GET /api/works?playtime_min=90': { body: THREE } })
     renderApp(<Library />)
