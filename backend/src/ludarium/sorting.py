@@ -20,7 +20,7 @@ default is used; `value IS NULL` leads the key on both engines.
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -30,6 +30,11 @@ from sqlalchemy.orm import InstrumentedAttribute
 from ludarium.models import UserWorkState, Work
 
 type SortValue = int | date | datetime | None
+
+# What a 64-bit integer column, and so the bind, can hold. A cursor is ours,
+# but it arrives from outside: past this the driver raises at execution and a
+# made-up cursor is a 500 rather than a 400.
+INTEGERS = range(-(2**63), 2**63)
 
 
 class Sort(StrEnum):
@@ -117,17 +122,25 @@ class Ordering:
 
         if raw is None:
             return None
+        try:
+            return self._decode(raw)
+        except OverflowError as exc:
+            raise ValueError(f"not a {self.sort} value") from exc
+
+    def _decode(self, raw: object) -> SortValue:
         match self.sort:
             case Sort.TITLE:
                 pass
             case Sort.LAST_PLAYED if isinstance(raw, str):
                 moment = datetime.fromisoformat(raw)
+                # Converted here rather than at the bind, which is where an
+                # offset that carries it past year 1 or 9999 would overflow.
                 if moment.tzinfo is not None:
-                    return moment
+                    return moment.astimezone(UTC)
             case Sort.RELEASE_DATE if isinstance(raw, str):
                 return date.fromisoformat(raw)
-            case Sort.METACRITIC | Sort.STEAM_REVIEWS | Sort.PLAYTIME if isinstance(
-                raw, int
-            ) and not isinstance(raw, bool):
+            case Sort.METACRITIC | Sort.STEAM_REVIEWS | Sort.PLAYTIME if (
+                isinstance(raw, int) and not isinstance(raw, bool) and raw in INTEGERS
+            ):
                 return raw
         raise ValueError(f"not a {self.sort} value")

@@ -261,6 +261,30 @@ def test_a_cursor_value_of_the_wrong_kind_is_refused(
     assert response.status_code == 400
 
 
+@pytest.mark.parametrize(
+    ("sort", "value", "work_id"),
+    [
+        ("metacritic", 10**30, 1),
+        ("playtime", -(10**30), 1),
+        ("last_played", "0001-01-01T00:00:00+05:00", 1),
+        ("last_played", "9999-12-31T23:00:00-05:00", 1),
+        ("title", None, 10**30),
+    ],
+)
+def test_a_cursor_value_out_of_range_is_refused(
+    library: TestClient, sort: str, value: Any, work_id: int
+) -> None:
+    """The right kind, and past what the database can bind: refused, not a 500 at the bind."""
+
+    cursor = urlsafe_b64encode(
+        json.dumps([3, sort, "desc", value, "celeste", work_id]).encode()
+    ).decode()
+
+    response = library.get("/api/works", params={"sort": sort, "order": "desc", "cursor": cursor})
+
+    assert response.status_code == 400
+
+
 def test_a_cursor_value_of_the_right_kind_is_read(library: TestClient) -> None:
     response = library.get(
         "/api/works",

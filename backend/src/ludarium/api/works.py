@@ -39,7 +39,7 @@ from ludarium.models import (
 )
 from ludarium.models.types import utcnow
 from ludarium.queries import owned_by
-from ludarium.sorting import Direction, Ordering, Sort, SortValue
+from ludarium.sorting import INTEGERS, Direction, Ordering, Sort, SortValue
 from ludarium.titles import search_key
 
 DEFAULT_LIMIT: Final = 100
@@ -251,6 +251,7 @@ def _after(cursor: str, ordering: Ordering) -> tuple[SortValue, str, int]:
                 and sort == ordering.sort
                 and order == ordering.direction
                 and not isinstance(work_id, bool)
+                and work_id in INTEGERS
             ):
                 return ordering.decode(raw), key, work_id
         raise ValueError("a cursor is a version, an order, a value, a key and an id")
