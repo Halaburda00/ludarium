@@ -163,6 +163,9 @@ async def _record(
     described = 0
     async with run.database.writing_session_factory() as session:
         reporter = await session.get_one(Provider, run.provider_id)
+        # Every genre once, rather than a lookup per genre of every work: there
+        # are a couple of dozen, and a library has thousands of works (#92).
+        genres = {genre.slug: genre for genre in await session.scalars(select(Genre))}
         for work_id, game in games.items():
             answer = answers.get(str(game))
             if not isinstance(answer, dict):
@@ -194,7 +197,7 @@ async def _record(
                     recorded=recorded,
                 )
             await _link(session, reporter.key, work_id, answer.get("companies"))
-            await _classify(session, reporter.key, work_id, answer.get("genres"))
+            await _classify(session, reporter.key, work_id, answer.get("genres"), genres)
         await session.commit()
     return described
 
@@ -248,7 +251,13 @@ async def _company(session: AsyncSession, igdb_id: int, name: str) -> Company:
     return company
 
 
-async def _classify(session: AsyncSession, source: str, work_id: int, genres: object) -> None:
+async def _classify(
+    session: AsyncSession,
+    source: str,
+    work_id: int,
+    genres: object,
+    known: dict[str, Genre],
+) -> None:
     """Replace the work's genres from `source` with the ones IGDB gives now.
 
     As `_link` does for companies: a genre IGDB has dropped goes, and one any
@@ -261,7 +270,7 @@ async def _classify(session: AsyncSession, source: str, work_id: int, genres: ob
             continue
         slug, name = entry.get("slug"), entry.get("name")
         if isinstance(slug, str) and isinstance(name, str):
-            wanted.add((await _genre(session, slug, name)).id)
+            wanted.add((await _genre(session, known, slug, name)).id)
 
     await session.execute(
         delete(WorkGenre).where(WorkGenre.work_id == work_id, WorkGenre.source_ref == source)
@@ -274,12 +283,15 @@ async def _classify(session: AsyncSession, source: str, work_id: int, genres: ob
     await session.flush()
 
 
-async def _genre(session: AsyncSession, slug: str, name: str) -> Genre:
-    """The genre IGDB calls `slug`, made if new and renamed if IGDB renamed it."""
+async def _genre(session: AsyncSession, known: dict[str, Genre], slug: str, name: str) -> Genre:
+    """The genre IGDB calls `slug`, made if new and renamed if IGDB renamed it.
 
-    genre = await session.scalar(select(Genre).where(Genre.slug == slug))
+    `known` is every genre by slug, loaded once per run and added to here.
+    """
+
+    genre = known.get(slug)
     if genre is None:
-        genre = Genre(slug=slug, name=name)
+        genre = known[slug] = Genre(slug=slug, name=name)
         session.add(genre)
         await session.flush()
     elif genre.name != name:
