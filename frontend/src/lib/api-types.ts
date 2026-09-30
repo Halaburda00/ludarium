@@ -1255,6 +1255,8 @@ export interface operations {
                 kind?: components["schemas"]["ItemKind"][];
                 metacritic_min?: number | null;
                 metacritic_max?: number | null;
+                steam_min?: number | null;
+                steam_max?: number | null;
                 year_min?: number | null;
                 year_max?: number | null;
                 status?: components["schemas"]["PlayStatus"][];

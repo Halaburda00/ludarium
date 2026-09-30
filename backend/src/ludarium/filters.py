@@ -39,7 +39,7 @@ MAX_CHOICES = 32
 MAX_MINUTES = 60 * 24 * 365 * 100
 
 # The filters that come as a `_min` and a `_max` over one value.
-RANGES = ("metacritic", "year", "playtime")
+RANGES = ("metacritic", "steam", "year", "playtime")
 
 
 # Where a copy can be owned. Taken from the seed rather than the table: the keys
@@ -87,6 +87,20 @@ _status = func.coalesce(UserWorkState.play_status, PlayStatus.NOT_STARTED.value)
 _hidden = func.coalesce(UserWorkState.is_hidden, false())
 
 
+def _steam_score(bound: Callable[[Any], ColumnElement[bool]]) -> Predicate:
+    """A bound on the Steam score, counted only where Steam gave a verdict.
+
+    Below a handful of reviews the store gives no verdict and the rating is
+    null, while the percentage is still there: 100% of three reviews. That is
+    not a better game than 94% of fifty thousand, so a work without a verdict
+    matches no range, as a work with no score at all does. The percentage and
+    the verdict are written together from one app (ADR-0027), so the two
+    columns are read as they are, and nothing is recomputed.
+    """
+
+    return Predicate(lambda percent, _: Work.steam_review_rating.is_not(None) & bound(percent))
+
+
 class Hidden(StrEnum):
     """Whether the works the user hid are in the listing."""
 
@@ -131,6 +145,17 @@ class LibraryFilters(BaseModel):
         int | None,
         Field(default=None, ge=0, le=100),
         Predicate(lambda score, _: Work.metacritic_score <= score),
+    ]
+    # Percent positive, over the store's own verdict (`_steam_score`).
+    steam_min: Annotated[
+        int | None,
+        Field(default=None, ge=0, le=100),
+        _steam_score(lambda percent: Work.steam_review_percent >= percent),
+    ]
+    steam_max: Annotated[
+        int | None,
+        Field(default=None, ge=0, le=100),
+        _steam_score(lambda percent: Work.steam_review_percent <= percent),
     ]
     year_min: Annotated[
         int | None,
