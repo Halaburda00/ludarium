@@ -257,8 +257,8 @@ than a creation with a different code path.
 | `summary` | TEXT | yes | | |
 | `metacritic_score` | INTEGER | yes | | 0–100, RAWG-sourced, `runtime_only` |
 | `metacritic_url` | TEXT | yes | | The game's Metacritic page, as RAWG gives it; `https` only. Not the attribution link, which goes to RAWG (ADR-0023) |
-| `steam_review_rating` | TEXT | yes | | `SteamRating`. Null where the store has no verdict, including an app with too few reviews for one (ADR-0027) |
-| `steam_review_percent` | INTEGER | yes | | 0–100, the share of positive reviews behind the rating |
+| `steam_review_rating` | TEXT | yes | | `SteamRating`. Null where the store has no verdict, including an app with too few reviews for one; the percentage and count are kept regardless (ADR-0029) |
+| `steam_review_percent` | INTEGER | yes | | 0–100, the share of positive reviews. Present whenever there is at least one review, verdict or not (ADR-0029) |
 | `steam_review_count` | INTEGER | yes | | Reviews counted: every language, bought on Steam, off-topic review periods left out — the store's default filter |
 | `steam_review_appid` | TEXT | yes | | The app the three above describe, of the several a work can have. Where the link to the store's reviews goes |
 | `igdb_id` | INTEGER | yes | | Denormalised anchor for fast lookups; authoritative copy lives in `external_id`, and the two are written together, not resolved (ADR-0021) |
@@ -974,7 +974,7 @@ through `EXISTS` over `entitlement_work` → `entitlement`.
 | DLC folding | `work (parent_work_id) WHERE parent_work_id IS NOT NULL` |
 | Search | None. A substring of `work.title_key`, or of a live copy's `entitlement.provider_title_key`, which a leading wildcard keeps off any B-tree; 14 ms at 20 000 works when nothing matches. A `pg_trgm` GIN on both key columns if a library ever needs one (ADR-0028) |
 | Default grid order | `work (sort_key, id)` — keyset pagination for the virtualised grid (ADR-0018) |
-| Other grid orders | `work (col IS NULL, col, sort_key, id)` and `(col IS NULL, col DESC, sort_key, id)` for `metacritic_score`, `steam_review_percent` and `release_date`: nulls last, ties A to Z in both directions. Without them a page sorted every work, 42 ms at 20 000; with them 1.1 ms at any depth. Playtime and last played have none: `user_work_state` is outer-joined, and SQLite does not drive a LEFT JOIN from its right side, so those two sort every page, 37 ms at 20 000 works (#94) |
+| Other grid orders | `work (col IS NULL, col, sort_key, id)` and `(col IS NULL, col DESC, sort_key, id)` for `metacritic_score` and `release_date`, and over `CASE WHEN steam_review_rating IS NOT NULL THEN steam_review_percent END` for the Steam order, which counts a score only with a verdict (ADR-0029): nulls last, ties A to Z in both directions. Without them a page sorted every work, 42 ms at 20 000; with them 1.1 ms at any depth. Playtime and last played have none: `user_work_state` is outer-joined, and SQLite does not drive a LEFT JOIN from its right side, so those two sort every page, 37 ms at 20 000 works (#94) |
 
 ### Structural indexes
 

@@ -1,0 +1,21 @@
+{
+  "response": {
+    "store_items": [
+      {
+        "item_type": 0,
+        "id": 2914390,
+        "success": 1,
+        "visible": true,
+        "appid": 2914390,
+        "type": 0,
+        "reviews": {
+          "summary_filtered": {
+            "review_count": 5,
+            "percent_positive": 80,
+            "review_score": 0
+          }
+        }
+      }
+    ]
+  }
+}
