@@ -75,6 +75,10 @@ const WITCHER: WorkDetail = {
   ...summary(7, 'The Witcher 3: Wild Hunt'),
   summary: 'A monster hunter looks for his adopted daughter.',
   release_date: '2015-05-19',
+  genres: [
+    { slug: 'adventure', name: 'Adventure' },
+    { slug: 'role-playing', name: 'Role-playing' },
+  ],
   companies: [
     { name: 'CD Projekt', roles: ['publisher'] },
     { name: 'CD Projekt Red', roles: ['developer'] },
@@ -99,6 +103,8 @@ describe('the work page', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Released May 19, 2015')).toBeInTheDocument()
     expect(screen.getByText(/looks for his adopted daughter/)).toBeInTheDocument()
+    // IGDB's English names, since no translation exists for either.
+    expect(screen.getByText('Adventure, Role-playing')).toBeInTheDocument()
     // Grouped by role, publishers first, each company once.
     const publishers = screen.getByText('Publishers')
     expect(publishers.tagName).toBe('DT')

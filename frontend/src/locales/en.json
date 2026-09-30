@@ -93,6 +93,7 @@
     "notFound": "This game is not in your library.",
     "released": "Released {{date}}",
     "releasedIn": "Released in {{year}}",
+    "genres": "Genres",
     "role": {
       "publisher_one": "Publisher",
       "publisher_other": "Publishers",
@@ -131,6 +132,7 @@
     "titleActive_other": "Filters ({{count}} on)",
     "platform": "Platform",
     "kind": "Type",
+    "genre": "Genre",
     "status": "Status",
     "metacritic": "Metacritic",
     "steam": "Steam reviews (%)",

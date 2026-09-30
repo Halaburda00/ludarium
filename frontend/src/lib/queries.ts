@@ -46,6 +46,8 @@ export type SteamReviews = Schemas['SteamReviews']
 export type WorksPage = Schemas['WorksPage']
 export type WorkDetail = Schemas['WorkDetail']
 export type Credit = Schemas['Credit']
+/** A genre as IGDB names it; the UI translates it by `slug` where it can. */
+export type Genre = Schemas['GenreSummary']
 /** A named library query. `dropped` names what the library no longer takes. */
 export type SavedView = Schemas['SavedViewResponse']
 export type PlayStatus = Schemas['PlayStatus']
@@ -339,4 +341,16 @@ export function useReorderViews() {
 
 export function useDeleteView() {
   return useViewMutation((id: number) => api<void>(`/api/views/${id}`, { method: 'DELETE' }))
+}
+
+/**
+ * The genres in the library, for the filter panel. Under `worksKey`, so a sync
+ * or a finished IGDB step that brings new genres refreshes them with the grid.
+ */
+export function useGenres(): UseQueryResult<Genre[], ApiError> {
+  return useQuery<Genre[], ApiError>({
+    queryKey: [...worksKey, 'genres'],
+    queryFn: ({ signal }) => api<Genre[]>('/api/genres', { signal }),
+    retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
+  })
 }

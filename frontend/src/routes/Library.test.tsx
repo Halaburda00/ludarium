@@ -629,6 +629,9 @@ describe('a library that would not load', () => {
         if (String(input) === '/api/views') {
           return new Response(JSON.stringify([]), { status: 200 })
         }
+        if (String(input) === '/api/genres') {
+          return new Response(JSON.stringify([]), { status: 200 })
+        }
         attempt += 1
         return attempt <= 3
           ? new Response(JSON.stringify({ detail: 'the database is locked' }), { status: 503 })
@@ -702,6 +705,9 @@ describe('the sync button', () => {
           return new Response(JSON.stringify(ACCOUNTS), { status: 200 })
         }
         if (path === '/api/views') {
+          return new Response(JSON.stringify([]), { status: 200 })
+        }
+        if (path === '/api/genres') {
           return new Response(JSON.stringify([]), { status: 200 })
         }
         if (path.startsWith('/api/sync')) {
@@ -848,6 +854,9 @@ describe('the moment a sync answers', () => {
           return new Response(JSON.stringify(ACCOUNTS), { status: 200 })
         }
         if (path === '/api/views') {
+          return new Response(JSON.stringify([]), { status: 200 })
+        }
+        if (path === '/api/genres') {
           return new Response(JSON.stringify([]), { status: 200 })
         }
         if (path === '/api/sync/runs') {
@@ -1194,6 +1203,31 @@ describe('the filter panel, as it is used', () => {
     )
     // A setting, not a filter: the count is the Steam range alone.
     expect(screen.getByText('Filters (1 on)')).toBeInTheDocument()
+  })
+
+  it('offers the genres in the library, and one a link names that it no longer has', async () => {
+    const calls = stubFetch({
+      ...BASE,
+      'GET /api/genres': {
+        body: [
+          { slug: 'puzzle', name: 'Puzzle' },
+          { slug: 'roguelike', name: 'Roguelike' },
+        ],
+      },
+      'GET /api/works?genre=retired-genre': { body: THREE },
+      'GET /api/works?genre=retired-genre&genre=puzzle': { body: THREE },
+    })
+    renderApp(<Library />, { route: '/library?genre=retired-genre&genre=Bad%20Slug' })
+
+    await userEvent.click(await screen.findByLabelText('Puzzle'))
+
+    await vi.waitFor(() =>
+      expect(calls.map((call) => call.path)).toContain(
+        '/api/works?genre=retired-genre&genre=puzzle',
+      ),
+    )
+    expect(screen.getByLabelText('Roguelike')).not.toBeChecked()
+    expect(screen.getByLabelText('retired-genre')).toBeChecked()
   })
 
   it('clears a changed review threshold like any filter, without counting it as one', async () => {
