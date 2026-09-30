@@ -380,9 +380,38 @@ describe('Steam reviews', () => {
     expect(score).toHaveAttribute('rel', expect.stringContaining('noreferrer'))
   })
 
+  it('shows how few reviews a score without a verdict rests on', async () => {
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': {
+        body: {
+          works: [
+            {
+              ...work(1, 'Tiny Game'),
+              steam_reviews: {
+                rating: null,
+                percent: 100,
+                count: 3,
+                url: 'https://store.steampowered.com/app/9#app_reviews_hash',
+              },
+            },
+          ],
+          next_cursor: null,
+        },
+      },
+    })
+    renderApp(<Library />)
+
+    const score = await screen.findByRole('link', {
+      name: 'No verdict on Steam for Tiny Game, too few reviews: 100% of 3 reviews positive',
+    })
+    expect(score).toHaveTextContent('100% · 3 reviews')
+  })
+
   it('names every verdict the store can give', () => {
     // A record rather than a list, so a verdict the API gains fails to compile here.
-    const verdicts: Record<SteamReviews['rating'], null> = {
+    const verdicts: Record<NonNullable<SteamReviews['rating']>, null> = {
       overwhelmingly_negative: null,
       very_negative: null,
       negative: null,

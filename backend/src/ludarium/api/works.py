@@ -126,10 +126,12 @@ class SteamReviews(BaseModel):
     """The Steam store's verdict on one of the work's apps, and where to read the reviews.
 
     `rating` is the verdict's value rather than Steam's label, which the store
-    translates: the client names it in the user's language.
+    translates: the client names it in the user's language. Null where the
+    store gave none, over too few reviews: the percentage stands with its
+    count, which says how little it rests on (ADR-0029).
     """
 
-    rating: SteamRating
+    rating: SteamRating | None
     percent: int
     count: int
     url: str
@@ -566,9 +568,11 @@ def _steam_reviews(work: Work, steam: Provider | None) -> SteamReviews | None:
         work.steam_review_count,
     )
     page = _store_url(steam.store_url_template, work.steam_review_appid) if steam else None
-    # All four or nothing: the step writes them together, and a user overriding
-    # one without the others leaves a verdict that no longer names its app.
-    if rating is None or percent is None or count is None or page is None:
+    # The step writes the four together. A percentage is served only with the
+    # count it is over and the app it links to, and a user overriding one of
+    # those without the others leaves a score that no longer names its app. The
+    # verdict alone may be missing.
+    if percent is None or count is None or page is None:
         return None
     return SteamReviews(rating=rating, percent=percent, count=count, url=page + REVIEWS_ANCHOR)
 

@@ -34,7 +34,13 @@ export function Metacritic({ score, title }: { score: Score | null; title: strin
   )
 }
 
-/** The share of positive reviews, as a link to them on the store page. */
+/**
+ * The share of positive reviews, as a link to them on the store page.
+ *
+ * Without a verdict the store judged the reviews too few to name one, so the
+ * count is shown beside the percentage: 100% of three reviews should not read
+ * like 96% of a million.
+ */
 export function Steam({ reviews, title }: { reviews: SteamReviews | null; title: string }) {
   const { t } = useTranslation()
   if (!reviews) {
@@ -45,12 +51,18 @@ export function Steam({ reviews, title }: { reviews: SteamReviews | null; title:
       </span>
     )
   }
-  const name = t('library.steamReviewsLink', {
-    rating: t(`steamRating.${reviews.rating}`),
-    title,
-    percent: reviews.percent,
-    reviews: reviews.count,
-  })
+  const name = reviews.rating
+    ? t('library.steamReviewsLink', {
+        rating: t(`steamRating.${reviews.rating}`),
+        title,
+        percent: reviews.percent,
+        reviews: reviews.count,
+      })
+    : t('library.steamFewReviewsLink', {
+        title,
+        percent: reviews.percent,
+        count: reviews.count,
+      })
   return (
     <span className="flex gap-1">
       <span className="text-muted-foreground">{t('library.steamShort')}</span>
@@ -63,7 +75,9 @@ export function Steam({ reviews, title }: { reviews: SteamReviews | null; title:
         title={name}
         className="text-primary underline-offset-4 hover:underline"
       >
-        {reviews.percent}%
+        {reviews.rating
+          ? `${reviews.percent}%`
+          : t('library.steamFewReviews', { percent: reviews.percent, count: reviews.count })}
       </a>
     </span>
   )

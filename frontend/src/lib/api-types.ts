@@ -601,14 +601,16 @@ export interface components {
          * @description The Steam store's verdict on one of the work's apps, and where to read the reviews.
          *
          *     `rating` is the verdict's value rather than Steam's label, which the store
-         *     translates: the client names it in the user's language.
+         *     translates: the client names it in the user's language. Null where the
+         *     store gave none, over too few reviews: the percentage stands with its
+         *     count, which says how little it rests on (ADR-0029).
          */
         SteamReviews: {
             /** Count */
             count: number;
             /** Percent */
             percent: number;
-            rating: components["schemas"]["SteamRating"];
+            rating: components["schemas"]["SteamRating"] | null;
             /** Url */
             url: string;
         };
