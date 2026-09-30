@@ -173,6 +173,10 @@ says so: search needs a backend of its own.
 
 - [ ] Filter registry: one entry per filter, declarative, maps to SQL
 - [ ] Filters: platform, Metacritic, genre, year, playtime, `ItemKind`, status
+- [ ] Sort by title, Metacritic, Steam review score, playtime, last played and
+      release date, either way, each on its own keyset. Agreed after this
+      roadmap was written: "what should I play tonight" is mostly a question of
+      order
 - [ ] DLC folded under its parent game (`ItemKind` classification moved to M2a)
 - [ ] Filter state in the URL; saved views
 - [ ] `PlayStatus`, personal rating, notes
