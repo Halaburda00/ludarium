@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ludarium.enums import ItemKind
+from ludarium.enums import ItemKind, SteamRating
 from ludarium.filters import LibraryFilters, Predicate
 from ludarium.models import Account, Entitlement, EntitlementWork, UserWorkState, Work
 from ludarium.models.types import utcnow
@@ -20,6 +20,10 @@ class Game:
     platforms: tuple[str, ...] = ("steam",)
     kind: ItemKind | None = ItemKind.GAME
     metacritic: int | None = None
+    # Percent positive, and the store's verdict on it: None where there were
+    # too few reviews for one, while the percentage is still there.
+    steam: int | None = None
+    verdict: SteamRating | None = None
     year: int | None = None
     # None leaves the work with no state row, as a future write path might.
     playtime: int | None = 0
@@ -28,12 +32,45 @@ class Game:
 
 
 LIBRARY = (
-    Game("Celeste", ("steam", "epic"), metacritic=92, year=2018, playtime=900),
-    Game("Dead Cells", ("epic",), metacritic=89, year=2018, playtime=30),
-    Game("Hades", ("steam",), metacritic=93, year=2020, playtime=3000),
-    Game("Hollow Knight: Soundtrack", kind=ItemKind.SOUNDTRACK, year=2017),
+    Game(
+        "Celeste",
+        ("steam", "epic"),
+        metacritic=92,
+        steam=97,
+        verdict=SteamRating.OVERWHELMINGLY_POSITIVE,
+        year=2018,
+        playtime=900,
+    ),
+    Game(
+        "Dead Cells",
+        ("epic",),
+        metacritic=89,
+        steam=93,
+        verdict=SteamRating.VERY_POSITIVE,
+        year=2018,
+        playtime=30,
+    ),
+    Game(
+        "Hades",
+        ("steam",),
+        metacritic=93,
+        steam=98,
+        verdict=SteamRating.OVERWHELMINGLY_POSITIVE,
+        year=2020,
+        playtime=3000,
+    ),
+    # 100% of a handful of reviews: a percentage and no verdict.
+    Game("Hollow Knight: Soundtrack", kind=ItemKind.SOUNDTRACK, steam=100, year=2017),
     Game("Minit", ("epic",), metacritic=None, year=None, playtime=None),
-    Game("Portal 2", ("steam", "epic"), metacritic=95, year=2011, removed_on=("epic",)),
+    Game(
+        "Portal 2",
+        ("steam", "epic"),
+        metacritic=95,
+        steam=98,
+        verdict=SteamRating.OVERWHELMINGLY_POSITIVE,
+        year=2011,
+        removed_on=("epic",),
+    ),
     Game("Unsorted Stub", kind=None),
 )
 
@@ -48,6 +85,8 @@ async def seed(session: AsyncSession, games: tuple[Game, ...] = LIBRARY) -> None
             sort_title=sort_title(game.title),
             item_kind=game.kind,
             metacritic_score=game.metacritic,
+            steam_review_percent=game.steam,
+            steam_review_rating=game.verdict,
             release_year=game.year,
         )
         session.add(work)
@@ -172,11 +211,25 @@ def test_a_filtered_listing_pages_on_the_same_cursor(library: TestClient) -> Non
     assert [work["title"] for work in first["works"] + second["works"]] == whole[:4]
 
 
+def test_a_steam_range_counts_only_a_score_steam_gave_a_verdict_on(
+    library: TestClient,
+) -> None:
+    """The soundtrack's 100% is of too few reviews for a verdict: below no bound, above none."""
+
+    assert listed(library, steam_min=95) == ["Celeste", "Hades", "Portal 2"]
+    assert listed(library, steam_max=95) == ["Dead Cells"]
+    assert listed(library, steam_min=0) == ["Celeste", "Dead Cells", "Hades", "Portal 2"]
+    assert listed(library, steam_min=93, steam_max=97) == ["Celeste", "Dead Cells"]
+
+
 @pytest.mark.parametrize(
     "params",
     [
         {"year_min": 2020, "year_max": 2010},
         {"metacritic_min": 101},
+        {"steam_min": 101},
+        {"steam_max": -1},
+        {"steam_min": 90, "steam_max": 80},
         {"playtime_min": -1},
         {"kind": "not-a-kind"},
         {"platform": ["steam"] * 33},

@@ -129,6 +129,8 @@
     "kind": "Type",
     "status": "Status",
     "metacritic": "Metacritic",
+    "steam": "Steam reviews (%)",
+    "steamHint": "Only games Steam gives a verdict to. With too few reviews it gives none, and a percentage alone is left out.",
     "year": "Release year",
     "playtime": "Hours played",
     "min": "{{range}} from",

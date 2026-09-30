@@ -18,6 +18,8 @@ export type Filters = {
   status: PlayStatus[]
   metacritic_min: number | null
   metacritic_max: number | null
+  steam_min: number | null
+  steam_max: number | null
   year_min: number | null
   year_max: number | null
   playtime_min: number | null
@@ -48,11 +50,13 @@ export const STATUSES = [
 
 const HIDDEN = ['exclude', 'include', 'only'] as const satisfies readonly Hidden[]
 
-export type RangeName = 'metacritic' | 'year' | 'playtime'
+export type RangeName = 'metacritic' | 'steam' | 'year' | 'playtime'
 
 /** The API's bounds for each range, so a value it would refuse never leaves the page. */
 export const RANGES: Record<RangeName, { min: number; max: number }> = {
   metacritic: { min: 0, max: 100 },
+  // Percent positive.
+  steam: { min: 0, max: 100 },
   year: { min: 1950, max: 2100 },
   // A century, in minutes: `MAX_MINUTES` in the backend.
   playtime: { min: 0, max: 60 * 24 * 365 * 100 },
@@ -66,6 +70,8 @@ export const NO_FILTERS: Filters = {
   status: [],
   metacritic_min: null,
   metacritic_max: null,
+  steam_min: null,
+  steam_max: null,
   year_min: null,
   year_max: null,
   playtime_min: null,
@@ -106,6 +112,8 @@ export function readFilters(params: URLSearchParams): Filters {
     status: unique(params.getAll('status')).filter(isOneOf(STATUSES)),
     metacritic_min: range('metacritic_min', RANGES.metacritic),
     metacritic_max: range('metacritic_max', RANGES.metacritic),
+    steam_min: range('steam_min', RANGES.steam),
+    steam_max: range('steam_max', RANGES.steam),
     year_min: range('year_min', RANGES.year),
     year_max: range('year_max', RANGES.year),
     playtime_min: range('playtime_min', RANGES.playtime),
