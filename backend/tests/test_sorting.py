@@ -12,8 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.api.works import _owned_works
 from ludarium.config import Settings
+from ludarium.enums import SteamRating
 from ludarium.models import Entitlement, EntitlementWork, UserWorkState, Work
-from ludarium.sorting import COLUMNS, Direction, Ordering, Sort
+from ludarium.sorting import KEYS, Direction, Ordering, Sort
 from ludarium.titles import sort_title
 
 
@@ -26,6 +27,9 @@ class Game:
     # None leaves the work with no state row, as a future write path might.
     playtime: int | None = 0
     played: datetime | None = None
+    # Whether the store gave `steam` a verdict. Without one it is a percentage
+    # over a handful of reviews, and sorts as no score (#107).
+    verdict: bool = True
 
 
 def moment(day: int) -> datetime:
@@ -36,10 +40,12 @@ LIBRARY = (
     Game("Celeste", 92, 97, date(2018, 1, 25), 900, moment(3)),
     Game("Dead Cells", 89, 97, date(2018, 8, 7), 30, moment(1)),
     Game("Hades", 93, 98, date(2020, 9, 17), 3000, moment(20)),
-    Game("Minit", None, None, None, None),
+    # 99% of three reviews, no verdict: sorts with the unscored, and a cursor
+    # taken from it must not read as 99.
+    Game("Minit", None, 99, None, None, verdict=False),
     Game("Outer Wilds", 85, 95, date(2019, 5, 28), 0),
     Game("Portal 2", 95, 98, date(2011, 4, 18), 600, moment(2)),
-    Game("Tunic", 85, None, date(2022, 3, 16), 0),
+    Game("Tunic", 85, 100, date(2022, 3, 16), 0, verdict=False),
 )
 
 
@@ -56,6 +62,11 @@ async def add(session: AsyncSession, account_id: int, game: Game) -> None:
         sort_title=sort_title(game.title),
         metacritic_score=game.metacritic,
         steam_review_percent=game.steam,
+        steam_review_rating=(
+            SteamRating.VERY_POSITIVE if game.steam is not None and game.verdict else None
+        ),
+        # Counted either way, as the step records it: a handful without a verdict.
+        steam_review_count=(None if game.steam is None else 5000 if game.verdict else 3),
         release_date=game.released,
         release_year=game.released.year if game.released else None,
     )
@@ -356,11 +367,7 @@ def test_the_cursor_names_its_order(library: TestClient) -> None:
 
 @pytest.mark.parametrize(
     ("sort", "order"),
-    [
-        (sort, direction)
-        for sort, direction in ORDERS
-        if sort not in COLUMNS or COLUMNS[sort].class_ is Work
-    ],
+    [(sort, direction) for sort, direction in ORDERS if sort not in KEYS or KEYS[sort].indexed],
 )
 def test_each_order_over_a_work_column_is_read_from_an_index(
     settings: Settings, library: TestClient, sort: Sort, order: Direction

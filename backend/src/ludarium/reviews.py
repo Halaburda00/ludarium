@@ -110,24 +110,31 @@ def chosen(appids: frozenset[str], answers: Mapping[str, Payload | None]) -> str
 
 
 def values_of(appid: str, summary: Payload | None) -> dict[str, ScalarValue | None]:
-    """The four columns for one app's summary, all of them or none.
+    """The four columns for one app's summary, recorded together.
 
-    None is an answer, not a gap: an app with too few reviews for a verdict has
-    no score, and a column that kept an older one would show a verdict no source
-    stands behind.
+    A score is a percentage over at least one review. The verdict is optional:
+    below the store's threshold — no verdict at 1, 2 and 5 reviews, one from
+    16 up, in 584 real answers — the store names none and still counts the
+    reviews, and a missing verdict should say how few there are rather than
+    erase them (ADR-0029). The count is what tells 100% of one review from 96%
+    of a million, and it is always kept beside the percentage.
+
+    None is an answer, not a gap: an app with no reviews has no score, and a
+    column that kept an older one would show a score no source stands behind.
     """
 
     none: dict[str, ScalarValue | None] = dict.fromkeys(FIELDS)
     if not isinstance(summary, dict):
         return none
     code = whole_number(summary.get("review_score"))
+    # 0 is the store's "no verdict"; a code it has never used is treated alike.
     rating = RATINGS.get(code) if code is not None else None
     percent = whole_number(summary.get("percent_positive"))
     count = whole_number(summary.get("review_count"))
-    if rating is None or percent is None or not 0 <= percent <= 100 or not count:
+    if percent is None or not 0 <= percent <= 100 or not count:
         return none
     return {
-        "steam_review_rating": rating.value,
+        "steam_review_rating": rating.value if rating is not None else None,
         "steam_review_percent": percent,
         "steam_review_count": count,
         "steam_review_appid": appid,
@@ -187,7 +194,7 @@ async def _record(
     store forgetting a delisted app is not evidence its score changed.
     """
 
-    scored = 0
+    scored = judged = 0
     async with run.database.writing_session_factory() as session:
         reporter = await session.get_one(Provider, run.provider_id)
         for work_id, appids in targets.items():
@@ -195,7 +202,8 @@ async def _record(
             if appid is None:
                 continue
             values = values_of(appid, answers[appid])
-            scored += values["steam_review_rating"] is not None
+            scored += values["steam_review_percent"] is not None
+            judged += values["steam_review_rating"] is not None
             recorded = await record_many(
                 session,
                 entity_type=EntityType.WORK,
@@ -213,4 +221,9 @@ async def _record(
                 recorded=recorded,
             )
         await session.commit()
-    logger.info("%d of %d works with a Steam appid have a Steam review score", scored, len(targets))
+    logger.info(
+        "%d of %d works with a Steam appid have a Steam review score, %d with a verdict",
+        scored,
+        len(targets),
+        judged,
+    )

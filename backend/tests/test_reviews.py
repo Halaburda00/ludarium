@@ -10,6 +10,7 @@ from conftest import make_account, make_provider, make_work
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ludarium import reviews as reviews_module
 from ludarium.db import Database
 from ludarium.enrichment import enrich
 from ludarium.enums import EntityType, SourceKind, SteamRating, SyncStatus
@@ -43,8 +44,13 @@ def the_store(request: httpx.Request) -> httpx.Response:
     """The recorded answer, cut down to the apps this request named, as the store would."""
 
     ids = asked_for(request)
+    # `few_reviews.json` is one app the store names no verdict for, its summary
+    # as a real instance cached it (ADR-0029); the rest is one recorded answer.
     items = [
-        item for item in recorded("reviews.json")["response"]["store_items"] if item["id"] in ids
+        item
+        for name in ("reviews.json", "few_reviews.json")
+        for item in recorded(name)["response"]["store_items"]
+        if item["id"] in ids
     ]
     return httpx.Response(200, json={"response": {"store_items": items}})
 
@@ -315,6 +321,41 @@ async def test_a_second_run_inside_a_week_asks_the_store_nothing(
 
 
 @respx.mock
+async def test_a_score_the_old_code_threw_away_is_filled_from_the_cache(
+    db: Database,
+    session: AsyncSession,
+    steam: Account,
+    store: SteamStoreClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cache holds the store's summary, not the columns, so the next run redoes them.
+
+    Before #107 a summary with no verdict was recorded as four nulls. The first
+    run after the upgrade, inside the week the answer is cached for, asks the
+    store nothing and still records the percentage and the count.
+    """
+
+    route = respx.get(GET_ITEMS_URL).mock(side_effect=the_store)
+    work = await own(session, steam, "2914390")
+    await session.commit()
+    before = reviews_module.values_of
+
+    def without_verdicts(appid: str, summary: Any) -> dict[str, Any]:
+        values = before(appid, summary)
+        return values if values["steam_review_rating"] else dict.fromkeys(values)
+
+    monkeypatch.setattr(reviews_module, "values_of", without_verdicts)
+    await enrich(db, provider="steam_store", step=score_steam_reviews(store))
+    assert (await scores(db))[work.id] == (None, None, None, None)
+
+    monkeypatch.setattr(reviews_module, "values_of", before)
+    await enrich(db, provider="steam_store", step=score_steam_reviews(store))
+
+    assert route.call_count == 1
+    assert (await scores(db))[work.id] == (None, 80, 5, "2914390")
+
+
+@respx.mock
 async def test_only_the_summary_is_cached(
     db: Database, session: AsyncSession, steam: Account, store: SteamStoreClient
 ) -> None:
@@ -334,15 +375,50 @@ async def test_only_the_summary_is_cached(
 @pytest.mark.parametrize(
     "summary",
     [
-        {"review_count": 26, "percent_positive": 92, "review_score": 10},
         {"review_count": 26, "percent_positive": 101, "review_score": 7},
         {"review_count": 0, "percent_positive": 92, "review_score": 7},
         {"review_count": 26, "percent_positive": True, "review_score": 7},
-        {"review_count": 26, "percent_positive": 92, "review_score": "7"},
+        {"review_count": 26, "percent_positive": None, "review_score": 7},
+        {"review_count": None, "percent_positive": 92, "review_score": 7},
     ],
 )
 def test_a_summary_that_is_not_a_score_is_recorded_as_none(summary: dict[str, Any]) -> None:
     assert set(values_of("931180", summary).values()) == {None}
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        # The store's "no verdict", as it answers for an app with five reviews.
+        {"review_count": 5, "percent_positive": 80, "review_score": 0},
+        # A code it has never used, and one that is not a number: no verdict
+        # this code knows, over reviews that are still counted.
+        {"review_count": 5, "percent_positive": 80, "review_score": 10},
+        {"review_count": 5, "percent_positive": 80, "review_score": "7"},
+    ],
+)
+def test_a_score_without_a_verdict_keeps_its_percentage_and_count(summary: dict[str, Any]) -> None:
+    assert values_of("2914390", summary) == {
+        "steam_review_rating": None,
+        "steam_review_percent": 80,
+        "steam_review_count": 5,
+        "steam_review_appid": "2914390",
+    }
+
+
+@respx.mock
+async def test_a_game_with_too_few_reviews_for_a_verdict_is_scored_on_them(
+    db: Database, session: AsyncSession, steam: Account, store: SteamStoreClient
+) -> None:
+    """Five reviews, no verdict: 80% of five is kept, with the five."""
+
+    respx.get(GET_ITEMS_URL).mock(side_effect=the_store)
+    work = await own(session, steam, "2914390")
+    await session.commit()
+
+    await enrich(db, provider="steam_store", step=score_steam_reviews(store))
+
+    assert (await scores(db))[work.id] == (None, 80, 5, "2914390")
 
 
 def test_the_scale_runs_from_the_worst_verdict_to_the_best() -> None:

@@ -577,7 +577,7 @@
         "type": "string"
       },
       "SteamReviews": {
-        "description": "The Steam store's verdict on one of the work's apps, and where to read the reviews.\n\n`rating` is the verdict's value rather than Steam's label, which the store\ntranslates: the client names it in the user's language.",
+        "description": "The Steam store's verdict on one of the work's apps, and where to read the reviews.\n\n`rating` is the verdict's value rather than Steam's label, which the store\ntranslates: the client names it in the user's language. Null where the\nstore gave none, over too few reviews: the percentage stands with its\ncount, which says how little it rests on (ADR-0029).",
         "properties": {
           "count": {
             "title": "Count",
@@ -588,7 +588,14 @@
             "type": "integer"
           },
           "rating": {
-            "$ref": "#/components/schemas/SteamRating"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SteamRating"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "url": {
             "title": "Url",

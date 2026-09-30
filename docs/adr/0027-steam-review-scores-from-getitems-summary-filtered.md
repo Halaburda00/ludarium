@@ -1,6 +1,6 @@
 # ADR-0027 Steam review scores come from `GetItems`' filtered summary, of a work's most-reviewed app
 
-Status: accepted, 2026-09-28
+Status: accepted, 2026-09-28. Amended by ADR-0029: a score is kept without a verdict.
 
 ## Context
 

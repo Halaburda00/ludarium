@@ -720,6 +720,25 @@ async def test_a_steam_score_that_names_no_app_is_not_served(
     assert steam_reviews(synced, "Portal 2") is None
 
 
+async def test_a_steam_score_without_a_verdict_is_served_with_its_count(
+    synced: TestClient, session: AsyncSession
+) -> None:
+    """Too few reviews for a verdict: the percentage stands, and the count says how few."""
+
+    await reviewed(session, "Portal 2")
+    work = await session.scalar(select(Work).where(Work.title == "Portal 2"))
+    assert work is not None
+    work.steam_review_rating, work.steam_review_percent, work.steam_review_count = None, 80, 5
+    await session.commit()
+
+    assert steam_reviews(synced, "Portal 2") == {
+        "rating": None,
+        "percent": 80,
+        "count": 5,
+        "url": "https://store.steampowered.com/app/620#app_reviews_hash",
+    }
+
+
 async def covered(
     client: TestClient, session: AsyncSession, title: str, *files: tuple[int, int, bytes | None]
 ) -> list[int]:

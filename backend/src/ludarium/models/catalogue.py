@@ -9,19 +9,33 @@ from ludarium.models.base import Base
 from ludarium.models.types import CreatedAt, UpdatedAt, enum_column
 
 
-def _ordered_by(column: str) -> tuple[Index, Index]:
-    """The two indexes a listing order over `column` seeks on, one per direction.
+def _ordered_by(name: str, value: str) -> tuple[Index, Index]:
+    """The two indexes a listing order over `value` seeks on, one per direction.
 
     Shaped as `ludarium.sorting` orders: nulls last, then the value, then the
     title ascending in either direction. A row-value index read backwards would
     put the nulls first and the titles Z to A, so each direction has its own.
+    `value` is a column or an expression, written as `sorting` writes it: SQLite
+    uses an expression index only for the same expression.
     """
 
-    nulls = text(f"{column} IS NULL")
+    # Parenthesised only when it is an expression, so the plain columns keep the
+    # DDL their migration wrote.
+    grouped = f"({value})" if " " in value else value
     return (
-        Index(f"ix_work_{column}_asc", nulls, column, "sort_key", "id"),
-        Index(f"ix_work_{column}_desc", nulls, text(f"{column} DESC"), "sort_key", "id"),
+        Index(f"ix_work_{name}_asc", text(f"{grouped} IS NULL"), text(value), "sort_key", "id"),
+        Index(
+            f"ix_work_{name}_desc",
+            text(f"{grouped} IS NULL"),
+            text(f"{grouped} DESC"),
+            "sort_key",
+            "id",
+        ),
     )
+
+
+# `sorting.STEAM_SCORE`: the percentage, where the store gave a verdict.
+STEAM_SCORE = "CASE WHEN steam_review_rating IS NOT NULL THEN steam_review_percent END"
 
 
 class Work(Base):
@@ -51,9 +65,9 @@ class Work(Base):
         # none, and cannot use one: they are on `user_work_state`, which the
         # listing outer-joins, and SQLite does not drive a LEFT JOIN from its
         # right side. They sort every page, 37 ms at 20,000 works.
-        *_ordered_by("metacritic_score"),
-        *_ordered_by("steam_review_percent"),
-        *_ordered_by("release_date"),
+        *_ordered_by("metacritic_score", "metacritic_score"),
+        *_ordered_by("steam_review_score", STEAM_SCORE),
+        *_ordered_by("release_date", "release_date"),
         Index(
             "uq_work_igdb_id",
             "igdb_id",
