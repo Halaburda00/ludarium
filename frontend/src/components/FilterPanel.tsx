@@ -9,6 +9,7 @@ import {
   NO_FILTERS,
   RANGES,
   STATUSES,
+  STEAM_REVIEWS,
   type Filters,
   type Hidden,
   type RangeName,
@@ -80,7 +81,28 @@ export function FilterPanel({
           <Range name="metacritic" filters={filters} onChange={onChange} />
           {/* Said on the panel, because a game at 100% is left out and the
               reason is not on its card: Steam gave too few reviews a verdict. */}
-          <Range name="steam" filters={filters} onChange={onChange} hint={t('filters.steamHint')} />
+          <Range
+            name="steam"
+            filters={filters}
+            onChange={onChange}
+            hint={t('filters.steamHint', { count: filters.steam_reviews_min })}
+          >
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              {t('filters.steamReviews')}
+              <Bound
+                label={t('filters.steamReviews')}
+                value={filters.steam_reviews_min}
+                bounds={STEAM_REVIEWS}
+                scale={1}
+                invalid={false}
+                // Emptied, the field goes back to the default rather than to no
+                // threshold: every score needs at least one review.
+                onCommit={(value) =>
+                  onChange({ ...filters, steam_reviews_min: value ?? STEAM_REVIEWS.default })
+                }
+              />
+            </label>
+          </Range>
           <Range name="year" filters={filters} onChange={onChange} />
           {/* Hours on the page, minutes in the address: the API's unit, and
               the one `playtime_minutes` is reported in everywhere else. */}
@@ -153,12 +175,15 @@ function Range({
   onChange,
   scale = 1,
   hint,
+  children,
 }: {
   name: RangeName
   filters: Filters
   onChange: (filters: Filters) => void
   scale?: number
   hint?: string
+  /** More controls for the same range, under its bounds. */
+  children?: React.ReactNode
 }) {
   const { t } = useTranslation()
   const inverted = isInverted(filters, name)
@@ -185,6 +210,7 @@ function Range({
           />
         ))}
       </div>
+      {children}
       {hint ? (
         <p id={`filter-${name}-hint`} className="text-xs text-muted-foreground">
           {hint}

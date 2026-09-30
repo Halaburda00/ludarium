@@ -20,6 +20,8 @@ export type Filters = {
   metacritic_max: number | null
   steam_min: number | null
   steam_max: number | null
+  /** How many reviews a Steam score needs before a Steam range or the Steam order counts it. */
+  steam_reviews_min: number
   year_min: number | null
   year_max: number | null
   playtime_min: number | null
@@ -64,6 +66,13 @@ export const RANGES: Record<RangeName, { min: number; max: number }> = {
 
 const RANGE_NAMES = Object.keys(RANGES) as RangeName[]
 
+/**
+ * `steam_reviews_min`: the store's own verdict threshold by default, up to the
+ * backend's `MAX_STEAM_REVIEWS`. A setting rather than a filter: on its own it
+ * narrows nothing, so it is not counted as one.
+ */
+export const STEAM_REVIEWS = { default: 10, min: 1, max: 1_000_000_000 }
+
 export const NO_FILTERS: Filters = {
   platform: [],
   kind: [],
@@ -72,6 +81,7 @@ export const NO_FILTERS: Filters = {
   metacritic_max: null,
   steam_min: null,
   steam_max: null,
+  steam_reviews_min: STEAM_REVIEWS.default,
   year_min: null,
   year_max: null,
   playtime_min: null,
@@ -85,6 +95,7 @@ const KEYS = [
   'kind',
   'status',
   ...RANGE_NAMES.flatMap((name) => [`${name}_min`, `${name}_max`]),
+  'steam_reviews_min',
   'hidden',
 ]
 
@@ -114,6 +125,7 @@ export function readFilters(params: URLSearchParams): Filters {
     metacritic_max: range('metacritic_max', RANGES.metacritic),
     steam_min: range('steam_min', RANGES.steam),
     steam_max: range('steam_max', RANGES.steam),
+    steam_reviews_min: range('steam_reviews_min', STEAM_REVIEWS) ?? STEAM_REVIEWS.default,
     year_min: range('year_min', RANGES.year),
     year_max: range('year_max', RANGES.year),
     playtime_min: range('playtime_min', RANGES.playtime),
@@ -178,7 +190,10 @@ function entries(filters: Filters): [string, string][] {
       if (value !== null) out.push([`${name}_${end}`, String(value)])
     }
   }
-  // The default is left out, so the plain library has a plain address.
+  // The defaults are left out, so the plain library has a plain address.
+  if (filters.steam_reviews_min !== STEAM_REVIEWS.default) {
+    out.push(['steam_reviews_min', String(filters.steam_reviews_min)])
+  }
   if (filters.hidden !== 'exclude') out.push(['hidden', filters.hidden])
   return out
 }

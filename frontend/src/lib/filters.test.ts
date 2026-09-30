@@ -31,6 +31,19 @@ describe('reading filters from the address', () => {
     ).toEqual(NO_FILTERS)
   })
 
+  it('reads a Steam review threshold, and falls back to the default for one it cannot use', () => {
+    expect(read('steam_reviews_min=1').steam_reviews_min).toBe(1)
+    expect(read('steam_reviews_min=0').steam_reviews_min).toBe(10)
+    expect(read('steam_reviews_min=lots').steam_reviews_min).toBe(10)
+  })
+
+  it('leaves the default threshold out of the address', () => {
+    const written = (threshold: number) =>
+      writeFilters({ ...NO_FILTERS, steam_reviews_min: threshold }, new URLSearchParams()).toString()
+    expect(written(10)).toBe('')
+    expect(written(50)).toBe('steam_reviews_min=50')
+  })
+
   it('reads a value given twice once', () => {
     expect(read('kind=game&kind=game').kind).toEqual(['game'])
   })
