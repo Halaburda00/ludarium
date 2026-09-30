@@ -60,7 +60,10 @@ FINISHED: Final = frozenset({PlayStatus.COMPLETED, PlayStatus.MASTERED})
 # Version 3 names the order it is a position in, so a cursor taken under one
 # order and replayed under another is refused rather than read as a position
 # in the wrong one: a Metacritic score of 85 is also a playtime of 85 minutes.
-CURSOR_VERSION: Final = 3
+#
+# Version 4 adds the Steam review threshold. Under another threshold the Steam
+# order is another order: a score that counted may now sort with the unscored.
+CURSOR_VERSION: Final = 4
 # Where Metacritic scores come from, and whose page each one links to.
 SCORE_SOURCE: Final = "rawg"
 # Whose store page a Steam review score links to, and where on it the reviews
@@ -229,7 +232,15 @@ class WorksPage(BaseModel):
 
 def _cursor(ordering: Ordering, work: Work, state: UserWorkState | None) -> str:
     value = ordering.encode(ordering.value_of(work, state))
-    position = [CURSOR_VERSION, ordering.sort, ordering.direction, value, work.sort_key, work.id]
+    position = [
+        CURSOR_VERSION,
+        ordering.sort,
+        ordering.direction,
+        ordering.steam_reviews,
+        value,
+        work.sort_key,
+        work.id,
+    ]
     return urlsafe_b64encode(json.dumps(position).encode()).decode()
 
 
@@ -245,6 +256,7 @@ def _after(cursor: str, ordering: Ordering) -> tuple[SortValue, str, int]:
                 int() as version,
                 str() as sort,
                 str() as order,
+                int() as steam_reviews,
                 raw,
                 str() as key,
                 int() as work_id,
@@ -252,11 +264,13 @@ def _after(cursor: str, ordering: Ordering) -> tuple[SortValue, str, int]:
                 version == CURSOR_VERSION
                 and sort == ordering.sort
                 and order == ordering.direction
+                and steam_reviews == ordering.steam_reviews
+                and not isinstance(steam_reviews, bool)
                 and not isinstance(work_id, bool)
                 and work_id in INTEGERS
             ):
                 return ordering.decode(raw), key, work_id
-        raise ValueError("a cursor is a version, an order, a value, a key and an id")
+        raise ValueError("a cursor is a version, an order, a threshold, a value, a key and an id")
     except (ValueError, TypeError, binascii.Error) as exc:
         # No detail about what was wrong with it: a cursor is ours, and a client
         # that made one up has nothing to learn from the answer.
@@ -315,7 +329,7 @@ async def listing(
     """
 
     user_id, limit, cursor = record.user_id, params.limit, params.cursor
-    ordering = Ordering(params.sort, params.order)
+    ordering = Ordering(params.sort, params.order, params.steam_reviews_min)
     page = (
         _owned_works(user_id)
         .order_by(*ordering.order_by())

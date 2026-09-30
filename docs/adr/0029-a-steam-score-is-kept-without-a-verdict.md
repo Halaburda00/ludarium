@@ -1,6 +1,6 @@
 # ADR-0029 A Steam score is kept without a verdict, with its review count
 
-Status: accepted, 2026-09-30. Amends ADR-0027.
+Status: accepted, 2026-09-30. Amends ADR-0027. The verdict gate on ranking was replaced by a review threshold in #108 (`ludarium.scores`).
 
 ## Context
 

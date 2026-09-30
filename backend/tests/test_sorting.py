@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from conftest import TEST_PASSWORD, TEST_USERNAME, make_account, sync_url
+from conftest import TEST_PASSWORD, TEST_USERNAME, create_schema, make_account, sync_url
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -242,7 +242,9 @@ def test_a_cursor_from_one_order_is_refused_under_another(
 
 
 def cursor_with(value: Any, sort: str = "last_played", order: str = "desc") -> str:
-    return urlsafe_b64encode(json.dumps([3, sort, order, value, "celeste", 1]).encode()).decode()
+    return urlsafe_b64encode(
+        json.dumps([4, sort, order, 10, value, "celeste", 1]).encode()
+    ).decode()
 
 
 @pytest.mark.parametrize(
@@ -288,7 +290,7 @@ def test_a_cursor_value_out_of_range_is_refused(
     """The right kind, and past what the database can bind: refused, not a 500 at the bind."""
 
     cursor = urlsafe_b64encode(
-        json.dumps([3, sort, "desc", value, "celeste", work_id]).encode()
+        json.dumps([4, sort, "desc", 10, value, "celeste", work_id]).encode()
     ).decode()
 
     response = library.get("/api/works", params={"sort": sort, "order": "desc", "cursor": cursor})
@@ -356,9 +358,10 @@ def test_the_cursor_names_its_order(library: TestClient) -> None:
     cursor = page(library, sort="release_date", order="asc", limit=1)["next_cursor"]
 
     assert json.loads(urlsafe_b64decode(cursor)) == [
-        3,
+        4,
         "release_date",
         "asc",
+        10,
         "2011-04-18",
         "portal 2",
         6,
@@ -388,3 +391,77 @@ def test_each_order_over_a_work_column_is_read_from_an_index(
     engine.dispose()
 
     assert not any("TEMP B-TREE" in step for step in plan), plan
+
+
+def test_a_lower_threshold_ranks_the_small_games_scores(library: TestClient) -> None:
+    """Tunic's 100% and Minit's 99% rest on three reviews: counted only from a threshold of 3."""
+
+    assert listed(library, sort="steam_reviews", order="desc", steam_reviews_min=3)[:3] == [
+        "Tunic",
+        "Minit",
+        "Hades",
+    ]
+    assert listed(library, sort="steam_reviews", order="desc", steam_reviews_min=4)[-2:] == [
+        "Minit",
+        "Tunic",
+    ]
+
+
+@pytest.mark.parametrize("order", ["asc", "desc"])
+# 3 is exactly Minit's and Tunic's count: a cursor taken from either must read
+# their score as counted, or the walk steps into the nulls and back.
+@pytest.mark.parametrize("threshold", [1, 3])
+def test_walking_under_a_lowered_threshold_meets_every_work_once(
+    library: TestClient, order: str, threshold: int
+) -> None:
+    params: dict[str, Any] = {
+        "sort": "steam_reviews",
+        "order": order,
+        "steam_reviews_min": threshold,
+    }
+    whole = listed(library, **params)
+    walked: list[str] = []
+    for _ in range(len(whole) + 1):
+        body = page(library, **params, limit=1)
+        walked += [work["title"] for work in body["works"]]
+        if body["next_cursor"] is None:
+            break
+        params["cursor"] = body["next_cursor"]
+
+    assert walked == whole
+
+
+def test_a_cursor_from_another_threshold_is_refused(library: TestClient) -> None:
+    """Under 1 review Tunic's 100% is the top score; under 10 it is no score at all."""
+
+    cursor = page(library, sort="steam_reviews", order="desc", limit=2)["next_cursor"]
+
+    response = library.get(
+        "/api/works",
+        params={"sort": "steam_reviews", "order": "desc", "steam_reviews_min": 1, "cursor": cursor},
+    )
+
+    assert response.status_code == 400
+
+
+def test_a_threshold_other_than_the_default_sorts_rather_than_seeks(settings: Settings) -> None:
+    """The index is over the default's expression; any other is a different one.
+
+    Measured at 20,000 works: the cost of the Steam order before it was indexed.
+    """
+
+    engine = create_engine(sync_url(settings.database_url))
+    create_schema(settings.database_url)
+    plans = {}
+    for threshold in (10, 1):
+        ordering = Ordering(Sort.STEAM_REVIEWS, Direction.DESC, threshold)
+        query = _owned_works(1).order_by(*ordering.order_by()).limit(101)
+        compiled = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
+        with engine.connect() as connection:
+            plans[threshold] = " ".join(
+                row[3] for row in connection.execute(text(f"EXPLAIN QUERY PLAN {compiled}"))
+            )
+    engine.dispose()
+
+    assert "TEMP B-TREE" not in plans[10]
+    assert "TEMP B-TREE" in plans[1]

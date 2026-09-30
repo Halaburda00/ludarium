@@ -1259,6 +1259,7 @@ export interface operations {
                 metacritic_max?: number | null;
                 steam_min?: number | null;
                 steam_max?: number | null;
+                steam_reviews_min?: number;
                 year_min?: number | null;
                 year_max?: number | null;
                 status?: components["schemas"]["PlayStatus"][];

@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ludarium.enums import ItemKind, SteamRating
-from ludarium.filters import LibraryFilters, Predicate
+from ludarium.enums import ItemKind
+from ludarium.filters import LibraryFilters, Predicate, Setting
 from ludarium.models import Account, Entitlement, EntitlementWork, UserWorkState, Work
 from ludarium.models.types import utcnow
 from ludarium.titles import sort_title
@@ -20,10 +20,9 @@ class Game:
     platforms: tuple[str, ...] = ("steam",)
     kind: ItemKind | None = ItemKind.GAME
     metacritic: int | None = None
-    # Percent positive, and the store's verdict on it: None where there were
-    # too few reviews for one, while the percentage is still there.
+    # Percent positive, and how many reviews it is over.
     steam: int | None = None
-    verdict: SteamRating | None = None
+    reviews: int | None = None
     year: int | None = None
     # None leaves the work with no state row, as a future write path might.
     playtime: int | None = 0
@@ -37,7 +36,7 @@ LIBRARY = (
         ("steam", "epic"),
         metacritic=92,
         steam=97,
-        verdict=SteamRating.OVERWHELMINGLY_POSITIVE,
+        reviews=60_000,
         year=2018,
         playtime=900,
     ),
@@ -46,7 +45,7 @@ LIBRARY = (
         ("epic",),
         metacritic=89,
         steam=93,
-        verdict=SteamRating.VERY_POSITIVE,
+        reviews=120_000,
         year=2018,
         playtime=30,
     ),
@@ -55,19 +54,19 @@ LIBRARY = (
         ("steam",),
         metacritic=93,
         steam=98,
-        verdict=SteamRating.OVERWHELMINGLY_POSITIVE,
+        reviews=250_000,
         year=2020,
         playtime=3000,
     ),
-    # 100% of a handful of reviews: a percentage and no verdict.
-    Game("Hollow Knight: Soundtrack", kind=ItemKind.SOUNDTRACK, steam=100, year=2017),
+    # 100% of three reviews: under the default threshold, over a lowered one.
+    Game("Hollow Knight: Soundtrack", kind=ItemKind.SOUNDTRACK, steam=100, reviews=3, year=2017),
     Game("Minit", ("epic",), metacritic=None, year=None, playtime=None),
     Game(
         "Portal 2",
         ("steam", "epic"),
         metacritic=95,
         steam=98,
-        verdict=SteamRating.OVERWHELMINGLY_POSITIVE,
+        reviews=400_000,
         year=2011,
         removed_on=("epic",),
     ),
@@ -86,7 +85,7 @@ async def seed(session: AsyncSession, games: tuple[Game, ...] = LIBRARY) -> None
             item_kind=game.kind,
             metacritic_score=game.metacritic,
             steam_review_percent=game.steam,
-            steam_review_rating=game.verdict,
+            steam_review_count=game.reviews,
             release_year=game.year,
         )
         session.add(work)
@@ -211,15 +210,38 @@ def test_a_filtered_listing_pages_on_the_same_cursor(library: TestClient) -> Non
     assert [work["title"] for work in first["works"] + second["works"]] == whole[:4]
 
 
-def test_a_steam_range_counts_only_a_score_steam_gave_a_verdict_on(
-    library: TestClient,
-) -> None:
-    """The soundtrack's 100% is of too few reviews for a verdict: below no bound, above none."""
+def test_a_steam_range_counts_a_score_over_ten_reviews_by_default(library: TestClient) -> None:
+    """The soundtrack's 100% is of three reviews: below no bound, above none."""
 
     assert listed(library, steam_min=95) == ["Celeste", "Hades", "Portal 2"]
     assert listed(library, steam_max=95) == ["Dead Cells"]
     assert listed(library, steam_min=0) == ["Celeste", "Dead Cells", "Hades", "Portal 2"]
     assert listed(library, steam_min=93, steam_max=97) == ["Celeste", "Dead Cells"]
+
+
+def test_a_lower_threshold_lets_a_small_game_s_score_count(library: TestClient) -> None:
+    assert listed(library, steam_min=95, steam_reviews_min=1) == [
+        "Celeste",
+        "Hades",
+        "Hollow Knight: Soundtrack",
+        "Portal 2",
+    ]
+
+
+def test_a_higher_threshold_leaves_only_the_proven(library: TestClient) -> None:
+    """Celeste's 60,000 reviews are under 100,000, so its 97% does not count."""
+
+    assert listed(library, steam_min=0, steam_reviews_min=100_000) == [
+        "Dead Cells",
+        "Hades",
+        "Portal 2",
+    ]
+
+
+def test_a_threshold_alone_narrows_nothing(library: TestClient) -> None:
+    """It says when a Steam score counts, not which games are in the library."""
+
+    assert listed(library, steam_reviews_min=1_000_000) == listed(library)
 
 
 @pytest.mark.parametrize(
@@ -230,6 +252,8 @@ def test_a_steam_range_counts_only_a_score_steam_gave_a_verdict_on(
         {"steam_min": 101},
         {"steam_max": -1},
         {"steam_min": 90, "steam_max": 80},
+        {"steam_reviews_min": 0},
+        {"steam_reviews_min": 10**12},
         {"playtime_min": -1},
         {"kind": "not-a-kind"},
         {"platform": ["steam"] * 33},
@@ -248,12 +272,15 @@ def test_a_filter_that_cannot_mean_anything_is_refused(
     assert library.get("/api/works", params=params).status_code == 422
 
 
-def test_every_filter_declares_exactly_one_predicate() -> None:
-    """The registry's one promise: nothing reaches the schema without SQL behind it."""
+def test_every_filter_declares_exactly_one_predicate_or_setting() -> None:
+    """The registry's one promise: nothing reaches the schema without SQL behind it.
+
+    A setting's SQL is in the predicates that read it from their `Scope`.
+    """
 
     for name, field in LibraryFilters.model_fields.items():
-        predicates = [item for item in field.metadata if isinstance(item, Predicate)]
-        assert len(predicates) == 1, name
+        declared = [item for item in field.metadata if isinstance(item, Predicate | Setting)]
+        assert len(declared) == 1, name
 
 
 async def test_another_users_copy_does_not_put_a_work_on_a_platform(

@@ -23,12 +23,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from enum import StrEnum
-from typing import Any, Final
+from typing import Any
 
-from sqlalchemy import ColumnElement, and_, case, literal, or_, tuple_
+from sqlalchemy import ColumnElement, and_, literal, or_, tuple_
 from sqlalchemy.orm import InstrumentedAttribute
 
 from ludarium.models import UserWorkState, Work
+from ludarium.scores import DEFAULT_STEAM_REVIEWS, steam_score, steam_score_of
 
 type SortValue = int | date | datetime | None
 
@@ -54,31 +55,33 @@ class Direction(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Key:
-    """What an order compares: the expression in SQL, and the same value read off a row."""
+    """What an order compares: the expression in SQL, and the same value read off a row.
 
-    expression: ColumnElement[Any]
-    read: Callable[[Work, UserWorkState | None], SortValue]
-    # Whether `work` carries an index this order seeks on (`models.catalogue`).
+    Both take the Steam review threshold, which only the Steam order reads.
+    """
+
+    expression: Callable[[int], ColumnElement[Any]]
+    read: Callable[[Work, UserWorkState | None, int], SortValue]
+    # Whether `work` carries an index this order seeks on (`models.catalogue`),
+    # at the default threshold.
     indexed: bool
 
 
 def _on_work(column: InstrumentedAttribute[Any]) -> Key:
-    return Key(column.expression, lambda work, _: getattr(work, column.key), indexed=True)
+    return Key(
+        lambda _: column.expression,
+        lambda work, _, __: getattr(work, column.key),
+        indexed=True,
+    )
 
 
 def _on_state(column: InstrumentedAttribute[Any]) -> Key:
     return Key(
-        column.expression,
-        lambda _, state: getattr(state, column.key) if state is not None else None,
+        lambda _: column.expression,
+        lambda _, state, __: getattr(state, column.key) if state is not None else None,
         indexed=False,
     )
 
-
-# A Steam score counts only where the store gave a verdict, as the filter
-# (#103) has it. Since #107 a percentage is kept without one, over a handful
-# of reviews, and 100% of three is not the best game in the library. #108
-# replaces the verdict with a review count the user chooses.
-STEAM_SCORE: Final = case((Work.steam_review_rating.is_not(None), Work.steam_review_percent))
 
 # The title order has no value of its own: its key is the tie-break.
 #
@@ -87,10 +90,10 @@ STEAM_SCORE: Final = case((Work.steam_review_rating.is_not(None), Work.steam_rev
 # with 0 minutes, which is the default it would get, not a measurement.
 KEYS: dict[Sort, Key] = {
     Sort.METACRITIC: _on_work(Work.metacritic_score),
+    # Over at least the user's threshold of reviews, as the Steam range counts
+    # it (`ludarium.scores`): under it a score sorts with the unscored.
     Sort.STEAM_REVIEWS: Key(
-        STEAM_SCORE,
-        lambda work, _: work.steam_review_percent if work.steam_review_rating is not None else None,
-        indexed=True,
+        steam_score, lambda work, _, threshold: steam_score_of(work, threshold), indexed=True
     ),
     Sort.PLAYTIME: _on_state(UserWorkState.playtime_minutes),
     Sort.LAST_PLAYED: _on_state(UserWorkState.last_played_at),
@@ -102,11 +105,12 @@ KEYS: dict[Sort, Key] = {
 class Ordering:
     sort: Sort
     direction: Direction
+    steam_reviews: int = DEFAULT_STEAM_REVIEWS
 
     @property
     def _column(self) -> ColumnElement[Any] | None:
         key = KEYS.get(self.sort)
-        return key.expression if key is not None else None
+        return key.expression(self.steam_reviews) if key is not None else None
 
     def order_by(self) -> tuple[ColumnElement[Any], ...]:
         column = self._column
@@ -137,7 +141,7 @@ class Ordering:
 
     def value_of(self, work: Work, state: UserWorkState | None) -> SortValue:
         key = KEYS.get(self.sort)
-        return key.read(work, state) if key is not None else None
+        return key.read(work, state, self.steam_reviews) if key is not None else None
 
     def encode(self, value: SortValue) -> int | str | None:
         return value.isoformat() if isinstance(value, date) else value

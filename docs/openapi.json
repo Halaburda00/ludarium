@@ -2099,6 +2099,18 @@
           },
           {
             "in": "query",
+            "name": "steam_reviews_min",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 1000000000,
+              "minimum": 1,
+              "title": "Steam Reviews Min",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
             "name": "year_min",
             "required": false,
             "schema": {
