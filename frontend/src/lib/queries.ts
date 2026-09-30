@@ -11,8 +11,9 @@ import {
 } from '@tanstack/react-query'
 
 import { api, ApiError } from '@/lib/api'
-import { apiParams, NO_FILTERS, type Filters } from '@/lib/filters'
-import { DEFAULT_SORTING, sortParams, type Sorting } from '@/lib/sorting'
+import { NO_FILTERS, type Filters } from '@/lib/filters'
+import { DEFAULT_SORTING, type Sorting } from '@/lib/sorting'
+import { viewQuery } from '@/lib/views'
 import type { components } from '@/lib/api-types'
 
 /**
@@ -45,6 +46,8 @@ export type SteamReviews = Schemas['SteamReviews']
 export type WorksPage = Schemas['WorksPage']
 export type WorkDetail = Schemas['WorkDetail']
 export type Credit = Schemas['Credit']
+/** A named library query. `dropped` names what the library no longer takes. */
+export type SavedView = Schemas['SavedViewResponse']
 export type PlayStatus = Schemas['PlayStatus']
 export type ItemKind = Schemas['ItemKind']
 /**
@@ -62,6 +65,7 @@ export type Credentials = Schemas['LoginRequest']
 export const accountsKey = ['accounts'] as const
 export const worksKey = ['works'] as const
 export const syncOverviewKey = ['sync', 'runs'] as const
+export const viewsKey = ['views'] as const
 
 /**
  * How often the library asks whether the steps after a sync are done. A step
@@ -224,9 +228,7 @@ export function useWorks(
   // Keyed on the query string the API will be sent, so two filter states that
   // ask the same question share a cache entry. The order is in it too: a
   // cursor is a position in one order, and the API refuses it in another.
-  const params = apiParams(filters)
-  for (const [key, value] of sortParams(sorting)) params.append(key, value)
-  const asked = params.toString()
+  const asked = viewQuery(filters, sorting)
   return useInfiniteQuery({
     // Under `worksKey`, so a sync invalidating the library refetches a search
     // too.
@@ -294,4 +296,47 @@ export function useUpdateState(id: number) {
       void client.invalidateQueries({ queryKey: worksKey, exact: false, refetchType: 'none' })
     },
   })
+}
+
+export function useViews(): UseQueryResult<SavedView[], ApiError> {
+  return useQuery<SavedView[], ApiError>({
+    queryKey: viewsKey,
+    queryFn: ({ signal }) => api<SavedView[]>('/api/views', { signal }),
+    retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
+  })
+}
+
+/**
+ * Every change to the saved views, one mutation each. Each answers with what
+ * it changed, and the list is refetched rather than patched by hand: it is a
+ * handful of rows, and a reorder moves all of them.
+ */
+function useViewMutation<Variables, Result>(request: (variables: Variables) => Promise<Result>) {
+  const client = useQueryClient()
+  return useMutation<Result, ApiError, Variables>({
+    mutationFn: request,
+    onSuccess: () => client.invalidateQueries({ queryKey: viewsKey }),
+  })
+}
+
+export function useSaveView() {
+  return useViewMutation((view: { name: string; query: string }) =>
+    api<SavedView>('/api/views', { method: 'POST', body: view }),
+  )
+}
+
+export function useRenameView() {
+  return useViewMutation(({ id, name }: { id: number; name: string }) =>
+    api<SavedView>(`/api/views/${id}`, { method: 'PATCH', body: { name } }),
+  )
+}
+
+export function useReorderViews() {
+  return useViewMutation((ids: number[]) =>
+    api<SavedView[]>('/api/views/order', { method: 'PUT', body: { ids } }),
+  )
+}
+
+export function useDeleteView() {
+  return useViewMutation((id: number) => api<void>(`/api/views/${id}`, { method: 'DELETE' }))
 }

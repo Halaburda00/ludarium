@@ -9,6 +9,7 @@ import type {
   SyncOverview,
   SyncResult,
   SyncRun,
+  SavedView,
   WorkSummary,
   WorksPage,
 } from '@/lib/queries'
@@ -596,6 +597,9 @@ describe('a library that would not load', () => {
         if (String(input) === '/api/accounts') {
           return new Response(JSON.stringify(ACCOUNTS), { status: 200 })
         }
+        if (String(input) === '/api/views') {
+          return new Response(JSON.stringify([]), { status: 200 })
+        }
         attempt += 1
         return attempt <= 3
           ? new Response(JSON.stringify({ detail: 'the database is locked' }), { status: 503 })
@@ -667,6 +671,9 @@ describe('the sync button', () => {
         }
         if (path === '/api/accounts') {
           return new Response(JSON.stringify(ACCOUNTS), { status: 200 })
+        }
+        if (path === '/api/views') {
+          return new Response(JSON.stringify([]), { status: 200 })
         }
         if (path.startsWith('/api/sync')) {
           syncing = true
@@ -810,6 +817,9 @@ describe('the moment a sync answers', () => {
         const path = String(input)
         if (path === '/api/accounts') {
           return new Response(JSON.stringify(ACCOUNTS), { status: 200 })
+        }
+        if (path === '/api/views') {
+          return new Response(JSON.stringify([]), { status: 200 })
         }
         if (path === '/api/sync/runs') {
           return synced_
@@ -1217,5 +1227,164 @@ describe('the sort control', () => {
       expect(calls.map((call) => call.path)).toContain('/api/works?sort=playtime&order=desc'),
     )
     expect(screen.getByLabelText('Sort by')).toHaveDisplayValue('Hours played')
+  })
+})
+
+describe('saved views', () => {
+  const VIEWS: SavedView[] = [
+    { id: 1, name: 'Backlog', position: 0, query: 'status=not_started', dropped: [] },
+    {
+      id: 2,
+      name: 'Old one',
+      position: 1,
+      query: 'kind=dlc&sort=metacritic&order=desc',
+      dropped: ['platform=gog'],
+    },
+  ]
+  const BASE = {
+    'GET /api/sync/runs': { body: IDLE },
+    'GET /api/accounts': { body: ACCOUNTS },
+    'GET /api/works': { body: THREE },
+    'GET /api/views': { body: VIEWS },
+  }
+
+  it('opens as the link it stores, search and all replaced', async () => {
+    const calls = stubFetch({
+      ...BASE,
+      'GET /api/works?q=portal': { body: THREE },
+      'GET /api/works?status=not_started': { body: THREE },
+    })
+    renderApp(<Library />, { route: '/library?q=portal' })
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Backlog' }))
+
+    await vi.waitFor(() =>
+      expect(calls.map((call) => call.path)).toContain('/api/works?status=not_started'),
+    )
+    expect(screen.getByRole('button', { name: 'Backlog' })).toHaveAttribute('aria-current', 'true')
+    expect(screen.getByLabelText('Not started')).toBeChecked()
+    expect(screen.getByLabelText('Search')).toHaveValue('')
+  })
+
+  it('says what it opened without, while it is still what is on the screen', async () => {
+    stubFetch({
+      ...BASE,
+      'GET /api/works?kind=dlc&sort=metacritic&order=desc': { body: THREE },
+      'GET /api/works?kind=dlc&kind=game&sort=metacritic&order=desc': { body: THREE },
+    })
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Old one' }))
+
+    expect(await screen.findByText(/opened without .*platform=gog/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Sort by')).toHaveDisplayValue('Metacritic')
+
+    await userEvent.click(screen.getByLabelText('Game'))
+    await vi.waitFor(() => expect(screen.queryByText(/opened without/)).not.toBeInTheDocument())
+  })
+
+  it('names the view as it is now, and says nothing once it is deleted', async () => {
+    const routes = {
+      ...BASE,
+      'GET /api/views': { body: VIEWS },
+      'GET /api/works?kind=dlc&sort=metacritic&order=desc': { body: THREE },
+      'PATCH /api/views/2': { body: { ...VIEWS[1], name: 'Older one' } },
+      'DELETE /api/views/2': { status: 204 },
+    }
+    stubFetch(routes)
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Old one' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Edit views' }))
+    routes['GET /api/views'] = { body: [VIEWS[0], { ...VIEWS[1], name: 'Older one' }] }
+    const name = screen.getByLabelText('Name of “Old one”')
+    await userEvent.clear(name)
+    await userEvent.type(name, 'Older one{Enter}')
+
+    expect(await screen.findByText(/“Older one” opened without/)).toBeInTheDocument()
+
+    routes['GET /api/views'] = { body: [VIEWS[0]] }
+    await userEvent.click(screen.getByRole('button', { name: 'Delete “Older one”' }))
+
+    await vi.waitFor(() => expect(screen.queryByText(/opened without/)).not.toBeInTheDocument())
+  })
+
+  it('saves the filters and order on the screen under a name', async () => {
+    const calls = stubFetch({
+      ...BASE,
+      'GET /api/works?kind=dlc&sort=playtime&order=desc': { body: THREE },
+      'POST /api/views': { status: 201, body: { ...VIEWS[0], id: 3, name: 'DLC by play' } },
+    })
+    renderApp(<Library />, { route: '/library?kind=dlc&sort=playtime&order=desc&q=hades' })
+
+    await userEvent.type(await screen.findByLabelText('Name this view'), 'DLC by play')
+    await userEvent.click(screen.getByRole('button', { name: 'Save view' }))
+
+    await vi.waitFor(() =>
+      expect(calls.find((call) => call.method === 'POST')?.body).toEqual({
+        name: 'DLC by play',
+        query: 'kind=dlc&sort=playtime&order=desc',
+      }),
+    )
+    await vi.waitFor(() => expect(screen.getByLabelText('Name this view')).toHaveValue(''))
+  })
+
+  it('says why a save was refused', async () => {
+    stubFetch({
+      ...BASE,
+      'POST /api/views': { status: 409, body: { detail: 'there is already a view named “Backlog”' } },
+    })
+    renderApp(<Library />)
+
+    await userEvent.type(await screen.findByLabelText('Name this view'), 'Backlog')
+    await userEvent.click(screen.getByRole('button', { name: 'Save view' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('already a view named')
+  })
+
+  it('stops showing a refusal once something else has worked', async () => {
+    stubFetch({
+      ...BASE,
+      'POST /api/views': { status: 409, body: { detail: 'there is already a view named “Backlog”' } },
+      'DELETE /api/views/2': { status: 204 },
+    })
+    renderApp(<Library />)
+
+    await userEvent.type(await screen.findByLabelText('Name this view'), 'Backlog')
+    await userEvent.click(screen.getByRole('button', { name: 'Save view' }))
+    expect(await screen.findByText(/already a view named/)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit views' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete “Old one”' }))
+
+    await vi.waitFor(() =>
+      expect(screen.queryByText(/already a view named/)).not.toBeInTheDocument(),
+    )
+  })
+
+  it('moves, renames and deletes, each through the API', async () => {
+    const calls = stubFetch({
+      ...BASE,
+      'PUT /api/views/order': { body: [VIEWS[1], VIEWS[0]] },
+      'PATCH /api/views/1': { body: { ...VIEWS[0], name: 'Pile of shame' } },
+      'DELETE /api/views/2': { status: 204 },
+    })
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit views' }))
+    expect(screen.getByRole('button', { name: 'Move “Backlog” up' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Move “Backlog” down' }))
+    const name = screen.getByLabelText('Name of “Backlog”')
+    await userEvent.clear(name)
+    await userEvent.type(name, 'Pile of shame{Enter}')
+    await userEvent.click(screen.getByRole('button', { name: 'Delete “Old one”' }))
+
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => call.method !== 'GET')).toEqual([
+        expect.objectContaining({ method: 'PUT', body: { ids: [2, 1] } }),
+        expect.objectContaining({ method: 'PATCH', body: { name: 'Pile of shame' } }),
+        expect.objectContaining({ method: 'DELETE', path: '/api/views/2' }),
+      ]),
+    )
   })
 })

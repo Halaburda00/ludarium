@@ -188,6 +188,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Listing */
+        get: operations["listing_api_views_get"];
+        put?: never;
+        /**
+         * Create
+         * @description Saved at the end of the list, in the canonical form it is read back in.
+         *
+         *     Stricter than reading: what is being saved now should be all understood
+         *     now, so anything that would be dropped is refused instead. Dropping it here
+         *     would save a different view than the one on the screen, without a word.
+         */
+        post: operations["create_api_views_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/views/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Reorder
+         * @description Every view, each once. Anything else is a list from before a view was added or deleted.
+         *
+         *     A 409 rather than a best effort: placing the views it names and leaving
+         *     the rest wherever they fall would be an order nobody chose.
+         */
+        put: operations["reorder_api_views_order_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/views/{view_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete */
+        delete: operations["delete_api_views__view_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename */
+        patch: operations["rename_api_views__view_id__patch"];
+        trace?: never;
+    };
     "/api/works": {
         parameters: {
             query?: never;
@@ -430,6 +496,7 @@ export interface components {
             /** Username */
             username: string;
         };
+        Name: string;
         /**
          * PlayStatus
          * @enum {string}
@@ -448,6 +515,19 @@ export interface components {
             /** Last Success At */
             last_success_at: string | null;
             status: components["schemas"]["SyncStatus"];
+        };
+        /** SavedViewResponse */
+        SavedViewResponse: {
+            /** Dropped */
+            dropped: string[];
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Position */
+            position: number;
+            /** Query */
+            query: string;
         };
         /**
          * Score
@@ -613,6 +693,24 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** ViewCreate */
+        ViewCreate: {
+            name: components["schemas"]["Name"];
+            /** Query */
+            query: string;
+        };
+        /**
+         * ViewOrder
+         * @description Every view's id, in the order they should be listed.
+         */
+        ViewOrder: {
+            /** Ids */
+            ids: number[];
+        };
+        /** ViewRename */
+        ViewRename: {
+            name: components["schemas"]["Name"];
         };
         /**
          * WorkDetail
@@ -968,6 +1066,175 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SyncResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listing_api_views_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedViewResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_api_views_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedViewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reorder_api_views_order_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewOrder"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedViewResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_api_views__view_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view_id: number;
+            };
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_api_views__view_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                view_id: number;
+            };
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewRename"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedViewResponse"];
                 };
             };
             /** @description Validation Error */

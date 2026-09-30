@@ -473,17 +473,28 @@ separate from `work` so that a metadata refresh can never touch it.
 #### `saved_view`
 
 M3 stores filter state in the URL; a saved view is that query string with a
-name on it.
+name on it (#95). It stores the question, never the answer: opening a view
+re-runs it against the library as it is now.
+
+Read back through the listing's own parameter model, one value at a time. A
+value the listing no longer takes — a removed filter, a platform gone from the
+seed, a renamed order — is left out and named in the response's `dropped`, so
+the view opens without it rather than failing over it. Saving is stricter: a
+query with anything that would be dropped is refused, because saving it would
+store a different view from the one on the screen.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
 | `id` | INTEGER | no | PK | |
 | `user_id` | INTEGER | no | `1` | |
 | `name` | TEXT | no | | `UNIQUE (user_id, name)` |
-| `query` | TEXT | no | | The URL query string, parsed through the same filter registry as a live request |
-| `is_default` | BOOLEAN | no | `false` | |
-| `position` | INTEGER | no | `0` | Manual ordering in the sidebar |
+| `query` | TEXT | no | | The URL query string, filters and order only, parsed through the same filter registry as a live request. Stored in canonical form: declaration order, defaults left out |
+| `position` | INTEGER | no | `0` | Manual ordering. Not unique: a reorder rewrites every row, and a unique position would collide with itself halfway through. Ties list by `id` |
 | `created_at` | TIMESTAMP | no | `now()` | |
+| `updated_at` | TIMESTAMP | no | `now()` | |
+
+`is_default`, a view the library opens with, was planned here and is not in
+the table: nothing asks for it yet, and it arrives with the feature that does.
 
 ### Provenance
 
