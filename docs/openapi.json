@@ -191,6 +191,14 @@
         "title": "Credit",
         "type": "object"
       },
+      "Direction": {
+        "enum": [
+          "asc",
+          "desc"
+        ],
+        "title": "Direction",
+        "type": "string"
+      },
       "EntitlementSummary": {
         "description": "One copy the user owns, and where it came from. The platform column of the table.",
         "properties": {
@@ -451,6 +459,18 @@
         ],
         "title": "SessionResponse",
         "type": "object"
+      },
+      "Sort": {
+        "enum": [
+          "title",
+          "metacritic",
+          "steam_reviews",
+          "playtime",
+          "last_played",
+          "release_date"
+        ],
+        "title": "Sort",
+        "type": "string"
       },
       "StateUpdate": {
         "additionalProperties": false,
@@ -1586,7 +1606,7 @@
     },
     "/api/works": {
       "get": {
-        "description": "One page, keyed on `(sort_key, id)` rather than an offset.\n\nAn offset re-reads and discards every row before the page, so the last page\nof a large library costs the most; and a sync landing a new title mid-scroll\nshifts every later page by one, which shows up as a duplicated or skipped\nrow. A keyset does neither: `ix_work_sort_key_id` seeks straight to the\nposition and the page is defined by content rather than by count.\n\nThe key and not `sort_title` itself, because the database compares bytes:\n\"ARC Raiders\" would file ahead of \"Amnesia\", and a trademark sign would split\none series into two blocks (ADR-0018).\n\n`q` and the filters narrow the listing without changing its order or its\ncursor: a filtered page is still keyed on `(sort_key, id)`, so a search\npages as the library does. The filters are declared in `ludarium.filters`.",
+        "description": "One page, keyed on the order's value, `sort_key` and `id` rather than an offset.\n\nAn offset re-reads and discards every row before the page, so the last page\nof a large library costs the most; and a sync landing a new title mid-scroll\nshifts every later page by one, which shows up as a duplicated or skipped\nrow. A keyset does neither: `ix_work_sort_key_id` seeks straight to the\nposition and the page is defined by content rather than by count.\n\nThe key and not `sort_title` itself, because the database compares bytes:\n\"ARC Raiders\" would file ahead of \"Amnesia\", and a trademark sign would split\none series into two blocks (ADR-0018).\n\n`q` and the filters narrow the listing without changing its order or its\ncursor: a filtered page is keyed as the unfiltered one is, so a search\npages as the library does. The filters are declared in `ludarium.filters`,\nthe orders in `ludarium.sorting`.",
         "operationId": "listing_api_works_get",
         "parameters": [
           {
@@ -1789,6 +1809,24 @@
                 }
               ],
               "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Sort",
+              "default": "title"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Direction",
+              "default": "asc"
             }
           },
           {

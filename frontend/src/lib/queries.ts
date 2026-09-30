@@ -12,6 +12,7 @@ import {
 
 import { api, ApiError } from '@/lib/api'
 import { apiParams, NO_FILTERS, type Filters } from '@/lib/filters'
+import { DEFAULT_SORTING, sortParams, type Sorting } from '@/lib/sorting'
 import type { components } from '@/lib/api-types'
 
 /**
@@ -210,7 +211,7 @@ export function useEnrichment(): UseQueryResult<SyncOverview, ApiError> {
  * The library, a page at a time, following the cursor the API hands back.
  *
  * `useInfiniteQuery` rather than a page number held in state: the backend keys
- * its pages on a folded title and an id, and there is no arithmetic that turns
+ * its pages on the order's value, a folded title and an id, and there is no arithmetic that turns
  * "page 3" into that key. Every loaded page stays in one cache entry, so a sync
  * invalidating `worksKey` refetches what the user is actually looking at rather
  * than dropping them back to the top.
@@ -218,10 +219,14 @@ export function useEnrichment(): UseQueryResult<SyncOverview, ApiError> {
 export function useWorks(
   search = '',
   filters: Filters = NO_FILTERS,
+  sorting: Sorting = DEFAULT_SORTING,
 ): UseInfiniteQueryResult<InfiniteData<WorksPage>, ApiError> {
   // Keyed on the query string the API will be sent, so two filter states that
-  // ask the same question share a cache entry.
-  const asked = apiParams(filters).toString()
+  // ask the same question share a cache entry. The order is in it too: a
+  // cursor is a position in one order, and the API refuses it in another.
+  const params = apiParams(filters)
+  for (const [key, value] of sortParams(sorting)) params.append(key, value)
+  const asked = params.toString()
   return useInfiniteQuery({
     // Under `worksKey`, so a sync invalidating the library refetches a search
     // too.

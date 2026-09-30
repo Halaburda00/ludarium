@@ -9,6 +9,21 @@ from ludarium.models.base import Base
 from ludarium.models.types import CreatedAt, UpdatedAt, enum_column
 
 
+def _ordered_by(column: str) -> tuple[Index, Index]:
+    """The two indexes a listing order over `column` seeks on, one per direction.
+
+    Shaped as `ludarium.sorting` orders: nulls last, then the value, then the
+    title ascending in either direction. A row-value index read backwards would
+    put the nulls first and the titles Z to A, so each direction has its own.
+    """
+
+    nulls = text(f"{column} IS NULL")
+    return (
+        Index(f"ix_work_{column}_asc", nulls, column, "sort_key", "id"),
+        Index(f"ix_work_{column}_desc", nulls, text(f"{column} DESC"), "sort_key", "id"),
+    )
+
+
 class Work(Base):
     """The canonical title, IGDB-anchored once matched.
 
@@ -30,6 +45,15 @@ class Work(Base):
         # 1 ms, and one that matches nothing in 8. An index on `item_kind` or
         # `release_year` made the planner seek and then sort, which took 3 ms.
         Index("ix_work_sort_key_id", "sort_key", "id"),
+        # The other orders over `work`'s own columns (#94). Without them each
+        # page sorted every work: 42 ms for the first page of 20,000, measured,
+        # against 1.1 ms with them at any depth. Playtime and last played have
+        # none, and cannot use one: they are on `user_work_state`, which the
+        # listing outer-joins, and SQLite does not drive a LEFT JOIN from its
+        # right side. They sort every page, 37 ms at 20,000 works.
+        *_ordered_by("metacritic_score"),
+        *_ordered_by("steam_review_percent"),
+        *_ordered_by("release_date"),
         Index(
             "uq_work_igdb_id",
             "igdb_id",

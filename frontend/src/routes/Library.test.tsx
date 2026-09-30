@@ -1161,3 +1161,61 @@ function Back() {
   const navigate = useNavigate()
   return <button onClick={() => void navigate(-1)}>Back</button>
 }
+
+describe('the sort control', () => {
+  const BASE = {
+    'GET /api/sync/runs': { body: IDLE },
+    'GET /api/accounts': { body: ACCOUNTS },
+    'GET /api/works': { body: THREE },
+  }
+
+  it('starts a score at the best, and turns it round on request', async () => {
+    const calls = stubFetch({
+      ...BASE,
+      'GET /api/works?sort=metacritic&order=desc': { body: THREE },
+      'GET /api/works?sort=metacritic': { body: THREE },
+    })
+    renderApp(<Library />)
+
+    await userEvent.selectOptions(await screen.findByLabelText('Sort by'), 'Metacritic')
+    await vi.waitFor(() =>
+      expect(calls.map((call) => call.path)).toContain('/api/works?sort=metacritic&order=desc'),
+    )
+    expect(screen.getByLabelText('Order')).toHaveDisplayValue('Highest first')
+
+    await userEvent.selectOptions(screen.getByLabelText('Order'), 'Lowest first')
+    await vi.waitFor(() =>
+      expect(calls.map((call) => call.path)).toContain('/api/works?sort=metacritic'),
+    )
+  })
+
+  it('opens a shared link in its order, beside its filters', async () => {
+    const calls = stubFetch({
+      ...BASE,
+      'GET /api/works?kind=dlc&sort=last_played&order=desc': { body: THREE },
+    })
+    renderApp(<Library />, { route: '/library?kind=dlc&sort=last_played&order=desc&sort=bogus' })
+
+    expect(await screen.findByText('Portal 2')).toBeInTheDocument()
+    expect(screen.getByLabelText('Sort by')).toHaveDisplayValue('Last played')
+    expect(screen.getByLabelText('Order')).toHaveDisplayValue('Most recent first')
+    expect(calls.filter((call) => call.path.startsWith('/api/works'))).toHaveLength(1)
+  })
+
+  it('is not a filter, so clearing the filters keeps it', async () => {
+    const calls = stubFetch({
+      ...BASE,
+      'GET /api/works?kind=dlc&sort=playtime&order=desc': { body: THREE },
+      'GET /api/works?sort=playtime&order=desc': { body: THREE },
+    })
+    renderApp(<Library />, { route: '/library?kind=dlc&sort=playtime&order=desc' })
+
+    expect(await screen.findByText('Filters (1 on)')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+
+    await vi.waitFor(() =>
+      expect(calls.map((call) => call.path)).toContain('/api/works?sort=playtime&order=desc'),
+    )
+    expect(screen.getByLabelText('Sort by')).toHaveDisplayValue('Hours played')
+  })
+})

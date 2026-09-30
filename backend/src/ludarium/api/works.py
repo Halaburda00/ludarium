@@ -19,7 +19,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import ColumnElement, Select, literal, select, tuple_
+from sqlalchemy import ColumnElement, Select, select
 
 from ludarium.auth import CurrentSession
 from ludarium.db import SessionDep
@@ -39,6 +39,7 @@ from ludarium.models import (
 )
 from ludarium.models.types import utcnow
 from ludarium.queries import owned_by
+from ludarium.sorting import INTEGERS, Direction, Ordering, Sort, SortValue
 from ludarium.titles import search_key
 
 DEFAULT_LIMIT: Final = 100
@@ -55,7 +56,11 @@ FINISHED: Final = frozenset({PlayStatus.COMPLETED, PlayStatus.MASTERED})
 # — the same shape as `[sort_key, id]`, and a position in a different order.
 # Accepted, one would page from wherever its title happened to compare, which is
 # the made-up cursor `_after` exists to turn away.
-CURSOR_VERSION: Final = 2
+#
+# Version 3 names the order it is a position in, so a cursor taken under one
+# order and replayed under another is refused rather than read as a position
+# in the wrong one: a Metacritic score of 85 is also a playtime of 85 minutes.
+CURSOR_VERSION: Final = 3
 # Where Metacritic scores come from, and whose page each one links to.
 SCORE_SOURCE: Final = "rawg"
 # Whose store page a Steam review score links to, and where on it the reviews
@@ -85,6 +90,9 @@ class ListingParams(LibraryFilters):
     # before it is judged, and there is no reason to decode a megabyte first.
     cursor: str | None = Field(default=None, max_length=MAX_CURSOR)
     q: str | None = Field(default=None, max_length=MAX_QUERY)
+    # Not filters, and so not on `LibraryFilters`: they carry no predicate.
+    sort: Sort = Sort.TITLE
+    order: Direction = Direction.ASC
 
 
 class EntitlementSummary(BaseModel):
@@ -217,11 +225,13 @@ class WorksPage(BaseModel):
     next_cursor: str | None
 
 
-def _cursor(work: Work) -> str:
-    return urlsafe_b64encode(json.dumps([CURSOR_VERSION, work.sort_key, work.id]).encode()).decode()
+def _cursor(ordering: Ordering, work: Work, state: UserWorkState | None) -> str:
+    value = ordering.encode(ordering.value_of(work, state))
+    position = [CURSOR_VERSION, ordering.sort, ordering.direction, value, work.sort_key, work.id]
+    return urlsafe_b64encode(json.dumps(position).encode()).decode()
 
 
-def _after(cursor: str) -> tuple[str, int]:
+def _after(cursor: str, ordering: Ordering) -> tuple[SortValue, str, int]:
     try:
         decoded = json.loads(urlsafe_b64decode(cursor.encode()))
         match decoded:
@@ -229,11 +239,22 @@ def _after(cursor: str) -> tuple[str, int]:
             # almost anything, and `int(3.7)` silently becomes 3 — a made-up
             # cursor would then page from somewhere nobody chose, which is worse
             # than being refused. `bool` is an `int` and is excluded by name.
-            case [int() as version, str() as key, int() as work_id] if (
-                version == CURSOR_VERSION and not isinstance(work_id, bool)
+            case [
+                int() as version,
+                str() as sort,
+                str() as order,
+                raw,
+                str() as key,
+                int() as work_id,
+            ] if (
+                version == CURSOR_VERSION
+                and sort == ordering.sort
+                and order == ordering.direction
+                and not isinstance(work_id, bool)
+                and work_id in INTEGERS
             ):
-                return key, work_id
-        raise ValueError("a cursor is a version, a key and an id")
+                return ordering.decode(raw), key, work_id
+        raise ValueError("a cursor is a version, an order, a value, a key and an id")
     except (ValueError, TypeError, binascii.Error) as exc:
         # No detail about what was wrong with it: a cursor is ours, and a client
         # that made one up has nothing to learn from the answer.
@@ -273,7 +294,7 @@ async def listing(
     record: CurrentSession,
     params: Annotated[ListingParams, Query()],
 ) -> WorksPage:
-    """One page, keyed on `(sort_key, id)` rather than an offset.
+    """One page, keyed on the order's value, `sort_key` and `id` rather than an offset.
 
     An offset re-reads and discards every row before the page, so the last page
     of a large library costs the most; and a sync landing a new title mid-scroll
@@ -286,14 +307,16 @@ async def listing(
     one series into two blocks (ADR-0018).
 
     `q` and the filters narrow the listing without changing its order or its
-    cursor: a filtered page is still keyed on `(sort_key, id)`, so a search
-    pages as the library does. The filters are declared in `ludarium.filters`.
+    cursor: a filtered page is keyed as the unfiltered one is, so a search
+    pages as the library does. The filters are declared in `ludarium.filters`,
+    the orders in `ludarium.sorting`.
     """
 
     user_id, limit, cursor = record.user_id, params.limit, params.cursor
+    ordering = Ordering(params.sort, params.order)
     page = (
         _owned_works(user_id)
-        .order_by(Work.sort_key, Work.id)
+        .order_by(*ordering.order_by())
         # One more than asked for, so "is there a next page" is answered without
         # a count and without handing the client an empty page to discover it.
         .limit(limit + 1)
@@ -303,8 +326,7 @@ async def listing(
         page = page.where(_matches(wanted, user_id))
     page = page.where(*params.predicates(user_id))
     if cursor is not None:
-        key, work_id = _after(cursor)
-        page = page.where(tuple_(Work.sort_key, Work.id) > tuple_(literal(key), literal(work_id)))
+        page = page.where(ordering.after(*_after(cursor, ordering)))
 
     rows = list((await session.execute(page)).tuples())
     has_more = len(rows) > limit
@@ -318,7 +340,7 @@ async def listing(
         # have no last kept row and no cursor, and the client would stop with
         # the rest of the library unread. A row skipped at a page boundary shows
         # up again on the next refresh; a truncated library does not.
-        next_cursor=_cursor(rows[-1][0]) if has_more else None,
+        next_cursor=_cursor(ordering, rows[-1][0], rows[-1][1]) if has_more else None,
     )
 
 

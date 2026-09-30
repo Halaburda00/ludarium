@@ -3,11 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { FilterPanel } from '@/components/FilterPanel'
+import { SortControl } from '@/components/SortControl'
 import { ThemePicker } from '@/components/ThemePicker'
 import { WorksGrid } from '@/components/WorksGrid'
 import { Button } from '@/components/ui/button'
 import { Field, Notice } from '@/components/ui/field'
 import { activeCount, NO_FILTERS, readFilters, writeFilters, type Filters } from '@/lib/filters'
+import { readSorting, writeSorting, type Sorting } from '@/lib/sorting'
 import {
   useAccounts,
   useEnrichment,
@@ -56,7 +58,10 @@ export default function Library() {
   const filters = readFilters(params)
   const filtered = activeCount(filters) > 0
   const setFilters = (next: Filters) => setParams((current) => writeFilters(next, current))
-  const works = useWorks(search, filters)
+  // Beside the filters in the address and in the history, and not one of them.
+  const sorting = readSorting(params)
+  const setSorting = (next: Sorting) => setParams((current) => writeSorting(next, current))
+  const works = useWorks(search, filters, sorting)
   const sync = useSync()
   const overview = useEnrichment()
   const accounts = useAccounts()
@@ -287,15 +292,19 @@ export default function Library() {
 
       {shown && !(exhausted && loaded.length === 0) ? (
         <>
-          <p className="text-sm text-muted-foreground">
-            {/* Counted honestly: with a page still unfetched this is what has
-                been loaded, not what the library holds, and saying "40 games"
-                over the first page of four hundred is simply wrong. */}
-            {t(search || filtered ? 'library.matches' : 'library.count', {
-              count: loaded.length,
-              context: works.hasNextPage ? 'partial' : undefined,
-            })}
-          </p>
+          {/* Only over something to order: an empty grid has no order to change. */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              {/* Counted honestly: with a page still unfetched this is what has
+                  been loaded, not what the library holds, and saying "40 games"
+                  over the first page of four hundred is simply wrong. */}
+              {t(search || filtered ? 'library.matches' : 'library.count', {
+                count: loaded.length,
+                context: works.hasNextPage ? 'partial' : undefined,
+              })}
+            </p>
+            <SortControl sorting={sorting} onChange={setSorting} />
+          </div>
           <WorksGrid
             works={loaded}
             hasMore={works.hasNextPage}

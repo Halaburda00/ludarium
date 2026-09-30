@@ -7,8 +7,8 @@ in SQL without a place in the schema. Adding one is adding a field.
 
 The predicates are written against `_owned_works` in `api.works`: `Work` in the
 FROM clause and `UserWorkState` outer-joined for this user. They narrow the
-listing and never reorder it, so a filtered page is still keyed on
-`(sort_key, id)` and pages as the library does.
+listing and never reorder it, so a filtered page is keyed as the unfiltered
+one is, in whichever order was asked for, and pages as the library does.
 
 A null is "not known", never zero or "every value". SQL's comparison already
 behaves that way — `NULL >= 80` is not true — and each predicate is written so

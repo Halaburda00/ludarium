@@ -72,7 +72,13 @@ def test_startup_against_a_schema_older_than_the_code_says_what_to_run(
     engine = create_engine(sync_url(settings.database_url))
     try:
         with engine.begin() as connection:
-            connection.execute(text("DROP INDEX ix_work_sort_key_id"))
+            # Every index over the key, which the listing's orders all end on.
+            for (name,) in connection.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type = 'index' AND sql LIKE '%sort_key%'"
+                )
+            ).all():
+                connection.execute(text(f"DROP INDEX {name}"))
             connection.execute(text("ALTER TABLE work DROP COLUMN sort_key"))
     finally:
         engine.dispose()

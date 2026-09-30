@@ -963,6 +963,7 @@ through `EXISTS` over `entitlement_work` → `entitlement`.
 | DLC folding | `work (parent_work_id) WHERE parent_work_id IS NOT NULL` |
 | Search | None. A substring of `work.title_key`, or of a live copy's `entitlement.provider_title_key`, which a leading wildcard keeps off any B-tree; 14 ms at 20 000 works when nothing matches. A `pg_trgm` GIN on both key columns if a library ever needs one (ADR-0028) |
 | Default grid order | `work (sort_key, id)` — keyset pagination for the virtualised grid (ADR-0018) |
+| Other grid orders | `work (col IS NULL, col, sort_key, id)` and `(col IS NULL, col DESC, sort_key, id)` for `metacritic_score`, `steam_review_percent` and `release_date`: nulls last, ties A to Z in both directions. Without them a page sorted every work, 42 ms at 20 000; with them 1.1 ms at any depth. Playtime and last played have none: `user_work_state` is outer-joined, and SQLite does not drive a LEFT JOIN from its right side, so those two sort every page, 37 ms at 20 000 works (#94) |
 
 ### Structural indexes
 

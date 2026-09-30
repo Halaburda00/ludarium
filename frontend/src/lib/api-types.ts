@@ -197,7 +197,7 @@ export interface paths {
         };
         /**
          * Listing
-         * @description One page, keyed on `(sort_key, id)` rather than an offset.
+         * @description One page, keyed on the order's value, `sort_key` and `id` rather than an offset.
          *
          *     An offset re-reads and discards every row before the page, so the last page
          *     of a large library costs the most; and a sync landing a new title mid-scroll
@@ -210,8 +210,9 @@ export interface paths {
          *     one series into two blocks (ADR-0018).
          *
          *     `q` and the filters narrow the listing without changing its order or its
-         *     cursor: a filtered page is still keyed on `(sort_key, id)`, so a search
-         *     pages as the library does. The filters are declared in `ludarium.filters`.
+         *     cursor: a filtered page is keyed as the unfiltered one is, so a search
+         *     pages as the library does. The filters are declared in `ludarium.filters`,
+         *     the orders in `ludarium.sorting`.
          */
         get: operations["listing_api_works_get"];
         put?: never;
@@ -359,6 +360,11 @@ export interface components {
             roles: components["schemas"]["CompanyRole"][];
         };
         /**
+         * Direction
+         * @enum {string}
+         */
+        Direction: "asc" | "desc";
+        /**
          * EntitlementSummary
          * @description One copy the user owns, and where it came from. The platform column of the table.
          */
@@ -472,6 +478,11 @@ export interface components {
             /** Username */
             username: string;
         };
+        /**
+         * Sort
+         * @enum {string}
+         */
+        Sort: "title" | "metacritic" | "steam_reviews" | "playtime" | "last_played" | "release_date";
         /**
          * StateUpdate
          * @description Any subset of what the user decides about a work.
@@ -986,6 +997,8 @@ export interface operations {
                 limit?: number;
                 cursor?: string | null;
                 q?: string | null;
+                sort?: components["schemas"]["Sort"];
+                order?: components["schemas"]["Direction"];
             };
             header?: never;
             path?: never;
