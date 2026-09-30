@@ -34,8 +34,9 @@ def _ordered_by(name: str, value: str) -> tuple[Index, Index]:
     )
 
 
-# `sorting.STEAM_SCORE`: the percentage, where the store gave a verdict.
-STEAM_SCORE = "CASE WHEN steam_review_rating IS NOT NULL THEN steam_review_percent END"
+# `scores.steam_score` at the default threshold: the percentage over at least
+# ten reviews. Another threshold is another expression, and sorts (#108).
+STEAM_SCORE = "CASE WHEN steam_review_count >= 10 THEN steam_review_percent END"
 
 
 class Work(Base):

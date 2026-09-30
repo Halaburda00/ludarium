@@ -1168,7 +1168,44 @@ describe('the filter panel, as it is used', () => {
     await vi.waitFor(() =>
       expect(calls.map((call) => call.path)).toContain('/api/works?steam_min=90'),
     )
-    expect(from).toHaveAccessibleDescription(/too few reviews/)
+    expect(from).toHaveAccessibleDescription(/at least 10 reviews/)
+  })
+
+  it('lowers the review threshold, and says what it now counts', async () => {
+    const calls = stubFetch({
+      ...BASE,
+      'GET /api/works?steam_min=90': { body: THREE },
+      'GET /api/works?steam_min=90&steam_reviews_min=1': { body: THREE },
+    })
+    renderApp(<Library />, { route: '/library?steam_min=90' })
+
+    const threshold = await screen.findByLabelText('Minimum reviews')
+    expect(threshold).toHaveValue(10)
+    await userEvent.clear(threshold)
+    await userEvent.type(threshold, '1{Enter}')
+
+    await vi.waitFor(() =>
+      expect(calls.map((call) => call.path)).toContain(
+        '/api/works?steam_min=90&steam_reviews_min=1',
+      ),
+    )
+    expect(screen.getByLabelText('Steam reviews (%) from')).toHaveAccessibleDescription(
+      /at least 1 review\./,
+    )
+    // A setting, not a filter: the count is the Steam range alone.
+    expect(screen.getByText('Filters (1 on)')).toBeInTheDocument()
+  })
+
+  it('clears a changed review threshold like any filter, without counting it as one', async () => {
+    const calls = stubFetch({ ...BASE, 'GET /api/works?steam_reviews_min=50': { body: THREE } })
+    renderApp(<Library />, { route: '/library?steam_reviews_min=50' })
+
+    expect(await screen.findByLabelText('Minimum reviews')).toHaveValue(50)
+    expect(screen.getByText('Filters')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+
+    await vi.waitFor(() => expect(screen.getByLabelText('Minimum reviews')).toHaveValue(10))
+    expect(calls.map((call) => call.path)).toContain('/api/works')
   })
 
   it('turns typed hours into the minutes the API filters on', async () => {

@@ -242,3 +242,21 @@ async def test_a_value_repeated_past_the_list_bound_is_read_once(
         "kind=game",
         "kind=game",
     ]
+
+
+def test_a_view_keeps_a_steam_threshold_only_when_it_is_not_the_default(
+    signed_in: TestClient,
+) -> None:
+    assert (
+        save(signed_in, "Default", "steam_min=90&steam_reviews_min=10")["query"] == "steam_min=90"
+    )
+    assert (
+        save(signed_in, "Small games", "steam_min=90&steam_reviews_min=1")["query"]
+        == "steam_min=90&steam_reviews_min=1"
+    )
+    assert (
+        signed_in.post(
+            "/api/views", json={"name": "Zero", "query": "steam_reviews_min=0"}
+        ).status_code
+        == 422
+    )

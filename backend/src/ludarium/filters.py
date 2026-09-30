@@ -14,6 +14,10 @@ A null is "not known", never zero or "every value". SQL's comparison already
 behaves that way — `NULL >= 80` is not true — and each predicate is written so
 it keeps doing so. A work with no Metacritic score is not a work scored below
 every threshold.
+
+A field may be a `Setting` instead: a value that changes what other filters
+mean without narrowing anything itself, as `steam_reviews_min` sets how many
+reviews a Steam score needs before a Steam range counts it.
 """
 
 from collections.abc import Callable, Iterator
@@ -27,6 +31,7 @@ from sqlalchemy import ColumnElement, false, func, select, true
 from ludarium.enums import ItemKind, PlayStatus, ProviderKind
 from ludarium.models import Account, Entitlement, EntitlementWork, Provider, UserWorkState, Work
 from ludarium.queries import owned_by
+from ludarium.scores import DEFAULT_STEAM_REVIEWS, MAX_STEAM_REVIEWS, steam_score
 from ludarium.seed import PROVIDER_SEED
 
 # The widest a list parameter may be. Longer than any real selection — there
@@ -61,13 +66,27 @@ def _known_platforms(keys: list[str]) -> list[str]:
 
 
 @dataclass(frozen=True, slots=True)
+class Scope:
+    """What a predicate may need beside its own value."""
+
+    user_id: int
+    # `LibraryFilters.steam_reviews_min`.
+    steam_reviews: int
+
+
+@dataclass(frozen=True, slots=True)
 class Predicate:
-    """What a filter's value means in SQL, given the user whose library it narrows."""
+    """What a filter's value means in SQL, given the library it narrows."""
 
-    build: Callable[[Any, int], ColumnElement[bool]]
+    build: Callable[[Any, Scope], ColumnElement[bool]]
 
 
-def _on_platform(keys: list[str], user_id: int) -> ColumnElement[bool]:
+@dataclass(frozen=True, slots=True)
+class Setting:
+    """A field that narrows nothing itself; the predicates read it from their `Scope`."""
+
+
+def _on_platform(keys: list[str], scope: Scope) -> ColumnElement[bool]:
     # A live copy, by the same `owned_by` the listing itself uses: a work kept
     # by its Steam copy does not match GOG because its GOG copy was removed.
     return (
@@ -75,7 +94,7 @@ def _on_platform(keys: list[str], user_id: int) -> ColumnElement[bool]:
         .join(Entitlement, Entitlement.id == EntitlementWork.entitlement_id)
         .join(Account, Account.id == Entitlement.account_id)
         .join(Provider, Provider.id == Account.provider_id)
-        .where(EntitlementWork.work_id == Work.id, *owned_by(user_id), Provider.key.in_(keys))
+        .where(EntitlementWork.work_id == Work.id, *owned_by(scope.user_id), Provider.key.in_(keys))
         .exists()
     )
 
@@ -87,18 +106,18 @@ _status = func.coalesce(UserWorkState.play_status, PlayStatus.NOT_STARTED.value)
 _hidden = func.coalesce(UserWorkState.is_hidden, false())
 
 
-def _steam_score(bound: Callable[[Any], ColumnElement[bool]]) -> Predicate:
-    """A bound on the Steam score, counted only where Steam gave a verdict.
+def _on_steam(
+    bound: Callable[[ColumnElement[Any], int], ColumnElement[bool]],
+) -> Predicate:
+    """A bound on the Steam score, counted only over enough reviews (`ludarium.scores`).
 
-    Below a handful of reviews the store gives no verdict and the rating is
-    null, while the percentage is still there: 100% of three reviews. That is
-    not a better game than 94% of fifty thousand, so a work without a verdict
-    matches no range, as a work with no score at all does. The percentage and
-    the verdict are written together from one app (ADR-0027), so the two
-    columns are read as they are, and nothing is recomputed.
+    100% of three reviews is not a better game than 94% of fifty thousand, so a
+    score under the threshold matches no range, as a work with no score at all
+    does. The same expression orders the listing, so the filter and the sort
+    agree on which scores count.
     """
 
-    return Predicate(lambda percent, _: Work.steam_review_rating.is_not(None) & bound(percent))
+    return Predicate(lambda percent, scope: bound(steam_score(scope.steam_reviews), percent))
 
 
 class Hidden(StrEnum):
@@ -111,7 +130,7 @@ class Hidden(StrEnum):
     ONLY = "only"
 
 
-def _on_hidden(hidden: Hidden, _: int) -> ColumnElement[bool]:
+def _on_hidden(hidden: Hidden, _: Scope) -> ColumnElement[bool]:
     match hidden:
         case Hidden.EXCLUDE:
             return _hidden.is_(false())
@@ -146,16 +165,23 @@ class LibraryFilters(BaseModel):
         Field(default=None, ge=0, le=100),
         Predicate(lambda score, _: Work.metacritic_score <= score),
     ]
-    # Percent positive, over the store's own verdict (`_steam_score`).
+    # Percent positive, over at least `steam_reviews_min` reviews (`_on_steam`).
     steam_min: Annotated[
         int | None,
         Field(default=None, ge=0, le=100),
-        _steam_score(lambda percent: Work.steam_review_percent >= percent),
+        _on_steam(lambda score, percent: score >= percent),
     ]
     steam_max: Annotated[
         int | None,
         Field(default=None, ge=0, le=100),
-        _steam_score(lambda percent: Work.steam_review_percent <= percent),
+        _on_steam(lambda score, percent: score <= percent),
+    ]
+    # How many reviews a Steam score needs to count, in the ranges above and in
+    # the Steam order. Under it the score is no score; the work stays listed.
+    steam_reviews_min: Annotated[
+        int,
+        Field(default=DEFAULT_STEAM_REVIEWS, ge=1, le=MAX_STEAM_REVIEWS),
+        Setting(),
     ]
     year_min: Annotated[
         int | None,
@@ -199,17 +225,21 @@ class LibraryFilters(BaseModel):
     def predicates(self, user_id: int) -> Iterator[ColumnElement[bool]]:
         """One clause per filter that was set, in declaration order."""
 
+        scope = Scope(user_id=user_id, steam_reviews=self.steam_reviews_min)
         # The filters' own fields, not a subclass's: `ListingParams` adds the
         # page and the search, which are not filters and carry no predicate.
         for name, field in LibraryFilters.model_fields.items():
             value = getattr(self, name)
-            if value is None or value == []:
+            predicate = _predicate_of(name, field.metadata)
+            if predicate is None or value is None or value == []:
                 continue
-            yield _predicate_of(name, field.metadata).build(value, user_id)
+            yield predicate.build(value, scope)
 
 
-def _predicate_of(name: str, metadata: list[Any]) -> Predicate:
-    found = [item for item in metadata if isinstance(item, Predicate)]
+def _predicate_of(name: str, metadata: list[Any]) -> Predicate | None:
+    """The field's predicate, or None for a setting. Exactly one of the two."""
+
+    found = [item for item in metadata if isinstance(item, Predicate | Setting)]
     if len(found) != 1:
-        raise TypeError(f"filter `{name}` must declare exactly one Predicate")
-    return found[0]
+        raise TypeError(f"filter `{name}` must declare exactly one Predicate or Setting")
+    return found[0] if isinstance(found[0], Predicate) else None
