@@ -19,12 +19,13 @@ nulls first ascending and PostgreSQL orders them first descending, so neither
 default is used; `value IS NULL` leads the key on both engines.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Final
 
-from sqlalchemy import ColumnElement, and_, literal, or_, tuple_
+from sqlalchemy import ColumnElement, and_, case, literal, or_, tuple_
 from sqlalchemy.orm import InstrumentedAttribute
 
 from ludarium.models import UserWorkState, Work
@@ -51,17 +52,49 @@ class Direction(StrEnum):
     DESC = "desc"
 
 
+@dataclass(frozen=True, slots=True)
+class Key:
+    """What an order compares: the expression in SQL, and the same value read off a row."""
+
+    expression: ColumnElement[Any]
+    read: Callable[[Work, UserWorkState | None], SortValue]
+    # Whether `work` carries an index this order seeks on (`models.catalogue`).
+    indexed: bool
+
+
+def _on_work(column: InstrumentedAttribute[Any]) -> Key:
+    return Key(column.expression, lambda work, _: getattr(work, column.key), indexed=True)
+
+
+def _on_state(column: InstrumentedAttribute[Any]) -> Key:
+    return Key(
+        column.expression,
+        lambda _, state: getattr(state, column.key) if state is not None else None,
+        indexed=False,
+    )
+
+
+# A Steam score counts only where the store gave a verdict, as the filter
+# (#103) has it. Since #107 a percentage is kept without one, over a handful
+# of reviews, and 100% of three is not the best game in the library. #108
+# replaces the verdict with a review count the user chooses.
+STEAM_SCORE: Final = case((Work.steam_review_rating.is_not(None), Work.steam_review_percent))
+
 # The title order has no value of its own: its key is the tie-break.
 #
 # Playtime and last played are on `user_work_state`, which the listing
 # outer-joins, so a work with no state row sorts as null. The card shows it
 # with 0 minutes, which is the default it would get, not a measurement.
-COLUMNS: dict[Sort, InstrumentedAttribute[Any]] = {
-    Sort.METACRITIC: Work.metacritic_score,
-    Sort.STEAM_REVIEWS: Work.steam_review_percent,
-    Sort.PLAYTIME: UserWorkState.playtime_minutes,
-    Sort.LAST_PLAYED: UserWorkState.last_played_at,
-    Sort.RELEASE_DATE: Work.release_date,
+KEYS: dict[Sort, Key] = {
+    Sort.METACRITIC: _on_work(Work.metacritic_score),
+    Sort.STEAM_REVIEWS: Key(
+        STEAM_SCORE,
+        lambda work, _: work.steam_review_percent if work.steam_review_rating is not None else None,
+        indexed=True,
+    ),
+    Sort.PLAYTIME: _on_state(UserWorkState.playtime_minutes),
+    Sort.LAST_PLAYED: _on_state(UserWorkState.last_played_at),
+    Sort.RELEASE_DATE: _on_work(Work.release_date),
 }
 
 
@@ -71,8 +104,9 @@ class Ordering:
     direction: Direction
 
     @property
-    def _column(self) -> InstrumentedAttribute[Any] | None:
-        return COLUMNS.get(self.sort)
+    def _column(self) -> ColumnElement[Any] | None:
+        key = KEYS.get(self.sort)
+        return key.expression if key is not None else None
 
     def order_by(self) -> tuple[ColumnElement[Any], ...]:
         column = self._column
@@ -102,12 +136,8 @@ class Ordering:
         return or_(column.is_(None), beyond, and_(column == value, tie))
 
     def value_of(self, work: Work, state: UserWorkState | None) -> SortValue:
-        column = self._column
-        if column is None:
-            return None
-        holder = work if column.class_ is Work else state
-        value: SortValue = getattr(holder, column.key) if holder is not None else None
-        return value
+        key = KEYS.get(self.sort)
+        return key.read(work, state) if key is not None else None
 
     def encode(self, value: SortValue) -> int | str | None:
         return value.isoformat() if isinstance(value, date) else value
