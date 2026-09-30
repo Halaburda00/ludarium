@@ -114,6 +114,7 @@ def test_upgrade_then_downgrade_leaves_an_empty_database(settings: Settings) -> 
         "entitlement",
         "entitlement_work",
         "user_work_state",
+        "saved_view",
         "field_provenance",
         "twitch_app_token",
         "fetch_cache",

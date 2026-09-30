@@ -1,12 +1,12 @@
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, ForeignKey, false, text
+from sqlalchemy import CheckConstraint, ForeignKey, UniqueConstraint, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ludarium.enums import PlayStatus
 from ludarium.models.base import Base
 from ludarium.models.catalogue import Work
-from ludarium.models.types import UpdatedAt, enum_column
+from ludarium.models.types import CreatedAt, UpdatedAt, enum_column
 
 
 class UserWorkState(Base):
@@ -51,3 +51,27 @@ class UserWorkState(Base):
     updated_at: Mapped[UpdatedAt]
 
     work: Mapped[Work] = relationship(lazy="raise_on_sql")
+
+
+class SavedView(Base):
+    """A named library query: filters and an order, never the works they matched.
+
+    Stored as the query string the listing takes, and read back through the
+    same filter registry as a live request, so a view is re-run each time it is
+    opened and follows the library as it changes.
+    """
+
+    __tablename__ = "saved_view"
+    __table_args__ = (UniqueConstraint("user_id", "name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("app_user.id", ondelete="RESTRICT"), default=1, server_default=text("1")
+    )
+    name: Mapped[str]
+    query: Mapped[str]
+    # Not unique: a reorder rewrites every row, and a unique position would
+    # collide with itself halfway through. Ties list by `id`.
+    position: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    created_at: Mapped[CreatedAt]
+    updated_at: Mapped[UpdatedAt]

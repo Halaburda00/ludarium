@@ -38,6 +38,9 @@ MAX_CHOICES = 32
 # 500 rather than a refusal.
 MAX_MINUTES = 60 * 24 * 365 * 100
 
+# The filters that come as a `_min` and a `_max` over one value.
+RANGES = ("metacritic", "year", "playtime")
+
 
 # Where a copy can be owned. Taken from the seed rather than the table: the keys
 # are code-owned (`seed.py`), and a metadata provider holds no copies, so naming
@@ -162,7 +165,7 @@ class LibraryFilters(BaseModel):
         # Refused rather than answered with nothing: an empty page for
         # `year_min=2020&year_max=2010` reads as "you own no such games", which
         # is a claim about the library, not about the query.
-        for name in ("metacritic", "year", "playtime"):
+        for name in RANGES:
             low, high = getattr(self, f"{name}_min"), getattr(self, f"{name}_max")
             if low is not None and high is not None and low > high:
                 raise ValueError(f"{name}_min is greater than {name}_max")
