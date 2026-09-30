@@ -14,8 +14,9 @@ import type {
 } from '@/lib/queries'
 import i18n from '@/i18n'
 import { ENRICHMENT_POLL_MS } from '@/lib/queries'
-import Library from '@/routes/Library'
+import Library, { SEARCH_DEBOUNCE_MS } from '@/routes/Library'
 import { renderApp, stubFetch } from '@/test/render'
+import { useNavigate } from 'react-router-dom'
 
 // Typed, so that a field the backend renames is a compile error here rather
 // than a fixture and a type quietly drifting together (#35).
@@ -952,8 +953,211 @@ describe('hidden games', () => {
     })
     renderApp(<Library />)
 
-    await userEvent.click(await screen.findByLabelText('Show hidden games'))
+    await userEvent.selectOptions(await screen.findByLabelText('Hidden games'), 'Show with the rest')
 
     expect(await screen.findByText('Portal 2')).toBeInTheDocument()
   })
 })
+
+describe('the filter panel', () => {
+  it('asks the API for what is ticked, in its own parameter names', async () => {
+    const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: THREE },
+      'GET /api/works?kind=dlc': { body: THREE },
+      'GET /api/works?kind=dlc&status=playing': { body: THREE },
+    })
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByLabelText('DLC'))
+    await userEvent.click(screen.getByLabelText('Playing'))
+
+    await vi.waitFor(() =>
+      expect(calls.map((call) => call.path)).toContain('/api/works?kind=dlc&status=playing'),
+    )
+    expect(screen.getByText('Filters (2 on)')).toBeInTheDocument()
+  })
+
+  it('opens a shared link with what it got right, and drops the rest', async () => {
+    const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works?kind=dlc&metacritic_min=80': { body: THREE },
+    })
+    renderApp(<Library />, {
+      route: '/library?kind=dlc&kind=spaceship&metacritic_min=80&year_min=1066',
+    })
+
+    expect(await screen.findByText('Portal 2')).toBeInTheDocument()
+    expect(screen.getByLabelText('DLC')).toBeChecked()
+    expect(screen.getByLabelText('Metacritic from')).toHaveValue(80)
+    expect(calls.filter((call) => call.path.startsWith('/api/works'))).toHaveLength(1)
+  })
+
+  it('says nothing matches rather than that the library is empty', async () => {
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: THREE },
+      'GET /api/works?status=mastered': { body: EMPTY },
+    })
+    renderApp(<Library />, { route: '/library?status=mastered' })
+
+    expect(await screen.findByText('No games match these filters.')).toBeInTheDocument()
+    expect(screen.queryByText(/Nothing here yet/)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Clear filters' })[0])
+
+    expect(await screen.findByText('Portal 2')).toBeInTheDocument()
+  })
+
+  it('does not send a range whose first number is above its second', async () => {
+    const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: THREE },
+      'GET /api/works?year_min=2020': { body: THREE },
+    })
+    renderApp(<Library />)
+
+    await userEvent.type(await screen.findByLabelText('Release year from'), '2020')
+    await userEvent.type(screen.getByLabelText('Release year to'), '2010')
+
+    expect(await screen.findByText(/is not applied/)).toBeInTheDocument()
+    // The API would answer `year_min=2020&year_max=2010` with a 422.
+    expect(calls.some((call) => call.path.includes('year_max'))).toBe(false)
+    // Typed a digit at a time, "2" on the way to "2020" was never a request.
+    expect(calls.some((call) => call.path === '/api/works?year_min=2')).toBe(false)
+  })
+
+  it('offers to clear filters the API refused', async () => {
+    stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works?platform=gog': {
+        status: 422,
+        body: { detail: 'not a platform: gog' },
+      },
+      'GET /api/works': { body: THREE },
+    })
+    renderApp(<Library />, { route: '/library?platform=gog' })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('not a platform')
+    await userEvent.click(screen.getAllByRole('button', { name: 'Clear filters' })[0])
+
+    expect(await screen.findByText('Portal 2')).toBeInTheDocument()
+  })
+})
+
+describe('the filter panel, as it is used', () => {
+  const BASE = {
+    'GET /api/sync/runs': { body: IDLE },
+    'GET /api/accounts': { body: ACCOUNTS },
+    'GET /api/works': { body: THREE },
+  }
+
+  it('offers a platform the address names even without an account on it', async () => {
+    stubFetch({ ...BASE, 'GET /api/works?platform=manual': { body: THREE } })
+    renderApp(<Library />, { route: '/library?platform=manual' })
+
+    // Without a checkbox it could only be removed by clearing everything.
+    expect(await screen.findByLabelText('manual')).toBeChecked()
+  })
+
+  it('asks once for a number typed a digit at a time', async () => {
+    const calls = stubFetch({
+      ...BASE,
+      'GET /api/works?metacritic_min=8': { body: THREE },
+      'GET /api/works?metacritic_min=85': { body: THREE },
+    })
+    renderApp(<Library />)
+
+    await userEvent.type(await screen.findByLabelText('Metacritic from'), '85')
+
+    await vi.waitFor(() =>
+      expect(calls.some((call) => call.path === '/api/works?metacritic_min=85')).toBe(true),
+    )
+    expect(calls.some((call) => call.path === '/api/works?metacritic_min=8')).toBe(false)
+  })
+
+  it('shows the hours a filter applies, not a rounding of them', async () => {
+    stubFetch({ ...BASE, 'GET /api/works?playtime_min=90': { body: THREE } })
+    renderApp(<Library />, { route: '/library?playtime_min=90' })
+
+    expect(await screen.findByLabelText('Hours played from')).toHaveValue(1.5)
+  })
+
+  it('does not keep a half-typed number once the field is left', async () => {
+    stubFetch({ ...BASE, 'GET /api/works?kind=dlc': { body: THREE } })
+    renderApp(<Library />, { route: '/library?kind=dlc' })
+
+    await userEvent.type(await screen.findByLabelText('Release year from'), '20')
+    await userEvent.click(screen.getAllByRole('button', { name: 'Clear filters' })[0])
+
+    expect(screen.getByLabelText('Release year from')).toHaveValue(null)
+  })
+
+  it('stays open when the filters it was opened for are cleared', async () => {
+    stubFetch({ ...BASE, 'GET /api/works?kind=dlc': { body: THREE } })
+    renderApp(<Library />)
+
+    await userEvent.click(await screen.findByText('Filters'))
+    await userEvent.click(screen.getByLabelText('DLC'))
+    await userEvent.click(screen.getAllByRole('button', { name: 'Clear filters' })[0])
+
+    expect(screen.getByText('Filters').closest('details')).toHaveAttribute('open')
+  })
+
+  it('says why an inverted range is marked invalid', async () => {
+    stubFetch({ ...BASE })
+    renderApp(<Library />, { route: '/library?year_min=2020&year_max=2010' })
+
+    expect(await screen.findByLabelText('Release year from')).toHaveAccessibleDescription(
+      /is not applied/,
+    )
+  })
+
+  it('turns typed hours into the minutes the API filters on', async () => {
+    const calls = stubFetch({ ...BASE, 'GET /api/works?playtime_min=90': { body: THREE } })
+    renderApp(<Library />)
+
+    await userEvent.type(await screen.findByLabelText('Hours played from'), '1.5{Enter}')
+
+    await vi.waitFor(() =>
+      expect(calls.map((call) => call.path)).toContain('/api/works?playtime_min=90'),
+    )
+  })
+
+  it('steps back through filter changes, and through the search with them', async () => {
+    stubFetch({
+      ...BASE,
+      'GET /api/works?kind=dlc': { body: THREE },
+      'GET /api/works?q=portal': { body: THREE },
+      'GET /api/works?kind=dlc&q=portal': { body: THREE },
+    })
+    renderApp(
+      <>
+        <Library />
+        <Back />
+      </>,
+    )
+
+    await userEvent.click(await screen.findByLabelText('DLC'))
+    await userEvent.type(screen.getByLabelText('Search'), 'portal')
+    await vi.waitFor(() => expect(screen.getByLabelText('Search')).toHaveValue('portal'))
+    await new Promise((resolve) => setTimeout(resolve, SEARCH_DEBOUNCE_MS + 50))
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    // The entry before the tick: no filter, and no search either, because
+    // the search was typed after it.
+    await vi.waitFor(() => expect(screen.getByLabelText('DLC')).not.toBeChecked())
+    await new Promise((resolve) => setTimeout(resolve, SEARCH_DEBOUNCE_MS + 50))
+    expect(screen.getByLabelText('Search')).toHaveValue('')
+  })
+})
+
+function Back() {
+  const navigate = useNavigate()
+  return <button onClick={() => void navigate(-1)}>Back</button>
+}
