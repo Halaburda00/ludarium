@@ -27,7 +27,7 @@ from ludarium.models.types import ScalarValue
 from ludarium.providers.base import MalformedResponseError, whole_number
 from ludarium.providers.igdb import IgdbClient
 from ludarium.queries import in_batches
-from ludarium.resolver import record_many, resolve
+from ludarium.resolver import record_entities, resolve_entities
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +186,7 @@ async def _record_batch(
     # are a couple of dozen, and a library has thousands of works (#92).
     genres = {genre.slug: genre for genre in await session.scalars(select(Genre))}
     companies = await _companies(session, described.values())
+    asserted: dict[int, dict[str, ScalarValue | None]] = {}
     for work_id, answer in described.items():
         values: dict[str, ScalarValue | None] = {}
         summary = answer.get("summary")
@@ -196,22 +197,17 @@ async def _record_batch(
             values["release_date"] = moment.date().isoformat()
             values["release_year"] = moment.year
         if values:
-            recorded = await record_many(
-                session,
-                entity_type=EntityType.WORK,
-                entity_id=work_id,
-                source_kind=reporter.source_kind,
-                source_ref=reporter.key,
-                values=values,
-                run_id=run.id,
-            )
-            await resolve(
-                session,
-                entity_type=EntityType.WORK,
-                entity_id=work_id,
-                fields=list(values),
-                recorded=recorded,
-            )
+            asserted[work_id] = values
+    if asserted:
+        recorded = await record_entities(
+            session,
+            entity_type=EntityType.WORK,
+            source_kind=reporter.source_kind,
+            source_ref=reporter.key,
+            values=asserted,
+            run_id=run.id,
+        )
+        await resolve_entities(session, entity_type=EntityType.WORK, recorded=recorded)
     credits = {work_id: answer.get("companies") for work_id, answer in described.items()}
     await _link(session, reporter.key, credits, companies)
     listed = {work_id: answer.get("genres") for work_id, answer in described.items()}
