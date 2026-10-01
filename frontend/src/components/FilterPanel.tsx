@@ -14,6 +14,7 @@ import {
   type Hidden,
   type RangeName,
 } from '@/lib/filters'
+import { genreName } from '@/lib/genres'
 
 /**
  * How long typing in a number has to pause before it filters: "85" is one
@@ -35,14 +36,17 @@ const CONTROL =
 export function FilterPanel({
   filters,
   platforms,
+  genres,
   onChange,
 }: {
   filters: Filters
   /** Every platform the user has an account on, with the name it is shown under. */
   platforms: { key: string; name: string }[]
+  /** Every genre in the library, with IGDB's name for it. */
+  genres: { slug: string; name: string }[]
   onChange: (filters: Filters) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const active = activeCount(filters)
   // Its own state, taken from the filters once: tied to them, clearing the
   // last one would shut the panel under the pointer that cleared it.
@@ -57,7 +61,7 @@ export function FilterPanel({
         {active > 0 ? t('filters.titleActive', { count: active }) : t('filters.title')}
       </summary>
       <div className="mt-4 grid gap-5">
-        <div className="grid gap-5 sm:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-4">
           <Choices
             legend={t('filters.platform')}
             options={platforms.map(({ key, name }) => ({ value: key, label: name }))}
@@ -69,6 +73,12 @@ export function FilterPanel({
             options={KINDS.map((kind) => ({ value: kind, label: t(`itemKind.${kind}`) }))}
             chosen={filters.kind}
             onChange={(kind) => onChange({ ...filters, kind })}
+          />
+          <Choices
+            legend={t('filters.genre')}
+            options={genres.map(({ slug, name }) => ({ value: slug, label: genreName(i18n, slug, name) }))}
+            chosen={filters.genre}
+            onChange={(genre) => onChange({ ...filters, genre })}
           />
           <Choices
             legend={t('filters.status')}

@@ -272,3 +272,31 @@ class WorkCompany(Base):
     # The provider that asserted the link, so a step replacing its own links
     # leaves anyone else's alone.
     source_ref: Mapped[str | None]
+
+
+class Genre(Base):
+    """A genre as IGDB names it, in English: the UI translates it where it can (#92)."""
+
+    __tablename__ = "genre"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # IGDB's slug, which is the genre's identity here and the filter's value:
+    # stable where the display name may be reworded.
+    slug: Mapped[str] = mapped_column(unique=True)
+    name: Mapped[str]
+
+
+class WorkGenre(Base):
+    """A genre a source says a work belongs to."""
+
+    __tablename__ = "work_genre"
+
+    work_id: Mapped[int] = mapped_column(
+        ForeignKey("work.id", ondelete="CASCADE"), primary_key=True
+    )
+    genre_id: Mapped[int] = mapped_column(
+        ForeignKey("genre.id", ondelete="RESTRICT"), primary_key=True
+    )
+    # The provider that asserted it, so a step replacing its own genres leaves
+    # anyone else's alone, as `work_company.source_ref` does.
+    source_ref: Mapped[str | None]

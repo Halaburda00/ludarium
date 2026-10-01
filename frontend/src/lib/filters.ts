@@ -15,6 +15,8 @@ export type Hidden = 'exclude' | 'include' | 'only'
 export type Filters = {
   platform: string[]
   kind: ItemKind[]
+  /** IGDB's slugs; any of them. */
+  genre: string[]
   status: PlayStatus[]
   metacritic_min: number | null
   metacritic_max: number | null
@@ -66,6 +68,9 @@ export const RANGES: Record<RangeName, { min: number; max: number }> = {
 
 const RANGE_NAMES = Object.keys(RANGES) as RangeName[]
 
+/** `GENRE_SLUG` in the backend's filters: lowercase words joined by hyphens. */
+const GENRE_SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/
+
 /**
  * `steam_reviews_min`: the store's own verdict threshold by default, up to the
  * backend's `MAX_STEAM_REVIEWS`. A setting rather than a filter: on its own it
@@ -76,6 +81,7 @@ export const STEAM_REVIEWS = { default: 10, min: 1, max: 1_000_000_000 }
 export const NO_FILTERS: Filters = {
   platform: [],
   kind: [],
+  genre: [],
   status: [],
   metacritic_min: null,
   metacritic_max: null,
@@ -93,6 +99,7 @@ export const NO_FILTERS: Filters = {
 const KEYS = [
   'platform',
   'kind',
+  'genre',
   'status',
   ...RANGE_NAMES.flatMap((name) => [`${name}_min`, `${name}_max`]),
   'steam_reviews_min',
@@ -120,6 +127,8 @@ export function readFilters(params: URLSearchParams): Filters {
     // all that can be checked here without a copy of its list.
     platform: unique(params.getAll('platform').filter((key) => /^[a-z_]+$/.test(key))),
     kind: unique(params.getAll('kind')).filter(isOneOf(KINDS)),
+    // The slug's shape, as the backend checks it; which genres exist is data.
+    genre: unique(params.getAll('genre').filter((slug) => GENRE_SLUG.test(slug))),
     status: unique(params.getAll('status')).filter(isOneOf(STATUSES)),
     metacritic_min: range('metacritic_min', RANGES.metacritic),
     metacritic_max: range('metacritic_max', RANGES.metacritic),
@@ -171,6 +180,7 @@ export function activeCount(filters: Filters): number {
   return (
     (filters.platform.length > 0 ? 1 : 0) +
     (filters.kind.length > 0 ? 1 : 0) +
+    (filters.genre.length > 0 ? 1 : 0) +
     (filters.status.length > 0 ? 1 : 0) +
     RANGE_NAMES.filter(
       (name) => filters[`${name}_min`] !== null || filters[`${name}_max`] !== null,
@@ -181,7 +191,7 @@ export function activeCount(filters: Filters): number {
 
 function entries(filters: Filters): [string, string][] {
   const out: [string, string][] = []
-  for (const key of ['platform', 'kind', 'status'] as const) {
+  for (const key of ['platform', 'kind', 'genre', 'status'] as const) {
     for (const value of filters[key]) out.push([key, value])
   }
   for (const name of RANGE_NAMES) {

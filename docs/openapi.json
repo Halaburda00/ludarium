@@ -264,6 +264,24 @@
         "title": "EntitlementSummary",
         "type": "object"
       },
+      "GenreSummary": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name"
+        ],
+        "title": "GenreSummary",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -936,6 +954,13 @@
             "title": "Entitlements",
             "type": "array"
           },
+          "genres": {
+            "items": {
+              "$ref": "#/components/schemas/GenreSummary"
+            },
+            "title": "Genres",
+            "type": "array"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
@@ -1097,6 +1122,7 @@
           "summary",
           "release_date",
           "companies",
+          "genres",
           "rating",
           "notes",
           "started_at",
@@ -1516,6 +1542,60 @@
         "summary": "Run",
         "tags": [
           "enrichment"
+        ]
+      }
+    },
+    "/api/genres": {
+      "get": {
+        "description": "Every genre of a work the user still owns a copy of, by name.\n\nOnly these: a genre offered in the panel that matches nothing in the\nlibrary would be a filter that can only ever answer with nothing.",
+        "operationId": "in_library_api_genres_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GenreSummary"
+                  },
+                  "title": "Response In Library Api Genres Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "In Library",
+        "tags": [
+          "genres"
         ]
       }
     },
@@ -2022,6 +2102,21 @@
               },
               "maxItems": 32,
               "title": "Kind",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "genre",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 64,
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              "maxItems": 32,
+              "title": "Genre",
               "type": "array"
             }
           },

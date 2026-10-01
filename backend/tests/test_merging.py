@@ -33,11 +33,13 @@ from ludarium.models import (
     EntitlementWork,
     ExternalId,
     FieldProvenance,
+    Genre,
     ImageAsset,
     MatchAudit,
     UserWorkState,
     Work,
     WorkCompany,
+    WorkGenre,
 )
 from ludarium.resolver import record, resolve, resolve_work_aggregates_many
 
@@ -452,6 +454,10 @@ async def world(session: AsyncSession, rename: dict[int, int] | None = None) -> 
             (w(link.work_id), link.company_id, link.role, link.source_ref)
             for link in await fresh(session, select(WorkCompany))
         },
+        "genres": {
+            (w(link.work_id), link.genre_id, link.source_ref)
+            for link in await fresh(session, select(WorkGenre))
+        },
         "external_ids": {
             (w(row.entity_id), row.namespace, row.value)
             for row in await fresh(session, select(ExternalId))
@@ -548,6 +554,20 @@ async def test_an_undo_puts_back_everything_the_merge_moved(
                 role=CompanyRole.PORTING,
                 source_ref="manual",
             ),
+        ]
+    )
+    adventure, puzzle = (
+        Genre(slug="adventure", name="Adventure"),
+        Genre(slug="puzzle", name="Puzzle"),
+    )
+    session.add_all([adventure, puzzle])
+    await session.flush()
+    session.add_all(
+        [
+            WorkGenre(work_id=target.id, genre_id=adventure.id, source_ref="igdb"),
+            # One genre the target already has, and one it does not.
+            WorkGenre(work_id=source.id, genre_id=adventure.id, source_ref="manual"),
+            WorkGenre(work_id=source.id, genre_id=puzzle.id, source_ref="igdb"),
         ]
     )
     (await state_of(session, source)).rating = 7
@@ -703,6 +723,35 @@ async def test_an_orphan_stub_takes_its_image_rows_with_it(
     await collect_orphan_stubs(session)
 
     assert await session.scalar(select(func.count()).select_from(ImageAsset)) == 0
+
+
+async def test_a_genre_the_target_already_has_is_not_moved_twice(
+    session: AsyncSession, steam: Account
+) -> None:
+    target = await anchored(session, steam, "292030", "The Witcher 3: Wild Hunt")
+    source = await stub(session, steam, "499450", "The Witcher 3 GOTY")
+    adventure, puzzle = (
+        Genre(slug="adventure", name="Adventure"),
+        Genre(slug="puzzle", name="Puzzle"),
+    )
+    session.add_all([adventure, puzzle])
+    await session.flush()
+    session.add_all(
+        [
+            WorkGenre(work_id=target.id, genre_id=adventure.id, source_ref="igdb"),
+            WorkGenre(work_id=source.id, genre_id=adventure.id, source_ref="igdb"),
+            WorkGenre(work_id=source.id, genre_id=puzzle.id, source_ref="igdb"),
+        ]
+    )
+    await session.flush()
+
+    await merge(session, source, target)
+
+    links = await fresh(session, select(WorkGenre))
+    assert sorted((link.work_id, link.genre_id) for link in links) == [
+        (target.id, adventure.id),
+        (target.id, puzzle.id),
+    ]
 
 
 async def test_a_credit_the_target_already_has_is_not_moved_twice(

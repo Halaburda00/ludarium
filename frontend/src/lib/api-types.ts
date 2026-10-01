@@ -99,6 +99,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/genres": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * In Library
+         * @description Every genre of a work the user still owns a copy of, by name.
+         *
+         *     Only these: a genre offered in the panel that matches nothing in the
+         *     library would be a filter that can only ever answer with nothing.
+         */
+        get: operations["in_library_api_genres_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -450,6 +473,13 @@ export interface components {
             /** Store Url */
             store_url: string | null;
         };
+        /** GenreSummary */
+        GenreSummary: {
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -726,6 +756,8 @@ export interface components {
             cover: components["schemas"]["Cover"] | null;
             /** Entitlements */
             entitlements: components["schemas"]["EntitlementSummary"][];
+            /** Genres */
+            genres: components["schemas"]["GenreSummary"][];
             /** Id */
             id: number;
             /** Is Favourite */
@@ -951,6 +983,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SyncRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    in_library_api_genres_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenreSummary"][];
                 };
             };
             /** @description Validation Error */
@@ -1255,6 +1318,7 @@ export interface operations {
             query?: {
                 platform?: string[];
                 kind?: components["schemas"]["ItemKind"][];
+                genre?: string[];
                 metacritic_min?: number | null;
                 metacritic_max?: number | null;
                 steam_min?: number | null;

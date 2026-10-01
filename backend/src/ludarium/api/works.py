@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import ColumnElement, Select, select
 
+from ludarium.api.genres import GenreSummary
 from ludarium.auth import CurrentSession
 from ludarium.db import SessionDep
 from ludarium.enums import CompanyRole, EntityType, ImageKind, ItemKind, PlayStatus, SteamRating
@@ -31,11 +32,13 @@ from ludarium.models import (
     Entitlement,
     EntitlementWork,
     ExternalId,
+    Genre,
     ImageAsset,
     Provider,
     UserWorkState,
     Work,
     WorkCompany,
+    WorkGenre,
 )
 from ludarium.models.types import utcnow
 from ludarium.queries import owned_by
@@ -192,6 +195,8 @@ class WorkDetail(WorkSummary):
     # Publishers first, then developers, porting and support studios
     # (`CREDIT_ORDER`); a company in several roles is listed once.
     companies: list[Credit]
+    # By name. Empty for a work IGDB has not matched: nothing else asserts any.
+    genres: list[GenreSummary]
     # The user's own, from `user_work_state`, which no provider writes (rule 3).
     rating: int | None
     notes: str | None
@@ -469,11 +474,22 @@ async def _detail(session: SessionDep, work_id: int, user_id: int) -> WorkDetail
         summary=work.summary,
         release_date=work.release_date,
         companies=await _credits(session, work_id),
+        genres=await _genres(session, work_id),
         rating=state.rating if state else None,
         notes=state.notes if state else None,
         started_at=state.started_at if state else None,
         completed_at=state.completed_at if state else None,
     )
+
+
+async def _genres(session: SessionDep, work_id: int) -> list[GenreSummary]:
+    rows = await session.execute(
+        select(Genre.slug, Genre.name)
+        .join(WorkGenre, WorkGenre.genre_id == Genre.id)
+        .where(WorkGenre.work_id == work_id)
+        .order_by(Genre.name, Genre.slug)
+    )
+    return [GenreSummary(slug=slug, name=name) for slug, name in rows]
 
 
 async def _credits(session: SessionDep, work_id: int) -> list[Credit]:

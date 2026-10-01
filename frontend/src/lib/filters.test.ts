@@ -44,6 +44,13 @@ describe('reading filters from the address', () => {
     expect(written(50)).toBe('steam_reviews_min=50')
   })
 
+  it('reads a genre by the shape of its slug, which is all it can know of it', () => {
+    expect(read('genre=role-playing&genre=Role%20Playing&genre=puzzle').genre).toEqual([
+      'role-playing',
+      'puzzle',
+    ])
+  })
+
   it('reads a value given twice once', () => {
     expect(read('kind=game&kind=game').kind).toEqual(['game'])
   })

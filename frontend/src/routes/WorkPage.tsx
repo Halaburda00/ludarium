@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useParams } from 'react-router-dom'
 
 import { Metacritic, ScoresCredit, Steam } from '@/components/Scores'
+import { genreName } from '@/lib/genres'
 import { ThemePicker } from '@/components/ThemePicker'
 import { WorkState } from '@/components/WorkState'
 import { Button } from '@/components/ui/button'
@@ -108,6 +109,12 @@ function Details({ work }: { work: WorkDetail }) {
             <Steam reviews={work.steam_reviews} title={work.title} />
           </div>
           {work.companies.length > 0 ? <Credits companies={work.companies} /> : null}
+          {work.genres.length > 0 ? (
+            <p className="text-sm">
+              <span className="text-muted-foreground">{t('work.genres')}: </span>
+              {work.genres.map((genre) => genreName(i18n, genre.slug, genre.name)).join(', ')}
+            </p>
+          ) : null}
           {/* IGDB's text, kept to its paragraphs. */}
           {work.summary ? (
             <p className="text-sm leading-6 whitespace-pre-line">{work.summary}</p>

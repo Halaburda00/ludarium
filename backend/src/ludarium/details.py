@@ -1,10 +1,10 @@
-"""A matched work's summary, release date and companies, asked of IGDB (#82).
+"""A matched work's summary, release date, companies and genres, asked of IGDB (#82, #92).
 
 Run in the `igdb` run after anchoring, over every work anchoring has matched:
 the id is the only thing IGDB can be asked about. Summary and date are
 provenance like any field (rule 9), so a user's own value outranks IGDB's
-(rule 3). Companies are rows of their own, linked to the work with IGDB named as
-the source, so a later run replaces IGDB's links and nobody else's.
+(rule 3). Companies and genres are rows of their own, linked to the work with
+IGDB named as the source, so a later run replaces IGDB's links and nobody else's.
 
 IGDB's data may not be redistributed. It lives in the fetch cache and in these
 rows, all of them inside the data directory.
@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ludarium.db import Database
 from ludarium.enrichment import EnrichmentRun, Step
 from ludarium.enums import CompanyRole, EntityType
-from ludarium.models import Company, ExternalId, Provider, WorkCompany
+from ludarium.models import Company, ExternalId, Genre, Provider, WorkCompany, WorkGenre
 from ludarium.models.cache import Payload
 from ludarium.models.types import ScalarValue
 from ludarium.providers.base import MalformedResponseError, whole_number
@@ -54,6 +54,8 @@ FIELDS: Final = ",".join(
         "first_release_date",
         "involved_companies.company.name",
         *(f"involved_companies.{flag}" for flag in ROLES),
+        "genres.slug",
+        "genres.name",
     ]
 )
 
@@ -105,10 +107,18 @@ def _described(row: Mapping[str, Any]) -> Payload:
         roles = [flag for flag in ROLES if entry.get(flag) is True]
         if roles:
             companies.append({"id": company_id, "name": name.strip(), "roles": roles})
+    genres: list[Payload] = []
+    listed = row.get("genres")
+    for genre in listed if isinstance(listed, list) else []:
+        slug = genre.get("slug") if isinstance(genre, dict) else None
+        name = genre.get("name") if isinstance(genre, dict) else None
+        if isinstance(slug, str) and slug.strip() and isinstance(name, str) and name.strip():
+            genres.append({"slug": slug.strip(), "name": name.strip()})
     return {
         "summary": summary.strip() if isinstance(summary, str) and summary.strip() else None,
         "first_release_date": released,
         "companies": companies,
+        "genres": genres,
     }
 
 
@@ -143,7 +153,7 @@ async def _anchored(database: Database) -> dict[int, int]:
 async def _record(
     run: EnrichmentRun, games: Mapping[int, int], answers: Mapping[str, Payload | None]
 ) -> int:
-    """Each work's summary, date and companies, in one transaction.
+    """Each work's summary, date, companies and genres, in one transaction.
 
     Only what IGDB states is recorded. A missing summary asserts nothing rather
     than null, as the store's unknown kind does (ADR-0020): IGDB having nothing
@@ -153,6 +163,9 @@ async def _record(
     described = 0
     async with run.database.writing_session_factory() as session:
         reporter = await session.get_one(Provider, run.provider_id)
+        # Every genre once, rather than a lookup per genre of every work: there
+        # are a couple of dozen, and a library has thousands of works (#92).
+        genres = {genre.slug: genre for genre in await session.scalars(select(Genre))}
         for work_id, game in games.items():
             answer = answers.get(str(game))
             if not isinstance(answer, dict):
@@ -184,6 +197,7 @@ async def _record(
                     recorded=recorded,
                 )
             await _link(session, reporter.key, work_id, answer.get("companies"))
+            await _classify(session, reporter.key, work_id, answer.get("genres"), genres)
         await session.commit()
     return described
 
@@ -235,3 +249,51 @@ async def _company(session: AsyncSession, igdb_id: int, name: str) -> Company:
     elif company.name != name:
         company.name = name
     return company
+
+
+async def _classify(
+    session: AsyncSession,
+    source: str,
+    work_id: int,
+    genres: object,
+    known: dict[str, Genre],
+) -> None:
+    """Replace the work's genres from `source` with the ones IGDB gives now.
+
+    As `_link` does for companies: a genre IGDB has dropped goes, and one any
+    other source asserted stays. A work IGDB gives no genres keeps none from it.
+    """
+
+    wanted: set[int] = set()
+    for entry in genres if isinstance(genres, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        slug, name = entry.get("slug"), entry.get("name")
+        if isinstance(slug, str) and isinstance(name, str):
+            wanted.add((await _genre(session, known, slug, name)).id)
+
+    await session.execute(
+        delete(WorkGenre).where(WorkGenre.work_id == work_id, WorkGenre.source_ref == source)
+    )
+    held = set(
+        await session.scalars(select(WorkGenre.genre_id).where(WorkGenre.work_id == work_id))
+    )
+    for genre_id in sorted(wanted - held):
+        session.add(WorkGenre(work_id=work_id, genre_id=genre_id, source_ref=source))
+    await session.flush()
+
+
+async def _genre(session: AsyncSession, known: dict[str, Genre], slug: str, name: str) -> Genre:
+    """The genre IGDB calls `slug`, made if new and renamed if IGDB renamed it.
+
+    `known` is every genre by slug, loaded once per run and added to here.
+    """
+
+    genre = known.get(slug)
+    if genre is None:
+        genre = known[slug] = Genre(slug=slug, name=name)
+        session.add(genre)
+        await session.flush()
+    elif genre.name != name:
+        genre.name = name
+    return genre

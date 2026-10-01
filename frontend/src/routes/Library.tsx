@@ -15,6 +15,7 @@ import { viewQuery } from '@/lib/views'
 import {
   useAccounts,
   useEnrichment,
+  useGenres,
   useLogout,
   useSync,
   useWorks,
@@ -85,6 +86,15 @@ export default function Library() {
       ...(accounts.data ?? []).map((account) => account.provider),
       ...filters.platform,
     ]),
+  ]
+  // Every genre in the library, plus any the address names that is not, so a
+  // filter from an older link can be unticked; its slug is the only name it has.
+  const genres = useGenres()
+  const offeredGenres = [
+    ...(genres.data ?? []),
+    ...filters.genre
+      .filter((slug) => !(genres.data ?? []).some((genre) => genre.slug === slug))
+      .map((slug) => ({ slug, name: slug })),
   ]
   const logout = useLogout()
   const navigate = useNavigate()
@@ -271,6 +281,7 @@ export default function Library() {
       <FilterPanel
         filters={filters}
         platforms={offered.map((key) => ({ key, name: providerName(overview.data, key) }))}
+        genres={offeredGenres}
         onChange={setFilters}
       />
 
