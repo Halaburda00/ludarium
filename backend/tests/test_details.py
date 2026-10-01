@@ -385,26 +385,26 @@ async def test_the_statements_a_batch_takes_do_not_grow_with_its_works(
 ) -> None:
     """Everything but the new rows themselves is read and written for the batch at once (#112).
 
-    Asked a work at a time, twenty works were 201 statements on these
-    tables, all inside the transaction that holds SQLite's write lock.
+    Asked a work at a time, twenty works were 224 statements besides the
+    inserts, most inside the transaction that holds SQLite's write lock. Every
+    statement counts, so one added per work fails this whatever table it names.
     """
 
     games = {game: {**GAMES[9001], "id": game} for game in range(9201, 9221)}
     Igdb(games).mount()
     for game in games:
         await anchored(session, game, f"Game {game}")
-    tables = ("field_provenance", "work_company", "work_genre", "company", "genre", "work ")
     statements: list[str] = []
 
     def count(_connection: object, _cursor: object, statement: str, *_: object) -> None:
-        if not statement.startswith("INSERT") and any(table in statement for table in tables):
+        if not statement.startswith("INSERT"):
             statements.append(statement)
 
     event.listen(db.engine.sync_engine, "before_cursor_execute", count)
 
     await describe(db, client)
 
-    assert len(statements) <= 12, statements
+    assert len(statements) <= 40, statements
 
 
 def test_a_release_date_is_taken_in_utc() -> None:
