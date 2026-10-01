@@ -126,7 +126,7 @@
       "started": "Started {{date}}",
       "completed": "Finished {{date}}"
     },
-    "kept": "Kept by you: {{provider}} no longer lists this copy.",
+    "kept": "Kept by you: no sync will remove this copy, even when {{provider}} does not list it.",
     "letGo": "Stop keeping",
     "letGoHint": "The next sync that does not find it on {{provider}} will move it to removed games."
   },

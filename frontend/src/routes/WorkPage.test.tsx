@@ -306,7 +306,7 @@ describe('what the user decides about a work', () => {
     renderApp(<Router />, { route: '/library/7' })
 
     expect(
-      await screen.findByText('Kept by you: Steam no longer lists this copy.'),
+      await screen.findByText('Kept by you: no sync will remove this copy, even when Steam does not list it.'),
     ).toBeInTheDocument()
     // Only the copy the user kept; the Epic one is the platform's as usual.
     expect(screen.getAllByRole('button', { name: 'Stop keeping' })).toHaveLength(1)

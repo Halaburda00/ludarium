@@ -228,7 +228,7 @@ function Copies({ copies, total }: { copies: EntitlementSummary[]; total: number
 }
 
 /**
- * A copy the user restored while its platform does not list it (ADR-0030).
+ * A copy the user restored, which no sync removes until the user lets it go (ADR-0030).
  *
  * Said on the page, because it is the one place the user's word outlasts what
  * the platform reports, and the one place it can be taken back.

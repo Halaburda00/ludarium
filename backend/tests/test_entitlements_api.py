@@ -166,3 +166,21 @@ async def test_restoring_counts_the_copy_towards_every_work_it_grants(
 
     for work_id in (primary, granted.id):
         assert client.get(f"/api/works/{work_id}").json()["playtime_minutes"] == 3247
+
+
+async def test_a_kept_copy_the_platform_lists_again_stays_kept(
+    client: TestClient, session: AsyncSession, account: Account
+) -> None:
+    """ADR-0030: the platform listing it again is no reason for the user's word to lapse.
+
+    So the page's wording must not claim the platform is silent about it.
+    """
+
+    entitlement_id, work_id = await the_witcher(session)
+    await remove_the_witcher(session, account)
+    client.post(f"/api/entitlements/{entitlement_id}/restore")
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+
+    [copy] = client.get(f"/api/works/{work_id}").json()["entitlements"]
+    assert copy["kept"] is True
