@@ -427,6 +427,7 @@ What the user actually owns, on one account. This is the row a sync touches.
 | `last_seen_at` | TIMESTAMP | no | `now()` | Touched by every run that still sees the item |
 | `removed_at` | TIMESTAMP | yes | | Set when a run no longer sees the item. Never a `DELETE` (rule 1) |
 | `removed_by_run_id` | INTEGER | yes | | FK → `sync_run`, for the audit trail |
+| `kept_at` | TIMESTAMP | yes | | Set when the user restores a copy the platform stopped listing. A kept copy is never swept, and only the user clears the flag (rule 3, ADR-0030) |
 | `raw_payload` | JSON | yes | | Last provider record, for debugging a bad match. Token fields stripped before storage |
 
 `UNIQUE (account_id, provider_item_id)` where `provider_item_id IS NOT NULL`.

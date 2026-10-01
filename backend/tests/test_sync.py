@@ -575,6 +575,25 @@ async def test_a_game_that_comes_back_is_restored_where_it_was(
     assert (run.items_added, run.items_updated, run.items_removed) == (0, 3, 0)
 
 
+async def test_a_copy_the_user_keeps_is_not_swept(session: AsyncSession, account: Account) -> None:
+    """ADR-0030: a restore by hand is the user's word against the platform's silence (rule 3).
+
+    The run still sweeps the copy nobody kept, so the flag is what spared the other.
+    """
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES))
+    kept, dropped = await one_entitlement(session, "292030"), await one_entitlement(session, "620")
+    kept.kept_at = utcnow()
+    await session.commit()
+
+    await sync_account(session, account=account, library=FakeLibrary(THREE_GAMES[2:]))
+
+    await session.refresh(kept)
+    await session.refresh(dropped)
+    assert kept.removed_at is None
+    assert dropped.removed_at is not None
+
+
 async def test_an_empty_library_sweeps_the_whole_account(
     session: AsyncSession, account: Account
 ) -> None:
