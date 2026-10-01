@@ -182,8 +182,8 @@ async def _record_batch(
     run: EnrichmentRun, session: AsyncSession, described: Mapping[int, dict[str, Any]]
 ) -> None:
     reporter = await session.get_one(Provider, run.provider_id)
-    # Every genre once, rather than a lookup per genre of every work: there
-    # are a couple of dozen, and a library has thousands of works (#92).
+    # Every genre once per batch, rather than a lookup per genre of every work:
+    # there are a couple of dozen, and a library has thousands of works (#92).
     genres = {genre.slug: genre for genre in await session.scalars(select(Genre))}
     companies = await _companies(session, described.values())
     asserted: dict[int, dict[str, ScalarValue | None]] = {}
@@ -340,7 +340,7 @@ async def _classify(
 async def _genre(session: AsyncSession, known: dict[str, Genre], slug: str, name: str) -> Genre:
     """The genre IGDB calls `slug`, made if new and renamed if IGDB renamed it.
 
-    `known` is every genre by slug, loaded once per run and added to here.
+    `known` is every genre by slug, loaded once per batch and added to here.
     """
 
     genre = known.get(slug)
