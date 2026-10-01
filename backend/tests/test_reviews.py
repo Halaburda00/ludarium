@@ -10,6 +10,7 @@ from conftest import make_account, make_provider, make_work
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ludarium import queries
 from ludarium import reviews as reviews_module
 from ludarium.db import Database
 from ludarium.enrichment import enrich
@@ -120,6 +121,36 @@ async def scores(db: Database) -> dict[int, tuple[Any, ...]]:
             )
         )
         return {work_id: tuple(rest) for work_id, *rest in rows}
+
+
+@respx.mock
+async def test_a_failed_batch_keeps_the_batches_before_it(
+    db: Database,
+    session: AsyncSession,
+    steam: Account,
+    store: SteamStoreClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each batch commits on its own, so a sync waits for one batch, not the library (#114)."""
+
+    monkeypatch.setattr(queries, "BIND_LIMIT", 2)
+    respx.get(GET_ITEMS_URL).mock(side_effect=the_store)
+    works = [await own(session, steam, appid) for appid in ("292030", "620", "201510", "378649")]
+    await session.commit()
+    resolve_entities = reviews_module.resolve_entities
+
+    async def failing_second(*args: Any, **kwargs: Any) -> Any:
+        if any(works[2].id in batch for batch in kwargs.values() if isinstance(batch, dict)):
+            raise RuntimeError("the second batch fails")
+        return await resolve_entities(*args, **kwargs)
+
+    monkeypatch.setattr(reviews_module, "resolve_entities", failing_second)
+
+    with pytest.raises(RuntimeError):
+        await enrich(db, provider="steam_store", step=score_steam_reviews(store))
+
+    stored = await scores(db)
+    assert [stored[work.id][1] is not None for work in works] == [True, True, False, False]
 
 
 @respx.mock
