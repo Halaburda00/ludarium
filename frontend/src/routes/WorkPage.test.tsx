@@ -57,6 +57,7 @@ function summary(id: number, title: string): WorkSummary {
         provider_title: 'The Witcher 3: Wild Hunt - Complete Edition',
         playtime_minutes: 3247,
         store_url: 'https://store.steampowered.com/app/292030',
+        kept: false,
       },
       {
         id: 11,
@@ -66,6 +67,7 @@ function summary(id: number, title: string): WorkSummary {
         provider_title: 'The Witcher 3: Wild Hunt',
         playtime_minutes: 118,
         store_url: null,
+        kept: false,
       },
     ],
   }
