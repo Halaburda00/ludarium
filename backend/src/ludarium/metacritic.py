@@ -20,7 +20,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Final
+from typing import Any, Final
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,9 +38,11 @@ from ludarium.models import (
     Work,
 )
 from ludarium.models.cache import Payload
+from ludarium.models.types import ScalarValue
 from ludarium.providers.base import MalformedResponseError, whole_number
 from ludarium.providers.rawg import RawgClient, steam_appids
-from ludarium.resolver import record_many, resolve
+from ludarium.queries import in_batches
+from ludarium.resolver import record_entities, resolve_entities
 
 logger = logging.getLogger(__name__)
 
@@ -216,89 +218,105 @@ async def _titles(session: AsyncSession, work_ids: Sequence[int]) -> dict[int, s
 async def _record(
     run: EnrichmentRun, confirmed: Mapping[int, int], records: Mapping[str, Payload | None]
 ) -> None:
-    """The score, its Metacritic link and RAWG's slug for every confirmed work, in one transaction.
+    """The score, its Metacritic link and RAWG's slug for every confirmed work, a batch at a time.
 
     A game RAWG gives no score is recorded as none, which is an answer: the
     column goes null rather than keeping one no source stands behind. A work
     RAWG did not confirm this time is left as it was — failing to find a game
-    again is not evidence its score changed.
+    again is not evidence its score changed. Batches are committed as they are
+    written, so a sync waits for one batch rather than the library (#114).
     """
 
-    async with run.database.writing_session_factory() as session:
-        reporter = await session.get_one(Provider, run.provider_id)
-        for work_id, game in confirmed.items():
-            record = records.get(str(game))
-            if not isinstance(record, dict):
-                continue
-            await _identify(session, reporter.key, work_id, record.get("slug"))
-            score = whole_number(record.get("metacritic"))
-            url = record.get("metacritic_url")
-            values = {
-                # Metacritic's scale; anything else is not a score to show.
-                "metacritic_score": score if score is not None and 0 <= score <= 100 else None,
-                "metacritic_url": url
-                if isinstance(url, str) and url.startswith("https://")
-                else None,
-            }
-            recorded = await record_many(
+    described: dict[int, dict[str, Any]] = {}
+    for work_id, game in confirmed.items():
+        record = records.get(str(game))
+        if isinstance(record, dict):
+            described[work_id] = record
+    for batch in in_batches(list(described)):
+        async with run.database.writing_session_factory() as session:
+            reporter = await session.get_one(Provider, run.provider_id)
+            await _identify(
+                session,
+                reporter.key,
+                {work_id: described[work_id].get("slug") for work_id in batch},
+            )
+            recorded = await record_entities(
                 session,
                 entity_type=EntityType.WORK,
-                entity_id=work_id,
                 source_kind=reporter.source_kind,
                 source_ref=reporter.key,
-                values=values,
+                values={work_id: _values(described[work_id]) for work_id in batch},
                 run_id=run.id,
             )
-            await resolve(
-                session,
-                entity_type=EntityType.WORK,
-                entity_id=work_id,
-                fields=list(values),
-                recorded=recorded,
-            )
-        await session.commit()
+            await resolve_entities(session, entity_type=EntityType.WORK, recorded=recorded)
+            await session.commit()
 
 
-async def _identify(session: AsyncSession, source: str, work_id: int, slug: object) -> None:
-    """RAWG's slug for the work, the one the attribution link is built from.
+def _values(record: Mapping[str, Any]) -> dict[str, ScalarValue | None]:
+    score = whole_number(record.get("metacritic"))
+    url = record.get("metacritic_url")
+    return {
+        # Metacritic's scale; anything else is not a score to show.
+        "metacritic_score": score if score is not None and 0 <= score <= 100 else None,
+        "metacritic_url": url if isinstance(url, str) and url.startswith("https://") else None,
+    }
+
+
+async def _identify(session: AsyncSession, source: str, slugs: Mapping[int, object]) -> None:
+    """RAWG's slug for each work, the one the attribution link is built from.
 
     Not authoritative: the matcher inferred it, even if from a hard id. A slug
     another work already holds is left with it and logged — two works confirmed
     to one RAWG game is a merge the matcher missed, not a second owner.
+
+    The works are taken in order, as they were one statement at a time: a slug
+    one work gives up is free for a later one, and of two given the same slug
+    the first keeps it. The rows they could touch are read in one go (#114).
     """
 
-    if not isinstance(slug, str) or not slug.strip():
+    wanted = {
+        work_id: slug for work_id, slug in slugs.items() if isinstance(slug, str) and slug.strip()
+    }
+    if not wanted:
         return
-    held = await session.scalar(
-        select(ExternalId).where(
-            ExternalId.namespace == NAMESPACE,
-            ExternalId.entity_type == EntityType.WORK,
-            ExternalId.value == slug,
-        )
-    )
-    if held is not None:
-        if held.entity_id != work_id:
-            logger.warning(
-                "rawg game %s is already work %d's, not %d's", slug, held.entity_id, work_id
-            )
-        return
-    own = await session.scalar(
-        select(ExternalId).where(
-            ExternalId.namespace == NAMESPACE,
-            ExternalId.entity_type == EntityType.WORK,
-            ExternalId.entity_id == work_id,
-        )
-    )
-    if own is None:
-        session.add(
-            ExternalId(
+    rawg = (ExternalId.namespace == NAMESPACE, ExternalId.entity_type == EntityType.WORK)
+    by_slug: dict[str, ExternalId] = {}
+    by_work: dict[int, ExternalId] = {}
+    for batch in in_batches(sorted(set(wanted.values()))):
+        for row in await session.scalars(
+            select(ExternalId).where(*rawg, ExternalId.value.in_(batch))
+        ):
+            by_slug[row.value] = row
+    for works in in_batches(list(wanted)):
+        for row in await session.scalars(
+            select(ExternalId).where(*rawg, ExternalId.entity_id.in_(works))
+        ):
+            by_work.setdefault(row.entity_id, row)
+            by_slug[row.value] = row
+
+    for work_id, slug in wanted.items():
+        held = by_slug.get(slug)
+        if held is not None:
+            if held.entity_id != work_id:
+                logger.warning(
+                    "rawg game %s is already work %d's, not %d's", slug, held.entity_id, work_id
+                )
+            continue
+        own = by_work.get(work_id)
+        if own is None:
+            own = by_work[work_id] = ExternalId(
                 entity_type=EntityType.WORK,
                 entity_id=work_id,
                 namespace=NAMESPACE,
                 value=slug,
                 source_ref=source,
             )
-        )
-    else:
-        own.value = slug
+            session.add(own)
+        else:
+            del by_slug[own.value]
+            own.value = slug
+            # Written now: a later work may take the slug this one gave up, and
+            # a flush orders that row's write by key, not by when it was decided.
+            await session.flush()
+        by_slug[slug] = own
     await session.flush()

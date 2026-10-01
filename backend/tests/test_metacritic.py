@@ -403,20 +403,27 @@ async def test_a_slug_given_up_is_free_for_a_later_work_in_the_same_run(
 ) -> None:
     """A run goes in order, batches or not: one work moves on, the next takes its slug.
 
-    And of two works given one new slug in a run, the first keeps it.
+    Taken by a new row, and by an older one changing its own: `earlier` was
+    given "x" before `later` had "y", so writing the two updates in key order
+    rather than in the run's would put "y" on two works at once. And of two
+    works given one new slug in a run, the first keeps it.
     """
 
     monkeypatch.setattr(queries, "BIND_LIMIT", 2)
     await seed_providers(session)
-    moving, taking, first, second = [
-        await make_work(session, title) for title in ("A", "B", "C", "D")
+    moving, taking, first, second, earlier, later = [
+        await make_work(session, title) for title in ("A", "B", "C", "D", "E", "F")
     ]
     await session.commit()
-    await record_scores(db, {moving.id: {"slug": "old"}})
+    await record_scores(
+        db, {moving.id: {"slug": "old"}, earlier.id: {"slug": "x"}, later.id: {"slug": "y"}}
+    )
 
     await record_scores(
         db,
         {
+            later.id: {"slug": "z"},
+            earlier.id: {"slug": "y"},
             moving.id: {"slug": "new"},
             taking.id: {"slug": "old"},
             first.id: {"slug": "shared"},
@@ -424,4 +431,10 @@ async def test_a_slug_given_up_is_free_for_a_later_work_in_the_same_run(
         },
     )
 
-    assert await slugs(db) == {moving.id: "new", taking.id: "old", first.id: "shared"}
+    assert await slugs(db) == {
+        moving.id: "new",
+        taking.id: "old",
+        first.id: "shared",
+        earlier.id: "y",
+        later.id: "z",
+    }
