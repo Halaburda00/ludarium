@@ -1,5 +1,6 @@
 import re
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -9,11 +10,21 @@ from conftest import make_account, make_work
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ludarium import metacritic as metacritic_module
+from ludarium import queries
 from ludarium.db import Database
 from ludarium.enrichment import enrich
 from ludarium.enums import EntityType, SourceKind, SyncStatus
 from ludarium.metacritic import score_matched_works
-from ludarium.models import Account, Entitlement, EntitlementWork, ExternalId, FieldProvenance, Work
+from ludarium.models import (
+    Account,
+    Entitlement,
+    EntitlementWork,
+    ExternalId,
+    FieldProvenance,
+    Provider,
+    Work,
+)
 from ludarium.providers import RawgClient
 from ludarium.providers import rawg as rawg_module
 from ludarium.resolver import record, resolve
@@ -334,3 +345,83 @@ async def test_a_game_owned_only_elsewhere_is_confirmed_by_igdb_s_steam_appid(
     assert await score(db, client) is SyncStatus.SUCCESS
 
     assert (await scored(db, work.id))[0] == 86
+
+
+async def slugs(db: Database) -> dict[int, str]:
+    async with db.session_factory() as reader:
+        rows = await reader.execute(
+            select(ExternalId.entity_id, ExternalId.value).where(ExternalId.namespace == "rawg")
+        )
+        return dict(rows.tuples().all())
+
+
+async def record_scores(db: Database, records: dict[int, dict[str, object]]) -> None:
+    """`_record` on its own: which work holds which slug is decided there, not by the search."""
+
+    async with db.session_factory() as reader:
+        rawg = await reader.scalar(select(Provider.id).where(Provider.key == "rawg"))
+    run = SimpleNamespace(database=db, provider_id=rawg, id=None)
+    confirmed = {work_id: 7000 + work_id for work_id in records}
+    await metacritic_module._record(
+        run,  # type: ignore[arg-type]
+        confirmed,
+        {str(confirmed[work_id]): record for work_id, record in records.items()},
+    )
+
+
+async def test_a_slug_another_work_holds_stays_with_it(
+    db: Database, session: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Two works confirmed to one RAWG game is a merge the matcher missed, not a second owner."""
+
+    await seed_providers(session)
+    first, second = await make_work(session, "One"), await make_work(session, "Two")
+    await session.commit()
+
+    await record_scores(db, {first.id: {"slug": "prey"}})
+    await record_scores(db, {second.id: {"slug": "prey"}})
+
+    assert await slugs(db) == {first.id: "prey"}
+    assert "already work" in caplog.text
+
+
+async def test_a_slug_rawg_changed_replaces_the_old_one(
+    db: Database, session: AsyncSession
+) -> None:
+    await seed_providers(session)
+    work = await make_work(session)
+    await session.commit()
+
+    await record_scores(db, {work.id: {"slug": "the-witcher-3"}})
+    await record_scores(db, {work.id: {"slug": "the-witcher-3-wild-hunt"}})
+
+    assert await slugs(db) == {work.id: "the-witcher-3-wild-hunt"}
+
+
+async def test_a_slug_given_up_is_free_for_a_later_work_in_the_same_run(
+    db: Database, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run goes in order, batches or not: one work moves on, the next takes its slug.
+
+    And of two works given one new slug in a run, the first keeps it.
+    """
+
+    monkeypatch.setattr(queries, "BIND_LIMIT", 2)
+    await seed_providers(session)
+    moving, taking, first, second = [
+        await make_work(session, title) for title in ("A", "B", "C", "D")
+    ]
+    await session.commit()
+    await record_scores(db, {moving.id: {"slug": "old"}})
+
+    await record_scores(
+        db,
+        {
+            moving.id: {"slug": "new"},
+            taking.id: {"slug": "old"},
+            first.id: {"slug": "shared"},
+            second.id: {"slug": "shared"},
+        },
+    )
+
+    assert await slugs(db) == {moving.id: "new", taking.id: "old", first.id: "shared"}
