@@ -1,6 +1,6 @@
 # ADR-0010 Sync never deletes; `manual` records are immutable
 
-Status: accepted, 2026-08-10
+Status: accepted, 2026-08-10. Refined by ADR-0030: a restore keeps the copy until the user lets it go.
 
 ## Context
 
