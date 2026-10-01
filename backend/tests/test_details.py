@@ -11,6 +11,8 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from test_matching import TOKEN
 
+from ludarium import details as details_module
+from ludarium import queries
 from ludarium.db import Database
 from ludarium.details import describe_matched_works, released_on
 from ludarium.enrichment import enrich
@@ -344,6 +346,35 @@ async def test_a_second_run_inside_a_month_asks_igdb_nothing(
     await describe(db, client)
 
     assert len(igdb.bodies) == 1
+
+
+@respx.mock
+async def test_works_are_committed_a_batch_at_a_time(
+    db: Database, session: AsyncSession, client: IgdbClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run that fails part-way keeps the batches it wrote, and held the lock for one each."""
+
+    monkeypatch.setattr(queries, "BIND_LIMIT", 2)
+    games = {game: {**GAMES[9001], "id": game} for game in range(9101, 9106)}
+    Igdb(games).mount()
+    works = [await anchored(session, game, f"Game {game}") for game in games]
+    classify = details_module._classify
+
+    async def failing(session: AsyncSession, source: str, work_id: int, *args: Any) -> None:
+        if work_id == works[4].id:
+            raise RuntimeError("the last batch fails")
+        await classify(session, source, work_id, *args)
+
+    monkeypatch.setattr(details_module, "_classify", failing)
+
+    with pytest.raises(RuntimeError):
+        await describe(db, client)
+
+    summaries = [(await fetched(db, work.id)).summary for work in works]
+    assert summaries[:4] == ["A monster hunter looks for his adopted daughter."] * 4
+    assert summaries[4] is None
+    names = (await session.scalars(select(Company.name).order_by(Company.name))).all()
+    assert names == ["Port House", "Studio Red"]
 
 
 def test_a_release_date_is_taken_in_utc() -> None:

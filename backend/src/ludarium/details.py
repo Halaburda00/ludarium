@@ -26,6 +26,7 @@ from ludarium.models.cache import Payload
 from ludarium.models.types import ScalarValue
 from ludarium.providers.base import MalformedResponseError, whole_number
 from ludarium.providers.igdb import IgdbClient
+from ludarium.queries import in_batches
 from ludarium.resolver import record_many, resolve
 
 logger = logging.getLogger(__name__)
@@ -153,53 +154,65 @@ async def _anchored(database: Database) -> dict[int, int]:
 async def _record(
     run: EnrichmentRun, games: Mapping[int, int], answers: Mapping[str, Payload | None]
 ) -> int:
-    """Each work's summary, date, companies and genres, in one transaction.
+    """Each work's summary, date, companies and genres, a transaction per batch of works.
+
+    Committed batch by batch, as `EnrichmentRun.fetch` stores its answers: on
+    SQLite the one writer holds the lock until it commits, and recording a whole
+    library at once kept a sync waiting for the length of it (#112). A run that
+    fails part-way keeps the batches before, which the next run writes again.
 
     Only what IGDB states is recorded. A missing summary asserts nothing rather
     than null, as the store's unknown kind does (ADR-0020): IGDB having nothing
     to say is not evidence that another source is wrong.
     """
 
-    described = 0
-    async with run.database.writing_session_factory() as session:
-        reporter = await session.get_one(Provider, run.provider_id)
-        # Every genre once, rather than a lookup per genre of every work: there
-        # are a couple of dozen, and a library has thousands of works (#92).
-        genres = {genre.slug: genre for genre in await session.scalars(select(Genre))}
-        for work_id, game in games.items():
-            answer = answers.get(str(game))
-            if not isinstance(answer, dict):
-                continue
-            described += 1
-            values: dict[str, ScalarValue | None] = {}
-            summary = answer.get("summary")
-            if isinstance(summary, str):
-                values["summary"] = summary
-            moment = released_on(whole_number(answer.get("first_release_date")))
-            if moment is not None:
-                values["release_date"] = moment.date().isoformat()
-                values["release_year"] = moment.year
-            if values:
-                recorded = await record_many(
-                    session,
-                    entity_type=EntityType.WORK,
-                    entity_id=work_id,
-                    source_kind=reporter.source_kind,
-                    source_ref=reporter.key,
-                    values=values,
-                    run_id=run.id,
-                )
-                await resolve(
-                    session,
-                    entity_type=EntityType.WORK,
-                    entity_id=work_id,
-                    fields=list(values),
-                    recorded=recorded,
-                )
-            await _link(session, reporter.key, work_id, answer.get("companies"))
-            await _classify(session, reporter.key, work_id, answer.get("genres"), genres)
-        await session.commit()
-    return described
+    described: dict[int, dict[str, Any]] = {}
+    for work_id, game in games.items():
+        answer = answers.get(str(game))
+        if isinstance(answer, dict):
+            described[work_id] = answer
+    for batch in in_batches(list(described)):
+        async with run.database.writing_session_factory() as session:
+            await _record_batch(run, session, {work_id: described[work_id] for work_id in batch})
+            await session.commit()
+    return len(described)
+
+
+async def _record_batch(
+    run: EnrichmentRun, session: AsyncSession, described: Mapping[int, dict[str, Any]]
+) -> None:
+    reporter = await session.get_one(Provider, run.provider_id)
+    # Every genre once, rather than a lookup per genre of every work: there
+    # are a couple of dozen, and a library has thousands of works (#92).
+    genres = {genre.slug: genre for genre in await session.scalars(select(Genre))}
+    for work_id, answer in described.items():
+        values: dict[str, ScalarValue | None] = {}
+        summary = answer.get("summary")
+        if isinstance(summary, str):
+            values["summary"] = summary
+        moment = released_on(whole_number(answer.get("first_release_date")))
+        if moment is not None:
+            values["release_date"] = moment.date().isoformat()
+            values["release_year"] = moment.year
+        if values:
+            recorded = await record_many(
+                session,
+                entity_type=EntityType.WORK,
+                entity_id=work_id,
+                source_kind=reporter.source_kind,
+                source_ref=reporter.key,
+                values=values,
+                run_id=run.id,
+            )
+            await resolve(
+                session,
+                entity_type=EntityType.WORK,
+                entity_id=work_id,
+                fields=list(values),
+                recorded=recorded,
+            )
+        await _link(session, reporter.key, work_id, answer.get("companies"))
+        await _classify(session, reporter.key, work_id, answer.get("genres"), genres)
 
 
 async def _link(session: AsyncSession, source: str, work_id: int, companies: object) -> None:
