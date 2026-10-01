@@ -86,7 +86,8 @@
     "matches_other": "{{count}} matches",
     "matches_partial_one": "{{count}} match so far",
     "matches_partial_other": "{{count}} matches so far",
-    "noMatches": "Nothing in the library matches “{{search}}”."
+    "noMatches": "Nothing in the library matches “{{search}}”.",
+    "removedLink": "Removed games"
   },
   "work": {
     "back": "← Library",
@@ -124,7 +125,10 @@
       "saveNotes": "Save notes",
       "started": "Started {{date}}",
       "completed": "Finished {{date}}"
-    }
+    },
+    "kept": "Kept by you: {{provider}} no longer lists this copy.",
+    "letGo": "Stop keeping",
+    "letGoHint": "The next sync that does not find it on {{provider}} will move it to removed games."
   },
   "filters": {
     "title": "Filters",
@@ -243,5 +247,16 @@
     "delete": "Delete “{{name}}”",
     "deleteShort": "Delete",
     "dropped": "“{{name}}” opened without what the library no longer has: {{dropped}}."
+  },
+  "removed": {
+    "title": "Removed from your accounts",
+    "intro": "A sync stopped finding these copies on their platform. Nothing was deleted: restoring one brings the game back with its playtime, status and notes, and keeps it in your library even if the platform still does not list it.",
+    "empty": "Nothing has been removed from your accounts.",
+    "game": "Game",
+    "removedOn": "Removed",
+    "actions": "Actions",
+    "platform": "{{provider}} · {{account}}",
+    "restore": "Restore",
+    "restoreLabel": "Restore {{title}}"
   }
 }

@@ -181,7 +181,7 @@ says so: search needs a backend of its own.
 - [ ] Filter state in the URL; saved views
 - [ ] `PlayStatus`, personal rating, notes
 - [ ] Manual entry — physical copies, unredeemed keys, itch.io
-- [ ] Removed-from-account view with one-click restore
+- [x] Removed-from-account view with one-click restore; a restored copy is kept (ADR-0030)
 - [ ] Demo mode with a fixed seed dataset
 
 **Done when:** the tool answers "what should I play tonight" better than any

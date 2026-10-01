@@ -162,6 +162,12 @@ export default function Library() {
           >
             {t('library.connectAccount')}
           </Link>
+          <Link
+            to="/removed"
+            className="px-2 text-sm text-primary underline-offset-4 hover:underline"
+          >
+            {t('library.removedLink')}
+          </Link>
           <Button
             variant="ghost"
             onClick={() =>

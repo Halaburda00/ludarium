@@ -292,4 +292,28 @@ describe('what the user decides about a work', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('nothing to change')
   })
+
+  it('says which copy the user keeps and lets it go', async () => {
+    const kept: WorkDetail = {
+      ...WITCHER,
+      entitlements: [{ ...WITCHER.entitlements[0], kept: true }, WITCHER.entitlements[1]],
+    }
+    const calls = stubFetch({
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works/7': { body: kept },
+      'DELETE /api/entitlements/10/keep': { status: 204 },
+    })
+    renderApp(<Router />, { route: '/library/7' })
+
+    expect(
+      await screen.findByText('Kept by you: Steam no longer lists this copy.'),
+    ).toBeInTheDocument()
+    // Only the copy the user kept; the Epic one is the platform's as usual.
+    expect(screen.getAllByRole('button', { name: 'Stop keeping' })).toHaveLength(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Stop keeping' }))
+
+    expect(calls.some((call) => call.method === 'DELETE')).toBe(true)
+    expect(missingKeys).toEqual([])
+  })
 })

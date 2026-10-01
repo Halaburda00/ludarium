@@ -10,6 +10,7 @@ import Library from '@/routes/Library'
 import WorkPage from '@/routes/WorkPage'
 import Login from '@/routes/Login'
 import Onboarding from '@/routes/Onboarding'
+import Removed from '@/routes/Removed'
 
 export function Router() {
   return (
@@ -21,6 +22,7 @@ export function Router() {
       <Route element={<RequireSession needsAccount />}>
         <Route path="/library" element={<Library />} />
         <Route path="/library/:workId" element={<WorkPage />} />
+        <Route path="/removed" element={<Removed />} />
       </Route>
       <Route path="*" element={<Navigate to="/library" replace />} />
     </Routes>
