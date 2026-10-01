@@ -29,7 +29,8 @@ from ludarium.models.cache import Payload
 from ludarium.models.types import ScalarValue
 from ludarium.providers.base import whole_number
 from ludarium.providers.steam_store import MAX_BATCH, SteamStoreClient
-from ludarium.resolver import record_many, resolve
+from ludarium.queries import in_batches
+from ludarium.resolver import record_entities, resolve_entities
 
 logger = logging.getLogger(__name__)
 
@@ -188,39 +189,34 @@ async def _record(
     targets: Mapping[int, frozenset[str]],
     answers: Mapping[str, Payload | None],
 ) -> None:
-    """Each work's score from its chosen app, in one transaction.
+    """Each work's score from its chosen app, a transaction per batch of works.
 
     A work none of whose apps the store answered for is left as it was: the
-    store forgetting a delisted app is not evidence its score changed.
+    store forgetting a delisted app is not evidence its score changed. Batches
+    are committed as they are written, so a sync waits for one batch rather
+    than the library (#114).
     """
 
-    scored = judged = 0
-    async with run.database.writing_session_factory() as session:
-        reporter = await session.get_one(Provider, run.provider_id)
-        for work_id, appids in targets.items():
-            appid = chosen(appids, answers)
-            if appid is None:
-                continue
-            values = values_of(appid, answers[appid])
-            scored += values["steam_review_percent"] is not None
-            judged += values["steam_review_rating"] is not None
-            recorded = await record_many(
+    scores: dict[int, dict[str, ScalarValue | None]] = {}
+    for work_id, appids in targets.items():
+        appid = chosen(appids, answers)
+        if appid is not None:
+            scores[work_id] = values_of(appid, answers[appid])
+    scored = sum(values["steam_review_percent"] is not None for values in scores.values())
+    judged = sum(values["steam_review_rating"] is not None for values in scores.values())
+    for batch in in_batches(list(scores)):
+        async with run.database.writing_session_factory() as session:
+            reporter = await session.get_one(Provider, run.provider_id)
+            recorded = await record_entities(
                 session,
                 entity_type=EntityType.WORK,
-                entity_id=work_id,
                 source_kind=reporter.source_kind,
                 source_ref=reporter.key,
-                values=values,
+                values={work_id: scores[work_id] for work_id in batch},
                 run_id=run.id,
             )
-            await resolve(
-                session,
-                entity_type=EntityType.WORK,
-                entity_id=work_id,
-                fields=list(values),
-                recorded=recorded,
-            )
-        await session.commit()
+            await resolve_entities(session, entity_type=EntityType.WORK, recorded=recorded)
+            await session.commit()
     logger.info(
         "%d of %d works with a Steam appid have a Steam review score, %d with a verdict",
         scored,

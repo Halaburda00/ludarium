@@ -21,9 +21,11 @@ from ludarium.enrichment import EnrichmentRun, Step
 from ludarium.enums import EntityType, ItemKind, WorkLinkRole
 from ludarium.models import Account, Entitlement, EntitlementWork, Provider
 from ludarium.models.cache import Payload
+from ludarium.models.types import ScalarValue
 from ludarium.providers.base import whole_number
 from ludarium.providers.steam_store import MAX_BATCH, SteamStoreClient
-from ludarium.resolver import record_many, resolve
+from ludarium.queries import in_batches
+from ludarium.resolver import record_entities, resolve_entities
 
 # Whose entitlements are classified: the store answers about Steam appids only.
 LIBRARY: Final = "steam"
@@ -104,7 +106,7 @@ async def _record(
     targets: Sequence[tuple[str, int]],
     answers: Mapping[str, Payload | None],
 ) -> None:
-    """Assert each known kind on its work and resolve it, in one transaction.
+    """Assert each known kind on its work and resolve it, a transaction per batch of works.
 
     An app the store does not know, or gives a type nothing maps, is skipped
     rather than recorded as null. Under `precedence` a null row still ranks, and
@@ -112,29 +114,29 @@ async def _record(
     store asserted before and no longer answers for keeps its row: the store
     forgetting a delisted app is not evidence that the app changed.
 
+    A work reached by several apps takes the kind of the last one, in the
+    order `_library` gives them, as it did when each pair was recorded in turn.
+    Batches are committed as they are written, so a sync waits for one batch
+    rather than the library (#114).
+
     No provider is asked inside this transaction; `fetch` has already finished.
     """
 
-    async with run.database.writing_session_factory() as session:
-        reporter = await session.get_one(Provider, run.provider_id)
-        for appid, work_id in targets:
-            kind = kind_of(answers[appid])
-            if kind is None:
-                continue
-            recorded = await record_many(
+    kinds: dict[int, dict[str, ScalarValue | None]] = {}
+    for appid, work_id in targets:
+        kind = kind_of(answers[appid])
+        if kind is not None:
+            kinds[work_id] = {"item_kind": kind.value}
+    for batch in in_batches(list(kinds)):
+        async with run.database.writing_session_factory() as session:
+            reporter = await session.get_one(Provider, run.provider_id)
+            recorded = await record_entities(
                 session,
                 entity_type=EntityType.WORK,
-                entity_id=work_id,
                 source_kind=reporter.source_kind,
                 source_ref=reporter.key,
-                values={"item_kind": kind.value},
+                values={work_id: kinds[work_id] for work_id in batch},
                 run_id=run.id,
             )
-            await resolve(
-                session,
-                entity_type=EntityType.WORK,
-                entity_id=work_id,
-                fields=["item_kind"],
-                recorded=recorded,
-            )
-        await session.commit()
+            await resolve_entities(session, entity_type=EntityType.WORK, recorded=recorded)
+            await session.commit()

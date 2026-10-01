@@ -10,6 +10,7 @@ from conftest import make_account, make_provider, make_work
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ludarium import classification, queries
 from ludarium.classification import STORE_TYPES, classify_steam_items, kind_of
 from ludarium.db import Database
 from ludarium.enrichment import enrich
@@ -269,6 +270,62 @@ async def test_a_work_a_bundle_grants_keeps_its_own_kind(
 
     assert run.status is SyncStatus.SUCCESS
     assert await kinds(db) == {bundle.id: ItemKind.GAME, granted.id: None}
+
+
+@respx.mock
+async def test_a_failed_batch_keeps_the_batches_before_it(
+    db: Database,
+    session: AsyncSession,
+    steam: Account,
+    store: SteamStoreClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each batch commits on its own, so a sync waits for one batch, not the library (#114)."""
+
+    monkeypatch.setattr(queries, "BIND_LIMIT", 2)
+    respx.get(GET_ITEMS_URL).mock(side_effect=the_store)
+    known = [appid for appid, kind in RECORDED.items() if kind is not None][:6]
+    works = [await own(session, steam, appid) for appid in known]
+    await session.commit()
+    resolve_entities = classification.resolve_entities
+    calls = 0
+
+    async def failing_third(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise RuntimeError("the third batch fails")
+        return await resolve_entities(*args, **kwargs)
+
+    monkeypatch.setattr(classification, "resolve_entities", failing_third)
+
+    with pytest.raises(RuntimeError):
+        await enrich(db, provider="steam_store", step=classify_steam_items(store))
+
+    stored = await kinds(db)
+    assert [stored[work.id] for work in works] == [RECORDED[appid] for appid in known[:4]] + [
+        None,
+        None,
+    ]
+
+
+@respx.mock
+async def test_a_work_reached_by_two_apps_takes_the_kind_of_the_last(
+    db: Database, session: AsyncSession, steam: Account, store: SteamStoreClient
+) -> None:
+    """As when each app was recorded in turn: the later entitlement's kind is the one kept."""
+
+    respx.get(GET_ITEMS_URL).mock(side_effect=the_store)
+    work = await own(session, steam, "35020")  # a demo
+    entitlement = Entitlement(account_id=steam.id, provider_item_id="594650", provider_title="Hunt")
+    session.add(entitlement)
+    await session.flush()
+    session.add(EntitlementWork(entitlement_id=entitlement.id, work_id=work.id))
+    await session.commit()
+
+    await enrich(db, provider="steam_store", step=classify_steam_items(store))
+
+    assert (await kinds(db))[work.id] is ItemKind.GAME
 
 
 @respx.mock
