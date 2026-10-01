@@ -11,7 +11,7 @@ rows, all of them inside the data directory.
 """
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
@@ -185,6 +185,7 @@ async def _record_batch(
     # Every genre once, rather than a lookup per genre of every work: there
     # are a couple of dozen, and a library has thousands of works (#92).
     genres = {genre.slug: genre for genre in await session.scalars(select(Genre))}
+    companies = await _companies(session, described.values())
     for work_id, answer in described.items():
         values: dict[str, ScalarValue | None] = {}
         summary = answer.get("summary")
@@ -211,29 +212,74 @@ async def _record_batch(
                 fields=list(values),
                 recorded=recorded,
             )
-        await _link(session, reporter.key, work_id, answer.get("companies"))
+        await _link(session, reporter.key, work_id, answer.get("companies"), companies)
         await _classify(session, reporter.key, work_id, answer.get("genres"), genres)
 
 
-async def _link(session: AsyncSession, source: str, work_id: int, companies: object) -> None:
-    """Replace the work's links from `source` with the ones IGDB gives now.
+def _credited(companies: object) -> Iterator[tuple[int, str, list[CompanyRole]]]:
+    """Each company in an answer, by IGDB id and name, with the roles it is credited in."""
 
-    Replaced rather than added to: a publisher IGDB has since corrected would
-    otherwise stay credited for good. Links from any other source stay.
-    """
-
-    wanted: set[tuple[int, CompanyRole]] = set()
     for entry in companies if isinstance(companies, list) else []:
         if not isinstance(entry, dict):
             continue
         igdb_id, name = whole_number(entry.get("id")), entry.get("name")
         if igdb_id is None or not isinstance(name, str):
             continue
-        company = await _company(session, igdb_id, name)
         roles = entry.get("roles")
-        for flag in roles if isinstance(roles, list) else []:
-            if flag in ROLES:
-                wanted.add((company.id, ROLES[flag]))
+        yield (
+            igdb_id,
+            name,
+            [ROLES[flag] for flag in roles if flag in ROLES] if isinstance(roles, list) else [],
+        )
+
+
+async def _companies(
+    session: AsyncSession, answers: Iterable[Mapping[str, Any]]
+) -> dict[int, Company]:
+    """Every company a batch credits, by IGDB id, made if new and renamed if IGDB renamed it.
+
+    Read in one go rather than once per credit of every work: a library of
+    thousands credits a company a few times each, and the lookups were most of
+    what the step spent its write lock on (#112).
+    """
+
+    named = {
+        igdb_id: name
+        for answer in answers
+        for igdb_id, name, _ in _credited(answer.get("companies"))
+    }
+    known: dict[int, Company] = {}
+    for batch in in_batches(list(named)):
+        for company in await session.scalars(select(Company).where(Company.igdb_id.in_(batch))):
+            if company.igdb_id is not None:
+                known[company.igdb_id] = company
+    for igdb_id, name in named.items():
+        held = known.get(igdb_id)
+        if held is None:
+            known[igdb_id] = Company(igdb_id=igdb_id, name=name)
+            session.add(known[igdb_id])
+        elif held.name != name:
+            held.name = name
+    await session.flush()
+    return known
+
+
+async def _link(
+    session: AsyncSession,
+    source: str,
+    work_id: int,
+    companies: object,
+    known: Mapping[int, Company],
+) -> None:
+    """Replace the work's links from `source` with the ones IGDB gives now.
+
+    Replaced rather than added to: a publisher IGDB has since corrected would
+    otherwise stay credited for good. Links from any other source stay.
+    """
+
+    wanted = {
+        (known[igdb_id].id, role) for igdb_id, _, roles in _credited(companies) for role in roles
+    }
 
     await session.execute(
         delete(WorkCompany).where(WorkCompany.work_id == work_id, WorkCompany.source_ref == source)
@@ -249,19 +295,6 @@ async def _link(session: AsyncSession, source: str, work_id: int, companies: obj
             WorkCompany(work_id=work_id, company_id=company_id, role=role, source_ref=source)
         )
     await session.flush()
-
-
-async def _company(session: AsyncSession, igdb_id: int, name: str) -> Company:
-    """The company IGDB calls `igdb_id`, made if new and renamed if IGDB renamed it."""
-
-    company = await session.scalar(select(Company).where(Company.igdb_id == igdb_id))
-    if company is None:
-        company = Company(igdb_id=igdb_id, name=name)
-        session.add(company)
-        await session.flush()
-    elif company.name != name:
-        company.name = name
-    return company
 
 
 async def _classify(
