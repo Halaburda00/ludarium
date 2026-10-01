@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from typing import Final
 
-from sqlalchemy import Date, func, select
+from sqlalchemy import Date, func, inspect, select
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -256,7 +256,35 @@ async def record_many(
     `resolve()` would otherwise read back a statement later.
     """
 
-    strategies = {field: strategy_for(entity_type, field) for field in values}
+    recorded = await record_entities(
+        session,
+        entity_type=entity_type,
+        source_kind=source_kind,
+        source_ref=source_ref,
+        values={entity_id: values},
+        run_id=run_id,
+    )
+    return recorded[entity_id]
+
+
+async def record_entities(
+    session: AsyncSession,
+    *,
+    entity_type: EntityType,
+    source_kind: SourceKind,
+    source_ref: str,
+    values: Mapping[int, Mapping[str, ScalarValue | None]],
+    run_id: int | None = None,
+) -> dict[int, dict[str, list[FieldProvenance]]]:
+    """`record_many()` for many entities of one type, in a read per batch and one flush.
+
+    A source describing a library states the same few fields about thousands
+    of works. Asked a work at a time that was a read and a flush per work, and
+    on SQLite the step held the write lock for all of them (#112).
+    """
+
+    fields = sorted({field for asserted in values.values() for field in asserted})
+    strategies = {field: strategy_for(entity_type, field) for field in fields}
     for field, strategy in strategies.items():
         writer = WRITERS.get(strategy)
         if writer is not None and source_kind is not writer:
@@ -269,52 +297,58 @@ async def record_many(
 
     # Every row for every field, not just this source's: one query answers both
     # "is there a row to update" and "is someone else already asserting this".
-    rows_by_field: dict[str, list[FieldProvenance]] = {field: [] for field in values}
-    for existing in await session.scalars(
-        select(FieldProvenance).where(
-            FieldProvenance.entity_type == entity_type,
-            FieldProvenance.entity_id == entity_id,
-            FieldProvenance.field.in_(rows_by_field),
-        )
-    ):
-        rows_by_field[existing.field].append(existing)
+    rows_by_entity: dict[int, dict[str, list[FieldProvenance]]] = {
+        entity_id: {field: [] for field in asserted} for entity_id, asserted in values.items()
+    }
+    for batch in in_batches(list(values)):
+        for existing in await session.scalars(
+            select(FieldProvenance).where(
+                FieldProvenance.entity_type == entity_type,
+                FieldProvenance.entity_id.in_(batch),
+                FieldProvenance.field.in_(fields),
+            )
+        ):
+            asked = rows_by_entity[existing.entity_id]
+            if existing.field in asked:
+                asked[existing.field].append(existing)
 
     # One timestamp for the batch: these fields did arrive in one answer, and
     # `_ordered` breaks a tie by it — so giving them separate moments would let
     # the order the caller happened to pass them in decide something.
     moment = utcnow()
-    for field, value in values.items():
-        rows = rows_by_field[field]
-        _check_sole_source(rows, strategies[field], entity_type, field, source_kind, source_ref)
-        row = next(
-            (
-                candidate
-                for candidate in rows
-                if candidate.source_kind is source_kind and candidate.source_ref == source_ref
-            ),
-            None,
-        )
-        if row is None:
-            # The 5-tuple constraint covers one source writing twice; the
-            # `sole_source` flag is what covers two sources sharing a field the
-            # registry says only one may assert. Written from `STRATEGIES`
-            # rather than named in the migration, so the two cannot drift
-            # (ADR-0017).
-            row = FieldProvenance(
-                entity_type=entity_type,
-                entity_id=entity_id,
-                field=field,
-                source_kind=source_kind,
-                source_ref=source_ref,
-                sole_source=_claims_sole_source(strategies[field], source_kind),
+    for entity_id, asserted in values.items():
+        for field, value in asserted.items():
+            rows = rows_by_entity[entity_id][field]
+            _check_sole_source(rows, strategies[field], entity_type, field, source_kind, source_ref)
+            row = next(
+                (
+                    candidate
+                    for candidate in rows
+                    if candidate.source_kind is source_kind and candidate.source_ref == source_ref
+                ),
+                None,
             )
-            session.add(row)
-            rows.append(row)
-        row.value = value
-        row.observed_at = moment
-        row.run_id = run_id
+            if row is None:
+                # The 5-tuple constraint covers one source writing twice; the
+                # `sole_source` flag is what covers two sources sharing a field
+                # the registry says only one may assert. Written from
+                # `STRATEGIES` rather than named in the migration, so the two
+                # cannot drift (ADR-0017).
+                row = FieldProvenance(
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    field=field,
+                    source_kind=source_kind,
+                    source_ref=source_ref,
+                    sole_source=_claims_sole_source(strategies[field], source_kind),
+                )
+                session.add(row)
+                rows.append(row)
+            row.value = value
+            row.observed_at = moment
+            row.run_id = run_id
     await session.flush()
-    return rows_by_field
+    return rows_by_entity
 
 
 async def record(
@@ -404,8 +438,83 @@ async def resolve(
     contested = [row for rows in rows_by_field.values() if len(rows) > 1 for row in rows]
     weights = await _weights(session, contested) if contested else {}
 
-    written: dict[str, ScalarValue | None] = {}
     winners: list[FieldProvenance] = []
+    written = _decide(entity, strategies, rows_by_field, weights, winners)
+
+    # Columns and every cleared winner, then every new one — in that order, and
+    # for all the fields at once rather than a pair of statements each. The
+    # partial unique index rejects a moment with two winners for one field,
+    # which is what it is for; a single flush could not be told to write the
+    # clear before the set, but two flushes can. Fields do not interfere here —
+    # the index is per field, so what has to be ordered is each field against
+    # itself.
+    await session.flush()
+    await _mark_effective(session, winners)
+    return written
+
+
+async def resolve_entities(
+    session: AsyncSession,
+    *,
+    entity_type: EntityType,
+    recorded: Mapping[int, Mapping[str, Sequence[FieldProvenance]]],
+) -> dict[int, dict[str, ScalarValue | None]]:
+    """`resolve()` for every entity `record_entities()` just wrote, in a read per batch.
+
+    `recorded` is that call's result, and nothing else: it names the fields as
+    well as their rows, so `resolve()`'s rule holds here with no `fields` to
+    check it against — only the write path that just built the map may pass it.
+
+    The two flushes `resolve()` orders are kept, for the whole batch at once:
+    the effective index is per entity and field, so clearing every old winner
+    before setting any new one orders each against itself as well.
+    """
+
+    mapper = inspect(ENTITIES[entity_type])
+    key = mapper.primary_key[0]
+    entities: dict[int, Base] = {}
+    for batch in in_batches(list(recorded)):
+        for entity in await session.scalars(select(mapper).where(key.in_(batch))):
+            entities[mapper.primary_key_from_instance(entity)[0]] = entity
+    missing = next((entity_id for entity_id in recorded if entity_id not in entities), None)
+    if missing is not None:
+        raise ResolutionError(f"no {entity_type.value} with id {missing}")
+
+    contested = [
+        row
+        for rows_by_field in recorded.values()
+        for rows in rows_by_field.values()
+        if len(rows) > 1
+        for row in rows
+    ]
+    weights = await _weights(session, contested) if contested else {}
+
+    written: dict[int, dict[str, ScalarValue | None]] = {}
+    winners: list[FieldProvenance] = []
+    for entity_id, rows_by_field in recorded.items():
+        strategies = {field: strategy_for(entity_type, field) for field in rows_by_field}
+        written[entity_id] = _decide(
+            entities[entity_id],
+            strategies,
+            {field: list(rows) for field, rows in rows_by_field.items()},
+            weights,
+            winners,
+        )
+    await session.flush()
+    await _mark_effective(session, winners)
+    return written
+
+
+def _decide(
+    entity: Base,
+    strategies: Mapping[str, FieldStrategy],
+    rows_by_field: Mapping[str, Sequence[FieldProvenance]],
+    weights: Mapping[str, int],
+    winners: list[FieldProvenance],
+) -> dict[str, ScalarValue | None]:
+    """Each field's winner onto the entity, appended to `winners` for the caller to mark."""
+
+    written: dict[str, ScalarValue | None] = {}
     for field, rows in rows_by_field.items():
         if not rows:
             continue
@@ -424,16 +533,6 @@ async def resolve(
         if winner is not None:
             winners.append(winner)
         written[field] = value
-
-    # Columns and every cleared winner, then every new one — in that order, and
-    # for all the fields at once rather than a pair of statements each. The
-    # partial unique index rejects a moment with two winners for one field,
-    # which is what it is for; a single flush could not be told to write the
-    # clear before the set, but two flushes can. Fields do not interfere here —
-    # the index is per field, so what has to be ordered is each field against
-    # itself.
-    await session.flush()
-    await _mark_effective(session, winners)
     return written
 
 
