@@ -113,6 +113,9 @@ class EntitlementSummary(BaseModel):
     provider_title: str
     playtime_minutes: int | None
     store_url: str | None
+    # Restored by the user while the platform does not list it, and so never
+    # swept until the user lets it go (ADR-0030).
+    kept: bool
 
 
 class Score(BaseModel):
@@ -306,6 +309,7 @@ def _summarise(entitlement: Entitlement, provider: Provider) -> EntitlementSumma
         provider_title=entitlement.provider_title,
         playtime_minutes=entitlement.playtime_minutes,
         store_url=_store_url(provider.store_url_template, entitlement.provider_item_id),
+        kept=entitlement.kept_at is not None,
     )
 
 
@@ -419,7 +423,7 @@ async def update_state(
     user_id = record.user_id
     if not (await session.execute(_owned_works(user_id).where(Work.id == work_id))).first():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such work in the library")
-    state = await _state_row(session, user_id=user_id, work_id=work_id)
+    state = await state_row(session, user_id=user_id, work_id=work_id)
     changes = update.model_dump(include=update.model_fields_set)
     if "notes" in changes and not (changes["notes"] or "").strip():
         # Blank notes are no notes, so the detail view has one empty state.
@@ -440,7 +444,7 @@ async def update_state(
     return await _detail(session, work_id, user_id)
 
 
-async def _state_row(session: SessionDep, *, user_id: int, work_id: int) -> UserWorkState:
+async def state_row(session: SessionDep, *, user_id: int, work_id: int) -> UserWorkState:
     """The row, created with its defaults spelled out if it was missing.
 
     Spelled out for the reason `_describe` gives: a new instance has no column

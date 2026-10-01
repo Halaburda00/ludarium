@@ -99,6 +99,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/entitlements/removed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Removed
+         * @description Every removed copy, the most recently removed first.
+         *
+         *     A manual copy is never swept (rule 2), so it never appears here.
+         */
+        get: operations["removed_api_entitlements_removed_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/entitlements/{entitlement_id}/keep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Let Go
+         * @description Stop keeping a restored copy: the next successful run that does not list it removes it.
+         *
+         *     Nothing is removed here. The platform decides that, as it does for any
+         *     other copy; this only withdraws the user's word against it.
+         */
+        delete: operations["let_go_api_entitlements__entitlement_id__keep_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/entitlements/{entitlement_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore
+         * @description Put a removed copy back, and keep it there while the platform stays silent (ADR-0030).
+         *
+         *     Its works count it again: a removed copy stops adding to `user_work_state`,
+         *     and a work whose only copy this was comes back to the library with the
+         *     state the user left on it, which a removal never touched.
+         *
+         *     409 for a copy that is not removed: there is nothing to undo, and a kept
+         *     flag set on a live copy would be a decision the user did not make.
+         */
+        post: operations["restore_api_entitlements__entitlement_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/genres": {
         parameters: {
             query?: never;
@@ -460,6 +532,8 @@ export interface components {
         EntitlementSummary: {
             /** Id */
             id: number;
+            /** Kept */
+            kept: boolean;
             /** Playtime Minutes */
             playtime_minutes: number | null;
             /** Provider */
@@ -545,6 +619,33 @@ export interface components {
             /** Last Success At */
             last_success_at: string | null;
             status: components["schemas"]["SyncStatus"];
+        };
+        /**
+         * RemovedEntitlement
+         * @description A copy a successful run no longer saw, and when.
+         */
+        RemovedEntitlement: {
+            /** Account Label */
+            account_label: string;
+            /** Id */
+            id: number;
+            /** Provider */
+            provider: string;
+            /** Provider Name */
+            provider_name: string;
+            /** Provider Title */
+            provider_title: string;
+            /**
+             * Removed At
+             * Format: date-time
+             */
+            removed_at: string;
+            /** Removed By Run Id */
+            removed_by_run_id: number | null;
+            /** Work Id */
+            work_id: number | null;
+            /** Work Title */
+            work_title: string | null;
         };
         /** SavedViewResponse */
         SavedViewResponse: {
@@ -984,6 +1085,99 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SyncRunResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    removed_api_entitlements_removed_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemovedEntitlement"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    let_go_api_entitlements__entitlement_id__keep_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entitlement_id: number;
+            };
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_api_entitlements__entitlement_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entitlement_id: number;
+            };
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
