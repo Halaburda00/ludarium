@@ -7,7 +7,7 @@ import httpx
 import pytest
 import respx
 from conftest import make_work
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from test_matching import TOKEN
 
@@ -377,6 +377,34 @@ async def test_works_are_committed_a_batch_at_a_time(
     assert summaries[4] is None
     names = (await session.scalars(select(Company.name).order_by(Company.name))).all()
     assert names == ["Port House", "Studio Red"]
+
+
+@respx.mock
+async def test_the_statements_a_batch_takes_do_not_grow_with_its_works(
+    db: Database, session: AsyncSession, client: IgdbClient
+) -> None:
+    """Everything but the new rows themselves is read and written for the batch at once (#112).
+
+    Asked a work at a time, twenty works were 201 statements on these
+    tables, all inside the transaction that holds SQLite's write lock.
+    """
+
+    games = {game: {**GAMES[9001], "id": game} for game in range(9201, 9221)}
+    Igdb(games).mount()
+    for game in games:
+        await anchored(session, game, f"Game {game}")
+    tables = ("field_provenance", "work_company", "work_genre", "company", "genre", "work ")
+    statements: list[str] = []
+
+    def count(_connection: object, _cursor: object, statement: str, *_: object) -> None:
+        if not statement.startswith("INSERT") and any(table in statement for table in tables):
+            statements.append(statement)
+
+    event.listen(db.engine.sync_engine, "before_cursor_execute", count)
+
+    await describe(db, client)
+
+    assert len(statements) <= 12, statements
 
 
 def test_a_release_date_is_taken_in_utc() -> None:
