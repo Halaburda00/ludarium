@@ -7,10 +7,12 @@ import httpx
 import pytest
 import respx
 from conftest import make_work
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from test_matching import TOKEN
 
+from ludarium import details as details_module
+from ludarium import queries
 from ludarium.db import Database
 from ludarium.details import describe_matched_works, released_on
 from ludarium.enrichment import enrich
@@ -344,6 +346,65 @@ async def test_a_second_run_inside_a_month_asks_igdb_nothing(
     await describe(db, client)
 
     assert len(igdb.bodies) == 1
+
+
+@respx.mock
+async def test_works_are_committed_a_batch_at_a_time(
+    db: Database, session: AsyncSession, client: IgdbClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run that fails part-way keeps the batches it wrote, and held the lock for one each."""
+
+    monkeypatch.setattr(queries, "BIND_LIMIT", 2)
+    games = {game: {**GAMES[9001], "id": game} for game in range(9101, 9106)}
+    Igdb(games).mount()
+    works = [await anchored(session, game, f"Game {game}") for game in games]
+    classify = details_module._classify
+
+    async def failing(
+        session: AsyncSession, source: str, listed: dict[int, object], *args: Any
+    ) -> None:
+        if works[4].id in listed:
+            raise RuntimeError("the last batch fails")
+        await classify(session, source, listed, *args)
+
+    monkeypatch.setattr(details_module, "_classify", failing)
+
+    with pytest.raises(RuntimeError):
+        await describe(db, client)
+
+    summaries = [(await fetched(db, work.id)).summary for work in works]
+    assert summaries[:4] == ["A monster hunter looks for his adopted daughter."] * 4
+    assert summaries[4] is None
+    names = (await session.scalars(select(Company.name).order_by(Company.name))).all()
+    assert names == ["Port House", "Studio Red"]
+
+
+@respx.mock
+async def test_the_statements_a_batch_takes_do_not_grow_with_its_works(
+    db: Database, session: AsyncSession, client: IgdbClient
+) -> None:
+    """Everything but the new rows themselves is read and written for the batch at once (#112).
+
+    Asked a work at a time, twenty works were 224 statements besides the
+    inserts, most inside the transaction that holds SQLite's write lock. Every
+    statement counts, so one added per work fails this whatever table it names.
+    """
+
+    games = {game: {**GAMES[9001], "id": game} for game in range(9201, 9221)}
+    Igdb(games).mount()
+    for game in games:
+        await anchored(session, game, f"Game {game}")
+    statements: list[str] = []
+
+    def count(_connection: object, _cursor: object, statement: str, *_: object) -> None:
+        if not statement.startswith("INSERT"):
+            statements.append(statement)
+
+    event.listen(db.engine.sync_engine, "before_cursor_execute", count)
+
+    await describe(db, client)
+
+    assert len(statements) <= 40, statements
 
 
 def test_a_release_date_is_taken_in_utc() -> None:

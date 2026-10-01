@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ludarium import resolver
+from ludarium import queries, resolver
 from ludarium.db import Database
 from ludarium.enums import EntityType, FieldStrategy, ItemKind, SourceKind
 from ludarium.models import Account, Base, EntitlementWork, FieldProvenance, UserWorkState, Work
@@ -19,8 +19,10 @@ from ludarium.resolver import (
     UnknownFieldError,
     picker_for,
     record,
+    record_entities,
     record_many,
     resolve,
+    resolve_entities,
     resolve_work_aggregates,
     resolve_work_aggregates_many,
 )
@@ -938,6 +940,90 @@ async def test_resolve_given_the_rows_decides_what_it_would_have_read(
     assert without == with_rows == {"item_kind": "game"}
     winners = {row.entity_id: row.source_ref for row in await effective(session)}
     assert winners == {read.id: "steam", handed.id: "steam"}
+
+
+async def test_many_entities_resolve_as_each_would_on_its_own(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The batch form across a read boundary: a user's value still wins, a winner still moves.
+
+    Three works and a limit of two, so the rows of the third are read apart.
+    The moving winner is the older row, so clearing the old one after setting
+    it would trip the effective index whichever order the flush picked.
+    """
+
+    monkeypatch.setattr(queries, "BIND_LIMIT", 2)
+    mine, moved, fresh = [await make_work(session, title=title) for title in ("A", "B", "C")]
+    await observe(
+        session,
+        mine,
+        source_kind=SourceKind.MANUAL,
+        source_ref="manual",
+        value="Mine",
+        field="summary",
+    )
+    # Two platforms of one weight: the newer observation wins, and steam's row
+    # is the older of the two.
+    for ref, value in (("steam", "Old"), ("gog", "Other")):
+        await observe(
+            session,
+            moved,
+            source_kind=SourceKind.PLATFORM_API,
+            source_ref=ref,
+            value=value,
+            field="summary",
+        )
+    for work in (mine, moved):
+        await resolve_work(session, work, "summary")
+    assert moved.summary == "Other"
+
+    recorded = await record_entities(
+        session,
+        entity_type=EntityType.WORK,
+        source_kind=SourceKind.PLATFORM_API,
+        source_ref="steam",
+        values={
+            mine.id: {"summary": "Theirs"},
+            moved.id: {"summary": "New"},
+            fresh.id: {"summary": "Fresh", "release_year": 2015},
+        },
+    )
+    written = await resolve_entities(session, entity_type=EntityType.WORK, recorded=recorded)
+    await session.commit()
+
+    assert written == {
+        mine.id: {"summary": "Mine"},
+        moved.id: {"summary": "New"},
+        fresh.id: {"summary": "Fresh", "release_year": 2015},
+    }
+    assert [(work.summary, work.release_year) for work in (mine, moved, fresh)] == [
+        ("Mine", None),
+        ("New", None),
+        ("Fresh", 2015),
+    ]
+    winners = {(row.entity_id, row.field): row.source_ref for row in await effective(session)}
+    assert winners == {
+        (mine.id, "summary"): "manual",
+        (moved.id, "summary"): "steam",
+        (fresh.id, "summary"): "steam",
+        (fresh.id, "release_year"): "steam",
+    }
+
+
+async def test_resolving_many_entities_names_the_one_that_is_not_there(
+    session: AsyncSession,
+) -> None:
+    work = await make_work(session)
+    recorded = await record_entities(
+        session,
+        entity_type=EntityType.WORK,
+        source_kind=SourceKind.PLATFORM_API,
+        source_ref="steam",
+        values={work.id: {"summary": "Here"}, 404: {"summary": "Not here"}},
+    )
+
+    with pytest.raises(ResolutionError, match="no work with id 404"):
+        await resolve_entities(session, entity_type=EntityType.WORK, recorded=recorded)
 
 
 async def test_many_works_aggregate_to_what_each_of_them_would(session: AsyncSession) -> None:

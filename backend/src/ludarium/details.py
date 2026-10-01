@@ -11,7 +11,7 @@ rows, all of them inside the data directory.
 """
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
@@ -26,7 +26,8 @@ from ludarium.models.cache import Payload
 from ludarium.models.types import ScalarValue
 from ludarium.providers.base import MalformedResponseError, whole_number
 from ludarium.providers.igdb import IgdbClient
-from ludarium.resolver import record_many, resolve
+from ludarium.queries import in_batches
+from ludarium.resolver import record_entities, resolve_entities
 
 logger = logging.getLogger(__name__)
 
@@ -153,132 +154,185 @@ async def _anchored(database: Database) -> dict[int, int]:
 async def _record(
     run: EnrichmentRun, games: Mapping[int, int], answers: Mapping[str, Payload | None]
 ) -> int:
-    """Each work's summary, date, companies and genres, in one transaction.
+    """Each work's summary, date, companies and genres, a transaction per batch of works.
+
+    Committed batch by batch, as `EnrichmentRun.fetch` stores its answers: on
+    SQLite the one writer holds the lock until it commits, and recording a whole
+    library at once kept a sync waiting for the length of it (#112). A run that
+    fails part-way keeps the batches before, which the next run writes again.
 
     Only what IGDB states is recorded. A missing summary asserts nothing rather
     than null, as the store's unknown kind does (ADR-0020): IGDB having nothing
     to say is not evidence that another source is wrong.
     """
 
-    described = 0
-    async with run.database.writing_session_factory() as session:
-        reporter = await session.get_one(Provider, run.provider_id)
-        # Every genre once, rather than a lookup per genre of every work: there
-        # are a couple of dozen, and a library has thousands of works (#92).
-        genres = {genre.slug: genre for genre in await session.scalars(select(Genre))}
-        for work_id, game in games.items():
-            answer = answers.get(str(game))
-            if not isinstance(answer, dict):
-                continue
-            described += 1
-            values: dict[str, ScalarValue | None] = {}
-            summary = answer.get("summary")
-            if isinstance(summary, str):
-                values["summary"] = summary
-            moment = released_on(whole_number(answer.get("first_release_date")))
-            if moment is not None:
-                values["release_date"] = moment.date().isoformat()
-                values["release_year"] = moment.year
-            if values:
-                recorded = await record_many(
-                    session,
-                    entity_type=EntityType.WORK,
-                    entity_id=work_id,
-                    source_kind=reporter.source_kind,
-                    source_ref=reporter.key,
-                    values=values,
-                    run_id=run.id,
-                )
-                await resolve(
-                    session,
-                    entity_type=EntityType.WORK,
-                    entity_id=work_id,
-                    fields=list(values),
-                    recorded=recorded,
-                )
-            await _link(session, reporter.key, work_id, answer.get("companies"))
-            await _classify(session, reporter.key, work_id, answer.get("genres"), genres)
-        await session.commit()
-    return described
+    described: dict[int, dict[str, Any]] = {}
+    for work_id, game in games.items():
+        answer = answers.get(str(game))
+        if isinstance(answer, dict):
+            described[work_id] = answer
+    for batch in in_batches(list(described)):
+        async with run.database.writing_session_factory() as session:
+            await _record_batch(run, session, {work_id: described[work_id] for work_id in batch})
+            await session.commit()
+    return len(described)
 
 
-async def _link(session: AsyncSession, source: str, work_id: int, companies: object) -> None:
-    """Replace the work's links from `source` with the ones IGDB gives now.
+async def _record_batch(
+    run: EnrichmentRun, session: AsyncSession, described: Mapping[int, dict[str, Any]]
+) -> None:
+    reporter = await session.get_one(Provider, run.provider_id)
+    # Every genre once per batch, rather than a lookup per genre of every work:
+    # there are a couple of dozen, and a library has thousands of works (#92).
+    genres = {genre.slug: genre for genre in await session.scalars(select(Genre))}
+    companies = await _companies(session, described.values())
+    asserted: dict[int, dict[str, ScalarValue | None]] = {}
+    for work_id, answer in described.items():
+        values: dict[str, ScalarValue | None] = {}
+        summary = answer.get("summary")
+        if isinstance(summary, str):
+            values["summary"] = summary
+        moment = released_on(whole_number(answer.get("first_release_date")))
+        if moment is not None:
+            values["release_date"] = moment.date().isoformat()
+            values["release_year"] = moment.year
+        if values:
+            asserted[work_id] = values
+    if asserted:
+        recorded = await record_entities(
+            session,
+            entity_type=EntityType.WORK,
+            source_kind=reporter.source_kind,
+            source_ref=reporter.key,
+            values=asserted,
+            run_id=run.id,
+        )
+        await resolve_entities(session, entity_type=EntityType.WORK, recorded=recorded)
+    credits = {work_id: answer.get("companies") for work_id, answer in described.items()}
+    await _link(session, reporter.key, credits, companies)
+    listed = {work_id: answer.get("genres") for work_id, answer in described.items()}
+    await _classify(session, reporter.key, listed, genres)
 
-    Replaced rather than added to: a publisher IGDB has since corrected would
-    otherwise stay credited for good. Links from any other source stay.
-    """
 
-    wanted: set[tuple[int, CompanyRole]] = set()
+def _credited(companies: object) -> Iterator[tuple[int, str, list[CompanyRole]]]:
+    """Each company in an answer, by IGDB id and name, with the roles it is credited in."""
+
     for entry in companies if isinstance(companies, list) else []:
         if not isinstance(entry, dict):
             continue
         igdb_id, name = whole_number(entry.get("id")), entry.get("name")
         if igdb_id is None or not isinstance(name, str):
             continue
-        company = await _company(session, igdb_id, name)
         roles = entry.get("roles")
-        for flag in roles if isinstance(roles, list) else []:
-            if flag in ROLES:
-                wanted.add((company.id, ROLES[flag]))
+        yield (
+            igdb_id,
+            name,
+            [ROLES[flag] for flag in roles if flag in ROLES] if isinstance(roles, list) else [],
+        )
+
+
+async def _companies(
+    session: AsyncSession, answers: Iterable[Mapping[str, Any]]
+) -> dict[int, Company]:
+    """Every company a batch credits, by IGDB id, made if new and renamed if IGDB renamed it.
+
+    Read in one go rather than once per credit of every work: a library of
+    thousands credits a company a few times each, and the lookups were most of
+    what the step spent its write lock on (#112).
+    """
+
+    named = {
+        igdb_id: name
+        for answer in answers
+        for igdb_id, name, _ in _credited(answer.get("companies"))
+    }
+    known: dict[int, Company] = {}
+    for batch in in_batches(list(named)):
+        for company in await session.scalars(select(Company).where(Company.igdb_id.in_(batch))):
+            if company.igdb_id is not None:
+                known[company.igdb_id] = company
+    for igdb_id, name in named.items():
+        held = known.get(igdb_id)
+        if held is None:
+            known[igdb_id] = Company(igdb_id=igdb_id, name=name)
+            session.add(known[igdb_id])
+        elif held.name != name:
+            held.name = name
+    await session.flush()
+    return known
+
+
+async def _link(
+    session: AsyncSession,
+    source: str,
+    credits: Mapping[int, object],
+    known: Mapping[int, Company],
+) -> None:
+    """Replace each work's links from `source` with the ones IGDB gives now.
+
+    Replaced rather than added to: a publisher IGDB has since corrected would
+    otherwise stay credited for good. Links from any other source stay. The
+    whole batch in three statements rather than three per work (#112).
+    """
+
+    wanted = {
+        (work_id, known[igdb_id].id, role)
+        for work_id, companies in credits.items()
+        for igdb_id, _, roles in _credited(companies)
+        for role in roles
+    }
 
     await session.execute(
-        delete(WorkCompany).where(WorkCompany.work_id == work_id, WorkCompany.source_ref == source)
+        delete(WorkCompany).where(
+            WorkCompany.work_id.in_(list(credits)), WorkCompany.source_ref == source
+        )
     )
     held = {
-        (company_id, role)
-        for company_id, role in await session.execute(
-            select(WorkCompany.company_id, WorkCompany.role).where(WorkCompany.work_id == work_id)
+        (work_id, company_id, role)
+        for work_id, company_id, role in await session.execute(
+            select(WorkCompany.work_id, WorkCompany.company_id, WorkCompany.role).where(
+                WorkCompany.work_id.in_(list(credits))
+            )
         )
     }
-    for company_id, role in sorted(wanted - held):
+    for work_id, company_id, role in sorted(wanted - held):
         session.add(
             WorkCompany(work_id=work_id, company_id=company_id, role=role, source_ref=source)
         )
     await session.flush()
 
 
-async def _company(session: AsyncSession, igdb_id: int, name: str) -> Company:
-    """The company IGDB calls `igdb_id`, made if new and renamed if IGDB renamed it."""
-
-    company = await session.scalar(select(Company).where(Company.igdb_id == igdb_id))
-    if company is None:
-        company = Company(igdb_id=igdb_id, name=name)
-        session.add(company)
-        await session.flush()
-    elif company.name != name:
-        company.name = name
-    return company
-
-
 async def _classify(
     session: AsyncSession,
     source: str,
-    work_id: int,
-    genres: object,
+    listed: Mapping[int, object],
     known: dict[str, Genre],
 ) -> None:
-    """Replace the work's genres from `source` with the ones IGDB gives now.
+    """Replace each work's genres from `source` with the ones IGDB gives now.
 
     As `_link` does for companies: a genre IGDB has dropped goes, and one any
     other source asserted stays. A work IGDB gives no genres keeps none from it.
     """
 
-    wanted: set[int] = set()
-    for entry in genres if isinstance(genres, list) else []:
-        if not isinstance(entry, dict):
-            continue
-        slug, name = entry.get("slug"), entry.get("name")
-        if isinstance(slug, str) and isinstance(name, str):
-            wanted.add((await _genre(session, known, slug, name)).id)
+    wanted: set[tuple[int, int]] = set()
+    for work_id, genres in listed.items():
+        for entry in genres if isinstance(genres, list) else []:
+            if not isinstance(entry, dict):
+                continue
+            slug, name = entry.get("slug"), entry.get("name")
+            if isinstance(slug, str) and isinstance(name, str):
+                wanted.add((work_id, (await _genre(session, known, slug, name)).id))
 
     await session.execute(
-        delete(WorkGenre).where(WorkGenre.work_id == work_id, WorkGenre.source_ref == source)
+        delete(WorkGenre).where(WorkGenre.work_id.in_(list(listed)), WorkGenre.source_ref == source)
     )
-    held = set(
-        await session.scalars(select(WorkGenre.genre_id).where(WorkGenre.work_id == work_id))
-    )
-    for genre_id in sorted(wanted - held):
+    held = {
+        (work_id, genre_id)
+        for work_id, genre_id in await session.execute(
+            select(WorkGenre.work_id, WorkGenre.genre_id).where(WorkGenre.work_id.in_(list(listed)))
+        )
+    }
+    for work_id, genre_id in sorted(wanted - held):
         session.add(WorkGenre(work_id=work_id, genre_id=genre_id, source_ref=source))
     await session.flush()
 
@@ -286,7 +340,7 @@ async def _classify(
 async def _genre(session: AsyncSession, known: dict[str, Genre], slug: str, name: str) -> Genre:
     """The genre IGDB calls `slug`, made if new and renamed if IGDB renamed it.
 
-    `known` is every genre by slug, loaded once per run and added to here.
+    `known` is every genre by slug, loaded once per batch and added to here.
     """
 
     genre = known.get(slug)
