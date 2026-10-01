@@ -360,10 +360,12 @@ async def test_works_are_committed_a_batch_at_a_time(
     works = [await anchored(session, game, f"Game {game}") for game in games]
     classify = details_module._classify
 
-    async def failing(session: AsyncSession, source: str, work_id: int, *args: Any) -> None:
-        if work_id == works[4].id:
+    async def failing(
+        session: AsyncSession, source: str, listed: dict[int, object], *args: Any
+    ) -> None:
+        if works[4].id in listed:
             raise RuntimeError("the last batch fails")
-        await classify(session, source, work_id, *args)
+        await classify(session, source, listed, *args)
 
     monkeypatch.setattr(details_module, "_classify", failing)
 

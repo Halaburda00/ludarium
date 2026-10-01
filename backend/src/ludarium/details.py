@@ -212,8 +212,10 @@ async def _record_batch(
                 fields=list(values),
                 recorded=recorded,
             )
-        await _link(session, reporter.key, work_id, answer.get("companies"), companies)
-        await _classify(session, reporter.key, work_id, answer.get("genres"), genres)
+    credits = {work_id: answer.get("companies") for work_id, answer in described.items()}
+    await _link(session, reporter.key, credits, companies)
+    listed = {work_id: answer.get("genres") for work_id, answer in described.items()}
+    await _classify(session, reporter.key, listed, genres)
 
 
 def _credited(companies: object) -> Iterator[tuple[int, str, list[CompanyRole]]]:
@@ -267,30 +269,37 @@ async def _companies(
 async def _link(
     session: AsyncSession,
     source: str,
-    work_id: int,
-    companies: object,
+    credits: Mapping[int, object],
     known: Mapping[int, Company],
 ) -> None:
-    """Replace the work's links from `source` with the ones IGDB gives now.
+    """Replace each work's links from `source` with the ones IGDB gives now.
 
     Replaced rather than added to: a publisher IGDB has since corrected would
-    otherwise stay credited for good. Links from any other source stay.
+    otherwise stay credited for good. Links from any other source stay. The
+    whole batch in three statements rather than three per work (#112).
     """
 
     wanted = {
-        (known[igdb_id].id, role) for igdb_id, _, roles in _credited(companies) for role in roles
+        (work_id, known[igdb_id].id, role)
+        for work_id, companies in credits.items()
+        for igdb_id, _, roles in _credited(companies)
+        for role in roles
     }
 
     await session.execute(
-        delete(WorkCompany).where(WorkCompany.work_id == work_id, WorkCompany.source_ref == source)
+        delete(WorkCompany).where(
+            WorkCompany.work_id.in_(list(credits)), WorkCompany.source_ref == source
+        )
     )
     held = {
-        (company_id, role)
-        for company_id, role in await session.execute(
-            select(WorkCompany.company_id, WorkCompany.role).where(WorkCompany.work_id == work_id)
+        (work_id, company_id, role)
+        for work_id, company_id, role in await session.execute(
+            select(WorkCompany.work_id, WorkCompany.company_id, WorkCompany.role).where(
+                WorkCompany.work_id.in_(list(credits))
+            )
         )
     }
-    for company_id, role in sorted(wanted - held):
+    for work_id, company_id, role in sorted(wanted - held):
         session.add(
             WorkCompany(work_id=work_id, company_id=company_id, role=role, source_ref=source)
         )
@@ -300,31 +309,34 @@ async def _link(
 async def _classify(
     session: AsyncSession,
     source: str,
-    work_id: int,
-    genres: object,
+    listed: Mapping[int, object],
     known: dict[str, Genre],
 ) -> None:
-    """Replace the work's genres from `source` with the ones IGDB gives now.
+    """Replace each work's genres from `source` with the ones IGDB gives now.
 
     As `_link` does for companies: a genre IGDB has dropped goes, and one any
     other source asserted stays. A work IGDB gives no genres keeps none from it.
     """
 
-    wanted: set[int] = set()
-    for entry in genres if isinstance(genres, list) else []:
-        if not isinstance(entry, dict):
-            continue
-        slug, name = entry.get("slug"), entry.get("name")
-        if isinstance(slug, str) and isinstance(name, str):
-            wanted.add((await _genre(session, known, slug, name)).id)
+    wanted: set[tuple[int, int]] = set()
+    for work_id, genres in listed.items():
+        for entry in genres if isinstance(genres, list) else []:
+            if not isinstance(entry, dict):
+                continue
+            slug, name = entry.get("slug"), entry.get("name")
+            if isinstance(slug, str) and isinstance(name, str):
+                wanted.add((work_id, (await _genre(session, known, slug, name)).id))
 
     await session.execute(
-        delete(WorkGenre).where(WorkGenre.work_id == work_id, WorkGenre.source_ref == source)
+        delete(WorkGenre).where(WorkGenre.work_id.in_(list(listed)), WorkGenre.source_ref == source)
     )
-    held = set(
-        await session.scalars(select(WorkGenre.genre_id).where(WorkGenre.work_id == work_id))
-    )
-    for genre_id in sorted(wanted - held):
+    held = {
+        (work_id, genre_id)
+        for work_id, genre_id in await session.execute(
+            select(WorkGenre.work_id, WorkGenre.genre_id).where(WorkGenre.work_id.in_(list(listed)))
+        )
+    }
+    for work_id, genre_id in sorted(wanted - held):
         session.add(WorkGenre(work_id=work_id, genre_id=genre_id, source_ref=source))
     await session.flush()
 
