@@ -3,6 +3,7 @@ import {
   keepPreviousData,
   useInfiniteQuery,
   useMutation,
+  useMutationState,
   useQuery,
   useQueryClient,
   type InfiniteData,
@@ -370,6 +371,19 @@ export function useRemoved(): UseQueryResult<RemovedEntitlement[], ApiError> {
   })
 }
 
+export const restoreKey = ['entitlements', 'restore'] as const
+
+/**
+ * Every copy a restore is under way for. `variables` on the mutation names
+ * only the latest, and a second click on an earlier row would send it twice.
+ */
+export function useRestoring(): number[] {
+  return useMutationState({
+    filters: { mutationKey: restoreKey, status: 'pending' },
+    select: (mutation) => mutation.state.variables as number,
+  })
+}
+
 /**
  * Put a removed copy back. It is kept from then on, while its platform stays
  * silent about it, until the user lets it go (ADR-0030).
@@ -377,6 +391,7 @@ export function useRemoved(): UseQueryResult<RemovedEntitlement[], ApiError> {
 export function useRestore() {
   const client = useQueryClient()
   return useMutation<unknown, ApiError, number>({
+    mutationKey: restoreKey,
     mutationFn: (id) => api(`/api/entitlements/${id}/restore`, { method: 'POST' }),
     // Asked again whatever the answer: restored, the copy leaves this list and
     // its work comes back to the grid; refused, the list was stale — a sync

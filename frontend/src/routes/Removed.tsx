@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { ThemePicker } from '@/components/ThemePicker'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/field'
-import { useRemoved, useRestore, type RemovedEntitlement } from '@/lib/queries'
+import { useRemoved, useRestore, useRestoring, type RemovedEntitlement } from '@/lib/queries'
 
 /**
  * The copies a sync no longer saw, each a click away from coming back (rule 1).
@@ -17,6 +17,7 @@ export default function Removed() {
   const { t } = useTranslation()
   const removed = useRemoved()
   const restore = useRestore()
+  const restoring = useRestoring()
 
   let body: React.ReactNode
   if (removed.isPending) {
@@ -36,8 +37,8 @@ export default function Removed() {
     body = (
       <Copies
         copies={removed.data}
-        // Only the copy being restored waits; the rest stay clickable.
-        restoring={restore.isPending ? restore.variables : null}
+        // Only the copies being restored wait; the rest stay clickable.
+        restoring={restoring}
         onRestore={(id) => restore.mutate(id)}
       />
     )
@@ -69,7 +70,7 @@ function Copies({
   onRestore,
 }: {
   copies: RemovedEntitlement[]
-  restoring: number | null
+  restoring: number[]
   onRestore: (id: number) => void
 }) {
   const { t, i18n } = useTranslation()
@@ -111,7 +112,7 @@ function Copies({
               <Button
                 size="sm"
                 variant="outline"
-                disabled={restoring === copy.id}
+                disabled={restoring.includes(copy.id)}
                 onClick={() => onRestore(copy.id)}
                 aria-label={t('removed.restoreLabel', {
                   title: copy.work_title ?? copy.provider_title,

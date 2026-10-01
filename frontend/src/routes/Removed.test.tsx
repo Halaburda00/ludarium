@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { Router } from '@/App'
 import { missingKeys } from '@/i18n'
@@ -94,6 +94,36 @@ describe('the removed view', () => {
     expect(
       await screen.findByText('Nothing has been removed from your accounts.'),
     ).toBeInTheDocument()
+  })
+
+  it('keeps every restore under way disabled, not only the latest', async () => {
+    const PORTAL: RemovedEntitlement = {
+      ...WITCHER,
+      id: 11,
+      provider_title: 'Portal 2',
+      work_id: 8,
+      work_title: 'Portal 2',
+    }
+    stubFetch({
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/entitlements/removed': { body: [WITCHER, PORTAL] },
+    })
+    const answered = globalThis.fetch
+    // Restores that never answer: both are still under way when looked at.
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+      init?.method === 'POST' ? new Promise(() => {}) : answered(input, init),
+    )
+    renderApp(<Router />, { route: '/removed' })
+    const witcher = await screen.findByRole('button', {
+      name: 'Restore The Witcher 3: Wild Hunt',
+    })
+    const portal = screen.getByRole('button', { name: 'Restore Portal 2' })
+
+    await userEvent.click(witcher)
+    await userEvent.click(portal)
+
+    expect(witcher).toBeDisabled()
+    expect(portal).toBeDisabled()
   })
 
   it('says so when nothing has been removed', async () => {
