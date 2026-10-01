@@ -74,6 +74,28 @@ describe('the removed view', () => {
     ).toBeGreaterThan(1)
   })
 
+  it('asks again after a refused restore, so a copy a sync brought back leaves the list', async () => {
+    const routes = {
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/entitlements/removed': { body: [WITCHER] },
+      'POST /api/entitlements/10/restore': {
+        status: 409,
+        body: { detail: 'the copy is not removed' },
+      },
+    }
+    stubFetch(routes)
+    renderApp(<Router />, { route: '/removed' })
+    const restore = await screen.findByRole('button', { name: 'Restore The Witcher 3: Wild Hunt' })
+    // A sync listed it again meanwhile.
+    routes['GET /api/entitlements/removed'] = { body: [] }
+
+    await userEvent.click(restore)
+
+    expect(
+      await screen.findByText('Nothing has been removed from your accounts.'),
+    ).toBeInTheDocument()
+  })
+
   it('says so when nothing has been removed', async () => {
     stubFetch({
       'GET /api/accounts': { body: ACCOUNTS },

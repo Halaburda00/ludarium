@@ -378,8 +378,10 @@ export function useRestore() {
   const client = useQueryClient()
   return useMutation<unknown, ApiError, number>({
     mutationFn: (id) => api(`/api/entitlements/${id}/restore`, { method: 'POST' }),
-    // The copy leaves this list and its work comes back to the grid.
-    onSuccess: () => client.invalidateQueries({ queryKey: worksKey }),
+    // Asked again whatever the answer: restored, the copy leaves this list and
+    // its work comes back to the grid; refused, the list was stale — a sync
+    // brought the copy back meanwhile — and only a fresh one says so.
+    onSettled: () => client.invalidateQueries({ queryKey: worksKey }),
   })
 }
 
@@ -388,6 +390,7 @@ export function useLetGo() {
   const client = useQueryClient()
   return useMutation<unknown, ApiError, number>({
     mutationFn: (id) => api(`/api/entitlements/${id}/keep`, { method: 'DELETE' }),
-    onSuccess: () => client.invalidateQueries({ queryKey: worksKey }),
+    // As `useRestore`: a refusal means the page was out of date.
+    onSettled: () => client.invalidateQueries({ queryKey: worksKey }),
   })
 }
