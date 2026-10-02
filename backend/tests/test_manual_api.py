@@ -7,8 +7,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from test_sync import THREE_GAMES, FakeLibrary
 
-from ludarium.enums import EntitlementOrigin, EntityType, SourceKind
-from ludarium.models import Account, Entitlement, FieldProvenance, Provider, Work
+from ludarium.enums import EntitlementOrigin, EntityType, SourceKind, WorkLinkRole
+from ludarium.models import (
+    Account,
+    Entitlement,
+    EntitlementWork,
+    FieldProvenance,
+    Provider,
+    Work,
+)
 from ludarium.resolver import record, resolve
 from ludarium.sync import sync_account
 
@@ -284,6 +291,47 @@ async def test_a_delete_leaves_a_matched_work_alone(
     await session.commit()
 
 
+async def test_a_kept_work_forgets_what_the_deleted_entry_said(
+    signed_in: TestClient, session: AsyncSession
+) -> None:
+    """The year and kind were the entry's. Left behind, they would outrank IGDB with no
+    form left to change them (rule 3 for a user who has taken their word back)."""
+
+    entry = add(signed_in)
+    work = await session.get_one(Work, entry["work_id"])
+    work.is_matched = True
+    await record(
+        session,
+        entity_type=EntityType.WORK,
+        entity_id=work.id,
+        field="release_year",
+        source_kind=SourceKind.METADATA_PROVIDER,
+        source_ref="igdb",
+        value=2001,
+    )
+    await session.commit()
+
+    assert signed_in.delete(f"/api/entitlements/manual/{entry['id']}").status_code == 204
+
+    manual = await session.scalar(
+        select(func.count())
+        .select_from(FieldProvenance)
+        .where(
+            FieldProvenance.entity_type == EntityType.WORK,
+            FieldProvenance.entity_id == entry["work_id"],
+            FieldProvenance.source_kind == SourceKind.MANUAL,
+        )
+    )
+    row = (
+        await session.execute(
+            select(Work.release_year, Work.item_kind).where(Work.id == entry["work_id"])
+        )
+    ).one()
+    await session.commit()
+    assert manual == 0
+    assert tuple(row) == (2001, None)
+
+
 async def test_a_synced_copy_is_not_a_manual_entry(
     signed_in: TestClient, session: AsyncSession
 ) -> None:
@@ -340,3 +388,24 @@ async def test_a_sync_after_a_manual_add_leaves_the_entry_untouched(
 
 def test_an_entry_needs_a_session(client: TestClient) -> None:
     assert client.post("/api/entitlements/manual", json=DISC).status_code == 401
+
+
+async def test_a_delete_keeps_what_another_entry_on_the_work_said(
+    signed_in: TestClient, session: AsyncSession
+) -> None:
+    """The work-level rows are keyed by field, not by entry: the other copy's form shows them."""
+
+    first = add(signed_in)
+    second = add(signed_in, title="Baldur's Gate II (second disc)")
+    work = await session.get_one(Work, first["work_id"])
+    work.is_matched = True
+    session.add(
+        EntitlementWork(
+            entitlement_id=second["id"], work_id=first["work_id"], role=WorkLinkRole.GRANTED
+        )
+    )
+    await session.commit()
+
+    assert signed_in.delete(f"/api/entitlements/manual/{first['id']}").status_code == 204
+
+    assert await provenance(session, EntityType.WORK, first["work_id"]) == 2

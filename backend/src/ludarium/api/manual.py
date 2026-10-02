@@ -173,6 +173,8 @@ async def remove(entitlement_id: int, session: SessionDep, record: CurrentSessio
         )
     )
     await delete_works(session, unreached)
+    for work_id in set(work_ids) - set(unreached):
+        await _forget(session, work_id)
     await session.commit()
 
 
@@ -289,6 +291,30 @@ async def _write(
     if entry.release_year is None:
         await _withdraw(session, work, "release_year")
     return await _describe(session, entitlement, work.id)
+
+
+async def _forget(session: AsyncSession, work_id: int) -> None:
+    """Take back what a deleted entry said about a work that stays.
+
+    Left behind, its year and kind would outrank IGDB for good with no form left
+    to change them. Kept while another manual copy reaches the work: the rows
+    are keyed by work and field, not by entry, so they are that copy's too.
+    """
+
+    shared = await session.scalar(
+        select(
+            exists().where(
+                EntitlementWork.work_id == work_id,
+                EntitlementWork.entitlement_id == Entitlement.id,
+                Entitlement.origin == EntitlementOrigin.MANUAL,
+            )
+        )
+    )
+    if shared:
+        return
+    work = await session.get_one(Work, work_id)
+    for field in WORK_FIELDS:
+        await _withdraw(session, work, field)
 
 
 async def _withdraw(session: AsyncSession, work: Work, field: str) -> None:

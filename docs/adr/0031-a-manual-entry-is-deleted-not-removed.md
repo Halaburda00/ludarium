@@ -63,7 +63,10 @@ Alternatives considered:
 
 - A deleted manual entry cannot be brought back. The UI asks before it deletes.
 - `field_provenance` rows about the entry go with it. They are polymorphic, so
-  no foreign key cascades them.
+  no foreign key cascades them. On a work that stays, the year and kind the
+  entry gave are withdrawn too, unless another manual copy still reaches the
+  work: those rows are keyed by work and field, not by entry, so they are that
+  copy's as well.
 - An entry the matcher later links to an IGDB work keeps the user's year and
   kind, and shows IGDB's title. That is rule 3 working, not a conflict.
 - The `manual` account appears in `GET /api/accounts` like any other. It has no
