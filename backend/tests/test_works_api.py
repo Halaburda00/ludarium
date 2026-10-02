@@ -516,7 +516,7 @@ async def _add_work(session: AsyncSession, *, title: str, sort_title: str) -> Wo
 async def test_a_work_whose_state_row_is_missing_is_still_listed(
     synced: TestClient, session: AsyncSession
 ) -> None:
-    """The convention `sync._stub` keeps, and that no constraint enforces.
+    """The convention `sync.create_stubs` keeps, and that no constraint enforces.
 
     An inner join would make a future write path that forgets the row — a
     manual entry, the M2 matcher — delete games from the library with no error

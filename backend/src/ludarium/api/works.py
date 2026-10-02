@@ -545,7 +545,7 @@ def _owned_works(user_id: int) -> Select[Row]:
     return (
         select(Work, UserWorkState, slug)
         # Outer, because "every work reachable by a live entitlement has a
-        # `user_work_state` row" is a convention `sync._stub` keeps and no
+        # `user_work_state` row" is a convention `sync.create_stubs` keeps and no
         # constraint enforces. An inner join makes a future write path that
         # forgets it — a manual entry, the M2 matcher — drop games from the
         # library with no error anywhere. A missing row shows the work with its
