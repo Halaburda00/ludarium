@@ -80,6 +80,16 @@ def _known_platforms(keys: list[str]) -> list[str]:
     return keys
 
 
+class Hidden(StrEnum):
+    """Whether the works the user hid are in the listing."""
+
+    # The default: hidden means "not in my library view", which is the point of
+    # hiding something. The work stays owned and counted; only the view skips it.
+    EXCLUDE = "exclude"
+    INCLUDE = "include"
+    ONLY = "only"
+
+
 @dataclass(frozen=True, slots=True)
 class Scope:
     """What a predicate may need beside its own value."""
@@ -89,6 +99,8 @@ class Scope:
     steam_reviews: int
     # `LibraryFilters.addons`: whether an owned add-on is listed through its game.
     fold: bool = False
+    # `LibraryFilters.hidden`, which decides whether a game is there to fold under.
+    hidden: Hidden = Hidden.EXCLUDE
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,12 +186,32 @@ def owns(
 
 
 def _on_addons(addons: Addons, scope: Scope) -> ColumnElement[bool]:
-    # Folded only under a game that is owned now: an add-on for a game the user
-    # never had, or one whose copy was removed, would otherwise leave the
-    # library with nothing on screen to find it through.
+    # Folded only under a game that is owned now and listed under the same
+    # `hidden` choice: an add-on for a game the user never had, one whose copy
+    # was removed, or one whose game is hidden while it is not, would otherwise
+    # leave the library with nothing on screen to find it through.
     if addons is Addons.SEPARATE:
         return true()
-    return ~(Work.parent_work_id.is_not(None) & owns(Work.parent_work_id, scope.user_id))
+    parent = Work.parent_work_id
+    return ~(
+        parent.is_not(None)
+        & owns(parent, scope.user_id)
+        & _shown(_hidden_of(parent, scope.user_id), scope.hidden)
+    )
+
+
+def _hidden_of(work_id: InstrumentedAttribute[Any], user_id: int) -> ColumnElement[bool]:
+    """Whether the user hid this work, false where they have no state for it, as `_hidden` is."""
+
+    # Aliased: the listing outer-joins `UserWorkState` for the work itself, and
+    # the bare table would correlate to that row instead of the parent's.
+    state = aliased(UserWorkState)
+    flag = (
+        select(state.is_hidden)
+        .where(state.work_id == work_id, state.user_id == user_id)
+        .scalar_subquery()
+    )
+    return func.coalesce(flag, false())
 
 
 type OnWork = Callable[[type[Work]], ColumnElement[bool]]
@@ -210,22 +242,18 @@ def _of_kind(kinds: list[ItemKind], scope: Scope) -> ColumnElement[bool]:
     return through_addons(lambda work: work.item_kind.in_(kinds), scope)
 
 
-class Hidden(StrEnum):
-    """Whether the works the user hid are in the listing."""
-
-    # The default: hidden means "not in my library view", which is the point of
-    # hiding something. The work stays owned and counted; only the view skips it.
-    EXCLUDE = "exclude"
-    INCLUDE = "include"
-    ONLY = "only"
-
-
 def _on_hidden(hidden: Hidden, _: Scope) -> ColumnElement[bool]:
+    return _shown(_hidden, hidden)
+
+
+def _shown(flag: ColumnElement[bool], hidden: Hidden) -> ColumnElement[bool]:
+    """Whether a work with this hidden flag is in a listing under this `hidden` choice."""
+
     match hidden:
         case Hidden.EXCLUDE:
-            return _hidden.is_(false())
+            return flag.is_(false())
         case Hidden.ONLY:
-            return _hidden.is_(true())
+            return flag.is_(true())
         case Hidden.INCLUDE:
             return true()
 
@@ -328,6 +356,7 @@ class LibraryFilters(BaseModel):
             user_id=user_id,
             steam_reviews=self.steam_reviews_min,
             fold=self.addons is Addons.FOLD,
+            hidden=self.hidden,
         )
 
     def predicates(self, user_id: int) -> Iterator[ColumnElement[bool]]:

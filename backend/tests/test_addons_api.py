@@ -155,3 +155,30 @@ async def test_a_removed_add_on_does_not_bring_its_game_into_a_search(
         "Sid Meier's Civilization VI": 0,
         "Train Sim World 3: Bakerloo Line": 0,
     }
+
+
+async def test_hiding_a_game_does_not_hide_its_add_ons_with_it(
+    client: TestClient, session: AsyncSession, epic: Account
+) -> None:
+    """A hidden game has no card in the default view, so there is nothing to fold under."""
+
+    civ = await work_id(session, "Sid Meier's Civilization VI")
+    assert client.patch(f"/api/works/{civ}/state", json={"is_hidden": True}).status_code == 200
+
+    assert listed(client) == {"Rise and Fall": 0, "Train Sim World 3: Bakerloo Line": 0}
+    assert listed(client, "?hidden=only") == {"Sid Meier's Civilization VI": 1}
+
+
+async def test_a_hidden_add_on_of_a_shown_game_is_in_the_hidden_view(
+    client: TestClient, session: AsyncSession, epic: Account
+) -> None:
+    """The hidden view is the one place a hidden work is un-hidden from."""
+
+    rise = await work_id(session, "Rise and Fall")
+    assert client.patch(f"/api/works/{rise}/state", json={"is_hidden": True}).status_code == 200
+
+    assert listed(client, "?hidden=only") == {"Rise and Fall": 0}
+    assert listed(client, "?hidden=include") == {
+        "Sid Meier's Civilization VI": 1,
+        "Train Sim World 3: Bakerloo Line": 0,
+    }

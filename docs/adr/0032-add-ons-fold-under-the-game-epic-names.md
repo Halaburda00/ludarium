@@ -34,6 +34,13 @@ An add-on is folded only while its game has a live copy. A game removed by a
 sync therefore lets its add-ons back into the grid, and a restore folds them
 again without waiting for a run.
 
+**An add-on is folded only under a game the same `hidden` choice lists.**
+Hiding a game does not hide its add-ons, which keep their own cards. A hidden
+add-on of a shown game is in the hidden view, the one place a hidden work is
+un-hidden from. `hidden` is the exception to "every other filter describes the
+game", because by default it excludes: a fold under a hidden game would leave
+an add-on the user never hid with no card in the default view.
+
 **`addons=fold` is the default and `addons=separate` lists them as cards
 again.** It is a filter field like the others, so it is in the address and in
 saved views. A folded game's card counts its owned add-ons, and its page lists
