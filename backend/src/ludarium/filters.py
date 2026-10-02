@@ -52,6 +52,11 @@ MAX_CHOICES = 32
 # 500 rather than a refusal.
 MAX_MINUTES = 60 * 24 * 365 * 100
 
+# The years the year filter accepts. A manual entry is held to the same, so
+# that every year a user types in is one they can filter for.
+FIRST_YEAR = 1950
+LAST_YEAR = 2100
+
 # The filters that come as a `_min` and a `_max` over one value.
 RANGES = ("metacritic", "steam", "year", "playtime")
 
@@ -217,12 +222,12 @@ class LibraryFilters(BaseModel):
     ]
     year_min: Annotated[
         int | None,
-        Field(default=None, ge=1950, le=2100),
+        Field(default=None, ge=FIRST_YEAR, le=LAST_YEAR),
         Predicate(lambda year, _: Work.release_year >= year),
     ]
     year_max: Annotated[
         int | None,
-        Field(default=None, ge=1950, le=2100),
+        Field(default=None, ge=FIRST_YEAR, le=LAST_YEAR),
         Predicate(lambda year, _: Work.release_year <= year),
     ]
     status: Annotated[

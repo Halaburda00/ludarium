@@ -111,6 +111,9 @@ class EntitlementSummary(BaseModel):
     # The platform's own name for it, which is not `work.title`: they are
     # different fields, not competing values for one (rule 5).
     provider_title: str
+    # Where a manual copy lives, in the user's words. Null for a synced copy,
+    # whose provider already says it.
+    store_label: str | None
     playtime_minutes: int | None
     store_url: str | None
     # Restored by the user while the platform does not list it, and so never
@@ -307,6 +310,7 @@ def _summarise(entitlement: Entitlement, provider: Provider) -> EntitlementSumma
         provider_name=provider.display_name,
         provider_item_id=entitlement.provider_item_id,
         provider_title=entitlement.provider_title,
+        store_label=entitlement.store_label,
         playtime_minutes=entitlement.playtime_minutes,
         store_url=_store_url(provider.store_url_template, entitlement.provider_item_id),
         kept=entitlement.kept_at is not None,

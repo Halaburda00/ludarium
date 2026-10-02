@@ -147,6 +147,7 @@ describe('the keyboard', () => {
             provider_name: 'Steam',
             provider_item_id: '1',
             provider_title: 'Game 1',
+            store_label: null,
             playtime_minutes: 0,
             store_url: 'https://store.steampowered.com/app/1',
             kept: false,
