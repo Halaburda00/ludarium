@@ -84,6 +84,10 @@ class Entitlement(Base):
     removed_by_run_id: Mapped[int | None] = mapped_column(
         ForeignKey("sync_run.id", ondelete="RESTRICT")
     )
+    # Set when the user restores a copy the platform stopped listing, and the
+    # sweep leaves a kept copy alone: the user's word against the platform's
+    # silence (rule 3, ADR-0030). Only the user clears it.
+    kept_at: Mapped[datetime | None]
     # Last provider record, for debugging a bad match. Token fields are stripped
     # before it gets here (rule 7).
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(

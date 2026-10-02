@@ -7,7 +7,13 @@ import { ThemePicker } from '@/components/ThemePicker'
 import { WorkState } from '@/components/WorkState'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/field'
-import { useWork, type Credit, type EntitlementSummary, type WorkDetail } from '@/lib/queries'
+import {
+  useLetGo,
+  useWork,
+  type Credit,
+  type EntitlementSummary,
+  type WorkDetail,
+} from '@/lib/queries'
 
 // Who is named first, as the API orders credits: whoever put it out, then
 // whoever made it.
@@ -214,7 +220,39 @@ function Copies({ copies, total }: { copies: EntitlementSummary[]; total: number
           </tfoot>
         ) : null}
       </table>
+      {copies.filter((copy) => copy.kept).map((copy) => (
+        <Kept key={copy.id} copy={copy} />
+      ))}
     </section>
+  )
+}
+
+/**
+ * A copy the user restored, which no sync removes until the user lets it go (ADR-0030).
+ *
+ * Said on the page, because it is the one place the user's word outlasts what
+ * the platform reports, and the one place it can be taken back.
+ */
+function Kept({ copy }: { copy: EntitlementSummary }) {
+  const { t } = useTranslation()
+  const letGo = useLetGo()
+  return (
+    <div className="grid justify-items-start gap-2 text-sm">
+      <p>{t('work.kept', { provider: copy.provider_name })}</p>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={letGo.isPending}
+        onClick={() => letGo.mutate(copy.id)}
+        aria-describedby={`kept-${copy.id}-hint`}
+      >
+        {t('work.letGo')}
+      </Button>
+      <p id={`kept-${copy.id}-hint`} className="text-xs text-muted-foreground">
+        {t('work.letGoHint', { provider: copy.provider_name })}
+      </p>
+      {letGo.isError ? <Notice>{letGo.error.detail}</Notice> : null}
+    </div>
   )
 }
 

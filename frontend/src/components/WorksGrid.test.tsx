@@ -149,6 +149,7 @@ describe('the keyboard', () => {
             provider_title: 'Game 1',
             playtime_minutes: 0,
             store_url: 'https://store.steampowered.com/app/1',
+            kept: false,
           },
         ],
       }),

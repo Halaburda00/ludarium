@@ -36,6 +36,16 @@ def owned_by(user_id: int) -> tuple[ColumnElement[bool], ...]:
     return (Entitlement.user_id == user_id, Entitlement.removed_at.is_(None))
 
 
+def removed_from(user_id: int) -> tuple[ColumnElement[bool], ...]:
+    """The other half of `owned_by`: this user's copies a run stopped seeing.
+
+    Only the removed view reads these (#96). Kept beside `owned_by` so that a
+    condition added to one is in front of whoever changes the other.
+    """
+
+    return (Entitlement.user_id == user_id, Entitlement.removed_at.is_not(None))
+
+
 def in_batches[T](values: Sequence[T]) -> Iterator[Sequence[T]]:
     """One `IN (...)` list at a time, so a large library is more queries, not an error.
 

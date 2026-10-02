@@ -646,7 +646,10 @@ def _sweep(*, run: SyncRun, known: dict[str, Entitlement], items: list[LibraryIt
     stale = [
         entitlement
         for provider_item_id, entitlement in known.items()
-        if provider_item_id not in owned and entitlement.removed_at is None
+        if provider_item_id not in owned
+        and entitlement.removed_at is None
+        # The user restored it against the platform's silence (ADR-0030).
+        and entitlement.kept_at is None
     ]
     moment = utcnow()
     for entitlement in stale:

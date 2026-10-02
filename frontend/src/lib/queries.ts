@@ -3,6 +3,7 @@ import {
   keepPreviousData,
   useInfiniteQuery,
   useMutation,
+  useMutationState,
   useQuery,
   useQueryClient,
   type InfiniteData,
@@ -61,6 +62,8 @@ export type ItemKind = Schemas['ItemKind']
  * out is the point.
  */
 export type StateUpdate = Partial<Schemas['StateUpdate']>
+/** A copy a run no longer saw, offered back in one click (rule 1). */
+export type RemovedEntitlement = Schemas['RemovedEntitlement']
 export type Connection = Schemas['ConnectRequest']
 export type Credentials = Schemas['LoginRequest']
 
@@ -352,5 +355,57 @@ export function useGenres(): UseQueryResult<Genre[], ApiError> {
     queryKey: [...worksKey, 'genres'],
     queryFn: ({ signal }) => api<Genre[]>('/api/genres', { signal }),
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
+  })
+}
+
+/**
+ * The copies a successful run stopped seeing (#96).
+ *
+ * Under `worksKey`, so that a sync, which may remove or bring back a copy,
+ * refreshes this list as it refreshes the grid.
+ */
+export function useRemoved(): UseQueryResult<RemovedEntitlement[], ApiError> {
+  return useQuery<RemovedEntitlement[], ApiError>({
+    queryKey: [...worksKey, 'removed'],
+    queryFn: ({ signal }) => api<RemovedEntitlement[]>('/api/entitlements/removed', { signal }),
+  })
+}
+
+export const restoreKey = ['entitlements', 'restore'] as const
+
+/**
+ * Every copy a restore is under way for. `variables` on the mutation names
+ * only the latest, and a second click on an earlier row would send it twice.
+ */
+export function useRestoring(): number[] {
+  return useMutationState({
+    filters: { mutationKey: restoreKey, status: 'pending' },
+    select: (mutation) => mutation.state.variables as number,
+  })
+}
+
+/**
+ * Put a removed copy back. It is kept from then on, while its platform stays
+ * silent about it, until the user lets it go (ADR-0030).
+ */
+export function useRestore() {
+  const client = useQueryClient()
+  return useMutation<unknown, ApiError, number>({
+    mutationKey: restoreKey,
+    mutationFn: (id) => api(`/api/entitlements/${id}/restore`, { method: 'POST' }),
+    // Asked again whatever the answer: restored, the copy leaves this list and
+    // its work comes back to the grid; refused, the list was stale — a sync
+    // brought the copy back meanwhile — and only a fresh one says so.
+    onSettled: () => client.invalidateQueries({ queryKey: worksKey }),
+  })
+}
+
+/** Stop keeping a restored copy: the next sync that does not list it removes it. */
+export function useLetGo() {
+  const client = useQueryClient()
+  return useMutation<unknown, ApiError, number>({
+    mutationFn: (id) => api(`/api/entitlements/${id}/keep`, { method: 'DELETE' }),
+    // As `useRestore`: a refusal means the page was out of date.
+    onSettled: () => client.invalidateQueries({ queryKey: worksKey }),
   })
 }

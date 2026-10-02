@@ -206,6 +206,10 @@
             "title": "Id",
             "type": "integer"
           },
+          "kept": {
+            "title": "Kept",
+            "type": "boolean"
+          },
           "playtime_minutes": {
             "anyOf": [
               {
@@ -259,7 +263,8 @@
           "provider_item_id",
           "provider_title",
           "playtime_minutes",
-          "store_url"
+          "store_url",
+          "kept"
         ],
         "title": "EntitlementSummary",
         "type": "object"
@@ -437,6 +442,82 @@
           "last_error"
         ],
         "title": "ProviderStatusResponse",
+        "type": "object"
+      },
+      "RemovedEntitlement": {
+        "description": "A copy a successful run no longer saw, and when.",
+        "properties": {
+          "account_label": {
+            "title": "Account Label",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_name": {
+            "title": "Provider Name",
+            "type": "string"
+          },
+          "provider_title": {
+            "title": "Provider Title",
+            "type": "string"
+          },
+          "removed_at": {
+            "format": "date-time",
+            "title": "Removed At",
+            "type": "string"
+          },
+          "removed_by_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removed By Run Id"
+          },
+          "work_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Id"
+          },
+          "work_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Title"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "provider_name",
+          "account_label",
+          "provider_title",
+          "work_id",
+          "work_title",
+          "removed_at",
+          "removed_by_run_id"
+        ],
+        "title": "RemovedEntitlement",
         "type": "object"
       },
       "SavedViewResponse": {
@@ -1542,6 +1623,164 @@
         "summary": "Run",
         "tags": [
           "enrichment"
+        ]
+      }
+    },
+    "/api/entitlements/removed": {
+      "get": {
+        "description": "Every removed copy, the most recently removed first.\n\nA manual copy is never swept (rule 2), so it never appears here.",
+        "operationId": "removed_api_entitlements_removed_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RemovedEntitlement"
+                  },
+                  "title": "Response Removed Api Entitlements Removed Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Removed",
+        "tags": [
+          "entitlements"
+        ]
+      }
+    },
+    "/api/entitlements/{entitlement_id}/keep": {
+      "delete": {
+        "description": "Stop keeping a restored copy: the next successful run that does not list it removes it.\n\nNothing is removed here. The platform decides that, as it does for any\nother copy; this only withdraws the user's word against it.",
+        "operationId": "let_go_api_entitlements__entitlement_id__keep_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entitlement_id",
+            "required": true,
+            "schema": {
+              "title": "Entitlement Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Let Go",
+        "tags": [
+          "entitlements"
+        ]
+      }
+    },
+    "/api/entitlements/{entitlement_id}/restore": {
+      "post": {
+        "description": "Put a removed copy back, and keep it there while the platform stays silent (ADR-0030).\n\nIts works count it again: a removed copy stops adding to `user_work_state`,\nand a work whose only copy this was comes back to the library with the\nstate the user left on it, which a removal never touched.\n\n409 for a copy that is not removed: there is nothing to undo, and a kept\nflag set on a live copy would be a decision the user did not make.",
+        "operationId": "restore_api_entitlements__entitlement_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entitlement_id",
+            "required": true,
+            "schema": {
+              "title": "Entitlement Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore",
+        "tags": [
+          "entitlements"
         ]
       }
     },
