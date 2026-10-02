@@ -869,6 +869,7 @@ doing its job.
 | `title` | `work` | `single_source` | The IGDB anchor once `is_matched`. On a stub it is a copy of the primary entitlement's `provider_title`, taken at creation — a derived value, not a provenance row, which is how platforms stay out of this field while a stub still has a name |
 | `sort_title`, `summary`, `release_year`, `release_date` | `work` | `precedence` | Genuinely competing assertions about one fact |
 | `item_kind` | `work` | `precedence` | Platforms mislabel DLC often enough that a manual override matters |
+| `parent_work_id` | `work` | `precedence` | The game an add-on belongs to. Epic names it in the catalogue (`mainGameItem`), and the sync states it as the work of that game's copy on the same account; a null where the game is not owned (#98) |
 | `cover` (via `image_asset`) | `work`, `edition` | `precedence` | Commonly pinned; store art differs per platform |
 | `metacritic_score`, `metacritic_url` | `work` | `single_source` | RAWG only. No competition, so no ladder |
 | `steam_review_rating`, `steam_review_percent`, `steam_review_count`, `steam_review_appid` | `work` | `single_source` | The Steam store only (`steam_store`). Recorded together, so all four describe one app |
