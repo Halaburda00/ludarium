@@ -122,6 +122,15 @@ async def test_the_library_is_every_page_one_item_per_catalogue_entry_in_english
         ("Minit", ItemKind.GAME),
     ]
     assert routes["library"].call_count == 2
+    # The add-on names its game by the game's own catalogue id; games name none.
+    assert [item.parent_item_id for item in items] == [
+        None,
+        None,
+        "42ac1ee840304cb1807172a9b47dc8e3",
+        None,
+        None,
+    ]
+    assert items[2].parent_item_id == items[1].provider_item_id
     gone_home = items[0]
     assert gone_home.provider_item_id == "48171393707541359f3a7dd7257b2757"
     assert gone_home.raw["namespace"] == "52326e805bac4619a4a8fac165363a42"

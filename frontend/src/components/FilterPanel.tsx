@@ -11,6 +11,7 @@ import {
   STATUSES,
   STEAM_REVIEWS,
   type Filters,
+  type Addons,
   type Hidden,
   type RangeName,
 } from '@/lib/filters'
@@ -129,6 +130,17 @@ export function FilterPanel({
               <option value="exclude">{t('filters.hiddenExclude')}</option>
               <option value="include">{t('filters.hiddenInclude')}</option>
               <option value="only">{t('filters.hiddenOnly')}</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            {t('filters.addons')}
+            <select
+              value={filters.addons}
+              onChange={(event) => onChange({ ...filters, addons: event.target.value as Addons })}
+              className={CONTROL}
+            >
+              <option value="fold">{t('filters.addonsFold')}</option>
+              <option value="separate">{t('filters.addonsSeparate')}</option>
             </select>
           </label>
           {/* Also for a changed review threshold alone: it is not counted as a

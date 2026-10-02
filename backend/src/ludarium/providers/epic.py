@@ -288,6 +288,7 @@ def _as_item(record: Mapping[str, Any], item: Mapping[str, Any] | None) -> Libra
         ownership_type=OwnershipType.OWNED,
         item_kind=kind,
         acquired_at=_moment(record.get("acquisitionDate")),
+        parent_item_id=_main_game(item) if kind is ItemKind.DLC else None,
         raw={
             "namespace": record["namespace"],
             "catalogItemId": record["catalogItemId"],
@@ -301,6 +302,19 @@ def _as_item(record: Mapping[str, Any], item: Mapping[str, Any] | None) -> Libra
             ),
         },
     )
+
+
+def _main_game(item: Mapping[str, Any] | None) -> str | None:
+    """The catalogue item of the game an add-on belongs to (#98).
+
+    Asked for with `includeMainGameDetails`. Measured on a real library it named
+    the base game of all 63 add-ons, where the namespace they share with it named
+    one game for 42: the rest shared theirs with a soundtrack or a second build.
+    """
+
+    main = (item or {}).get("mainGameItem")
+    found = main.get("id") if isinstance(main, dict) else None
+    return found if isinstance(found, str) and found else None
 
 
 def _moment(value: object) -> datetime | None:

@@ -251,7 +251,7 @@ than a creation with a different code path.
 | `sort_key` | TEXT | no | | `sort_title` folded for comparison — case, accents, `™`/`®`/`©`, runs of whitespace — and what the grid orders by; drives keyset pagination. Derived by the model on every assignment to `sort_title`, never assigned directly, and not a provenance field: nothing asserts it. `COLLATE "C"` on PostgreSQL so it compares by code point as SQLite does, and rewritten at startup wherever the running code would compute it differently (ADR-0018) |
 | `normalised_title` | TEXT | yes | | Matcher normalisation output: lowercased, punctuation and edition markers stripped, roman numerals folded. Nullable because it is `ludamatch`'s output (MIT, separate repository) and nothing writes it before M2 — populating it here would put matcher code in the wrong repository, to be extracted later. `sort_title` is the display-side counterpart and stays `NOT NULL` |
 | `item_kind` | TEXT | yes | | `ItemKind`. Null until a source has classified the work: an unclassified stub is not a game, and the matcher takes only what is known to be one (ADR-0020) |
-| `parent_work_id` | INTEGER | yes | | Self-FK. DLC folded under its parent game in the grid (M3) |
+| `parent_work_id` | INTEGER | yes | | Self-FK. The game an add-on belongs to, from Epic's `mainGameItem`; folded under it in the grid while that game is owned (ADR-0032) |
 | `release_year` | INTEGER | yes | | Year only; day-level precision is noise for filtering |
 | `release_date` | DATE | yes | | Kept when known |
 | `summary` | TEXT | yes | | |
@@ -776,7 +776,7 @@ table that references the source is dealt with explicitly:
 | `image_asset` | Moved; `checksum` deduplicates identical covers |
 | `work_embedding` | Source row deleted, target re-embedded — the composite document changed |
 | `title_alias`, `match_candidate`, `match_audit` | `work_id` repointed |
-| `work.parent_work_id` | Children of the source are repointed at the target, and a source that was itself a child carries its parent over only if the target has none. Missing this leaves the `ON DELETE RESTRICT` on the self-FK blocking the final delete |
+| `work.parent_work_id` | Children of the source are repointed at the target, and a source that was itself a child carries its parent over only if the target has none. Missing this leaves the `ON DELETE RESTRICT` on the self-FK blocking the final delete. The `parent_work_id` provenance rows move with the column: a child's claim naming the source names the target, the target's own claim naming the source is cleared, and so is the source's claim naming the target, which would otherwise make the target its own parent. The next resolve cannot put a deleted id or a self-reference on the column (#98) |
 | `work` (source) | Deleted last, in the same transaction |
 
 Rows of tables that do not exist yet — `field_pin`, the
@@ -869,6 +869,7 @@ doing its job.
 | `title` | `work` | `single_source` | The IGDB anchor once `is_matched`. On a stub it is a copy of the primary entitlement's `provider_title`, taken at creation — a derived value, not a provenance row, which is how platforms stay out of this field while a stub still has a name |
 | `sort_title`, `summary`, `release_year`, `release_date` | `work` | `precedence` | Genuinely competing assertions about one fact |
 | `item_kind` | `work` | `precedence` | Platforms mislabel DLC often enough that a manual override matters |
+| `parent_work_id` | `work` | `precedence` | The game an add-on belongs to. Epic names it in the catalogue (`mainGameItem`), and the sync states it as the work of that game's copy on the same account; a null where the game is not owned (#98) |
 | `cover` (via `image_asset`) | `work`, `edition` | `precedence` | Commonly pinned; store art differs per platform |
 | `metacritic_score`, `metacritic_url` | `work` | `single_source` | RAWG only. No competition, so no ladder |
 | `steam_review_rating`, `steam_review_percent`, `steam_review_count`, `steam_review_appid` | `work` | `single_source` | The Steam store only (`steam_store`). Recorded together, so all four describe one app |
@@ -973,7 +974,7 @@ through `EXISTS` over `entitlement_work` → `entitlement`.
 | Removed view | `entitlement (removed_at) WHERE removed_at IS NOT NULL` |
 | Owned on several platforms (`platform_count >= 2`) | `user_work_state (user_id, platform_count)` |
 | Favourites / hidden | `user_work_state (user_id, is_favourite) WHERE is_favourite` |
-| DLC folding | `work (parent_work_id) WHERE parent_work_id IS NOT NULL` |
+| DLC folding | `work (parent_work_id) WHERE parent_work_id IS NOT NULL`. A search or a kind looks through a folded game's add-ons; without it a search matching nothing took 21 969 ms at 20 000 works, with it 30 ms (ADR-0032) |
 | Search | None. A substring of `work.title_key`, or of a live copy's `entitlement.provider_title_key`, which a leading wildcard keeps off any B-tree; 14 ms at 20 000 works when nothing matches. A `pg_trgm` GIN on both key columns if a library ever needs one (ADR-0028) |
 | Default grid order | `work (sort_key, id)` — keyset pagination for the virtualised grid (ADR-0018) |
 | Other grid orders | `work (col IS NULL, col, sort_key, id)` and `(col IS NULL, col DESC, sort_key, id)` for `metacritic_score` and `release_date`, and over `CASE WHEN steam_review_count >= 10 THEN steam_review_percent END` for the Steam order at the default review threshold (#108; another threshold is another expression and sorts every page, 57 ms at 20 000 works): nulls last, ties A to Z in both directions. Without them a page sorted every work, 42 ms at 20 000; with them 1.1 ms at any depth. Playtime and last played have none: `user_work_state` is outer-joined, and SQLite does not drive a LEFT JOIN from its right side, so those two sort every page, 37 ms at 20 000 works (#94) |

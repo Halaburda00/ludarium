@@ -28,6 +28,7 @@ from ludarium.crypto import CredentialDecryptionError, get_cipher
 from ludarium.enums import (
     EntitlementOrigin,
     EntityType,
+    ItemKind,
     SyncErrorKind,
     SyncStatus,
     SyncTrigger,
@@ -48,7 +49,13 @@ from ludarium.providers import FetchedLibrary, LibraryItem, LibraryProvider, Pro
 from ludarium.providers.base import MalformedResponseError, error_kind
 from ludarium.providers.registry import build_library
 from ludarium.queries import in_batches
-from ludarium.resolver import record_many, resolve, resolve_work_aggregates_many
+from ludarium.resolver import (
+    record_entities,
+    record_many,
+    resolve,
+    resolve_entities,
+    resolve_work_aggregates_many,
+)
 from ludarium.titles import sort_title
 
 # Every work has at least one edition, so a provider entry that says nothing
@@ -537,6 +544,7 @@ async def _apply(
 
     await create_stubs(session, user_id=account.user_id, entitlements=fresh, run_id=run.id)
     await _classify(session, run=run, reporter=reporter, entitlements=seen, items=items)
+    await _parent(session, run=run, reporter=reporter, known=known, entitlements=seen, items=items)
     # Counted rather than incremented: a counter touched inside the loop is
     # dirty at every flush in it, which was an `UPDATE sync_run` per item.
     run.items_added = len(fresh)
@@ -848,6 +856,66 @@ async def _classify(
             fields=["item_kind"],
             recorded=recorded,
         )
+
+
+async def _parent(
+    session: AsyncSession,
+    *,
+    run: SyncRun,
+    reporter: Provider,
+    known: dict[str, Entitlement],
+    entitlements: list[Entitlement],
+    items: list[LibraryItem],
+) -> None:
+    """Which game each add-on belongs to, asserted about the add-on's work (#98).
+
+    The platform names the game by its own id, so the parent is found among
+    this account's copies and stated as that copy's work. An add-on whose game
+    is not owned here says so with a null, which also takes back a parent an
+    earlier run stated, and stays a card of its own.
+
+    A removed game still counts: whether to fold is decided where the library
+    is listed, against what is owned now, so a restore needs no run to fold the
+    add-ons back under it.
+    """
+
+    claims = {
+        entitlement.id: (known.get(item.parent_item_id) if item.parent_item_id else None)
+        for entitlement, item in zip(entitlements, items, strict=True)
+        if item.item_kind is ItemKind.DLC
+    }
+    if not claims:
+        return
+    asked = list(claims) + [parent.id for parent in claims.values() if parent is not None]
+    works: dict[int, int] = {}
+    for batch in in_batches(asked):
+        rows = await session.execute(
+            select(EntitlementWork.entitlement_id, EntitlementWork.work_id).where(
+                EntitlementWork.entitlement_id.in_(batch),
+                EntitlementWork.role == WorkLinkRole.PRIMARY,
+            )
+        )
+        for entitlement_id, work_id in rows:
+            works[entitlement_id] = work_id
+    values: dict[int, dict[str, ScalarValue | None]] = {}
+    for entitlement_id, parent in claims.items():
+        work_id = works.get(entitlement_id)
+        if work_id is None:
+            continue
+        parent_work = works.get(parent.id) if parent is not None else None
+        # A merge can put an add-on and its game on one work; it is not its own parent.
+        values[work_id] = {"parent_work_id": parent_work if parent_work != work_id else None}
+    if not values:
+        return
+    recorded = await record_entities(
+        session,
+        entity_type=EntityType.WORK,
+        source_kind=reporter.source_kind,
+        source_ref=reporter.key,
+        values=values,
+        run_id=run.id,
+    )
+    await resolve_entities(session, entity_type=EntityType.WORK, recorded=recorded)
 
 
 def _nameless(entitlement: Entitlement) -> str:

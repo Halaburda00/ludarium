@@ -5,6 +5,7 @@ import pytest
 from conftest import make_account, make_provider, make_work
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from test_sync import FakeLibrary, civ_and_rise
 
 from ludarium.enums import (
     CompanyRole,
@@ -42,6 +43,7 @@ from ludarium.models import (
     WorkGenre,
 )
 from ludarium.resolver import record, resolve, resolve_work_aggregates_many
+from ludarium.sync import sync_account
 
 EARLIER = datetime(2026, 9, 1, tzinfo=UTC)
 LATER = EARLIER + timedelta(days=1)
@@ -778,3 +780,108 @@ async def test_a_credit_the_target_already_has_is_not_moved_twice(
         (target.id, studio.id, CompanyRole.PUBLISHER),
         (target.id, porter.id, CompanyRole.PORTING),
     ]
+
+
+async def test_a_merge_of_a_game_takes_its_folded_add_ons_and_their_claims_along(
+    session: AsyncSession,
+) -> None:
+    """#98: the column and the provenance row behind it move together, and back on undo.
+
+    A claim left naming the deleted source would put a dangling id on the column
+    the next time anything resolved the field.
+    """
+
+    epic = await make_account(session, key="epic", external_account_id="0123456789abcdef")
+    await sync_account(session, account=epic, library=FakeLibrary(civ_and_rise(), key="epic"))
+    rise = await session.scalar(select(Work).where(Work.title == "Rise and Fall"))
+    assert rise is not None and rise.parent_work_id is not None
+    source_id = rise.parent_work_id
+    target = await make_work(session, "Sid Meier's Civilization VI")
+    target.is_matched = True
+
+    audit = await merge_work(
+        session, source_id=source_id, target_id=target.id, layer=None, actor=MatchActor.AUTO
+    )
+
+    async def claim() -> object:
+        row = await session.scalar(
+            select(FieldProvenance.value).where(
+                FieldProvenance.entity_id == rise.id, FieldProvenance.field == "parent_work_id"
+            )
+        )
+        return row
+
+    await session.refresh(rise)
+    assert (rise.parent_work_id, await claim()) == (target.id, target.id)
+    await resolve(
+        session, entity_type=EntityType.WORK, entity_id=rise.id, fields=["parent_work_id"]
+    )
+    await session.commit()
+    assert rise.parent_work_id == target.id
+
+    unmerged = await undo_merge(session, audit_id=audit.id, actor=MatchActor.USER)
+
+    await session.refresh(rise)
+    assert (rise.parent_work_id, await claim()) == (unmerged.work_id, unmerged.work_id)
+    await session.commit()
+
+
+async def test_a_target_that_was_the_source_s_add_on_stops_claiming_it(
+    session: AsyncSession,
+) -> None:
+    """It cannot be its own parent; the undo gives it the restored source back."""
+
+    source = await make_work(session, "Civilization VI")
+    target = await make_work(session, "Civilization VI: Rise and Fall")
+    target.is_matched = True
+    claim = await record(
+        session,
+        entity_type=EntityType.WORK,
+        entity_id=target.id,
+        field="parent_work_id",
+        source_kind=SourceKind.PLATFORM_API,
+        source_ref="epic",
+        value=source.id,
+    )
+    await resolve(
+        session, entity_type=EntityType.WORK, entity_id=target.id, fields=["parent_work_id"]
+    )
+
+    audit = await merge_work(
+        session, source_id=source.id, target_id=target.id, layer=None, actor=MatchActor.AUTO
+    )
+    assert (target.parent_work_id, claim.value) == (None, None)
+
+    unmerged = await undo_merge(session, audit_id=audit.id, actor=MatchActor.USER)
+    assert (target.parent_work_id, claim.value) == (unmerged.work_id, unmerged.work_id)
+
+
+async def test_an_add_on_merged_into_its_game_does_not_make_the_game_its_own_parent(
+    session: AsyncSession,
+) -> None:
+    """The source's claim names the target; folded onto the target it would name itself."""
+
+    game = await make_work(session, "Civilization VI")
+    game.is_matched = True
+    addon = await make_work(session, "Civilization VI: Rise and Fall")
+    claim = await record(
+        session,
+        entity_type=EntityType.WORK,
+        entity_id=addon.id,
+        field="parent_work_id",
+        source_kind=SourceKind.PLATFORM_API,
+        source_ref="epic",
+        value=game.id,
+    )
+    await resolve(
+        session, entity_type=EntityType.WORK, entity_id=addon.id, fields=["parent_work_id"]
+    )
+
+    audit = await merge_work(
+        session, source_id=addon.id, target_id=game.id, layer=None, actor=MatchActor.AUTO
+    )
+    assert (game.parent_work_id, claim.value) == (None, None)
+
+    unmerged = await undo_merge(session, audit_id=audit.id, actor=MatchActor.USER)
+    restored = await session.get_one(Work, unmerged.work_id)
+    assert (restored.parent_work_id, claim.value) == (game.id, game.id)

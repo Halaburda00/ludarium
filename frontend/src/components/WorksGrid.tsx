@@ -197,6 +197,7 @@ export function WorksGrid({ works, hasMore, loadingMore, loadFailed, onLoadMore 
 }
 
 function Card({ work, index, setSize }: { work: WorkSummary; index: number; setSize: number }) {
+  const { t } = useTranslation()
   const heading = `work-${work.id}-title`
   const { search } = useLocation()
   return (
@@ -229,6 +230,12 @@ function Card({ work, index, setSize }: { work: WorkSummary; index: number; setS
         <div className="flex gap-3 text-xs tabular-nums">
           <Metacritic score={work.metacritic} title={work.title} />
           <Steam reviews={work.steam_reviews} title={work.title} />
+          {/* On the scores' line, so the card keeps its fixed height. */}
+          {work.addon_count > 0 ? (
+            <span className="text-muted-foreground">
+              {t('library.addonCount', { count: work.addon_count })}
+            </span>
+          ) : null}
         </div>
       </div>
     </article>

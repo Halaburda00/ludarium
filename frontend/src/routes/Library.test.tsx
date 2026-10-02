@@ -59,6 +59,7 @@ function work(
     steam_reviews: null,
     cover: null,
     entitlements,
+    addon_count: 0,
   }
 }
 
@@ -1006,6 +1007,23 @@ describe('hidden games', () => {
     await userEvent.selectOptions(await screen.findByLabelText('Hidden games'), 'Show with the rest')
 
     expect(await screen.findByText('Portal 2')).toBeInTheDocument()
+  })
+})
+
+describe('add-ons', () => {
+  it('can be listed as games of their own again', async () => {
+    const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: THREE },
+      'GET /api/works?addons=separate': { body: THREE },
+    })
+    renderApp(<Library />)
+
+    await userEvent.selectOptions(await screen.findByLabelText('Add-ons'), 'As separate games')
+
+    await screen.findByText('Portal 2')
+    expect(calls.map((call) => call.path)).toContain('/api/works?addons=separate')
   })
 })
 

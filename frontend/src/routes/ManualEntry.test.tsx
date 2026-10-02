@@ -48,6 +48,7 @@ const GATE: WorkDetail = {
   metacritic: null,
   steam_reviews: null,
   cover: null,
+  addon_count: 0,
   entitlements: [
     {
       id: 12,
@@ -69,6 +70,8 @@ const GATE: WorkDetail = {
   notes: null,
   started_at: null,
   completed_at: null,
+  addons: [],
+  parent: null,
 }
 
 describe('adding a game by hand', () => {

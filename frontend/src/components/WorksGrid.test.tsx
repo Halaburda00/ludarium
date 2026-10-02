@@ -23,6 +23,7 @@ function work(id: number, overrides: Partial<WorkSummary> = {}): WorkSummary {
     metacritic: null,
     steam_reviews: null,
     cover: null,
+    addon_count: 0,
     entitlements: [],
     ...overrides,
   }
@@ -50,6 +51,15 @@ function grid(works: WorkSummary[], props: Partial<Parameters<typeof WorksGrid>[
 }
 
 describe('the grid', () => {
+  it('counts the add-ons folded under a game, and says nothing on a game without', () => {
+    grid([work(1, { addon_count: 2 }), work(2, { addon_count: 1 }), work(3)])
+
+    const [two, one, none] = screen.getAllByRole('article')
+    expect(two).toHaveTextContent('+2 add-ons')
+    expect(one).toHaveTextContent('+1 add-on')
+    expect(none).not.toHaveTextContent('add-on')
+  })
+
   it('renders a screenful of a large library, not all of it', () => {
     grid(library(2000))
 

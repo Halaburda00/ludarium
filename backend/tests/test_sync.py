@@ -13,6 +13,7 @@ from conftest import make_account, make_provider, make_user
 from sqlalchemy import event, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from ludarium import queries
 from ludarium import sync as sync_module
@@ -1720,6 +1721,76 @@ async def test_a_kind_the_platform_states_is_asserted_about_the_work(
         select(FieldProvenance.source_ref).where(FieldProvenance.field == "item_kind").distinct()
     )
     assert sources.all() == ["epic"]
+
+
+CIV = "42ac1ee840304cb1807172a9b47dc8e3"
+RISE = "279c2ab64eb54a8d812b0c78198a382c"
+
+
+def civ_and_rise(*, with_civ: bool = True) -> list[LibraryItem]:
+    rise = owned(RISE, "Rise and Fall", item_kind=ItemKind.DLC, parent_item_id=CIV)
+    civ = owned(CIV, "Sid Meier's Civilization VI", item_kind=ItemKind.GAME)
+    # The add-on first, so the game it names is not yet a row when it is read.
+    return [rise, civ] if with_civ else [rise]
+
+
+async def parents(session: AsyncSession) -> dict[str, str | None]:
+    child, parent = Work, aliased(Work)
+    rows = await session.execute(
+        select(child.title, parent.title)
+        .outerjoin(parent, parent.id == child.parent_work_id)
+        .order_by(child.id)
+    )
+    return dict(rows.tuples().all())
+
+
+async def test_an_add_on_is_asserted_to_belong_to_the_game_it_names(
+    session: AsyncSession,
+) -> None:
+    """Rule 9: the parent is a provenance row the resolver puts on the column (#98)."""
+
+    epic = await make_account(session, key="epic", external_account_id="0123456789abcdef")
+
+    await sync_account(session, account=epic, library=FakeLibrary(civ_and_rise(), key="epic"))
+
+    assert await parents(session) == {
+        "Rise and Fall": "Sid Meier's Civilization VI",
+        "Sid Meier's Civilization VI": None,
+    }
+    row = await session.scalar(
+        select(FieldProvenance).where(FieldProvenance.field == "parent_work_id")
+    )
+    assert row is not None
+    assert (row.source_ref, row.is_effective) == ("epic", True)
+
+
+async def test_an_add_on_for_a_game_not_owned_has_no_parent_until_it_is(
+    session: AsyncSession,
+) -> None:
+    epic = await make_account(session, key="epic", external_account_id="0123456789abcdef")
+
+    await sync_account(
+        session, account=epic, library=FakeLibrary(civ_and_rise(with_civ=False), key="epic")
+    )
+    assert await parents(session) == {"Rise and Fall": None}
+
+    await sync_account(session, account=epic, library=FakeLibrary(civ_and_rise(), key="epic"))
+    assert (await parents(session))["Rise and Fall"] == "Sid Meier's Civilization VI"
+
+
+async def test_an_add_on_keeps_its_parent_while_the_game_is_removed(
+    session: AsyncSession,
+) -> None:
+    """Folding is decided against what is owned when listed, so a restore needs no run."""
+
+    epic = await make_account(session, key="epic", external_account_id="0123456789abcdef")
+    await sync_account(session, account=epic, library=FakeLibrary(civ_and_rise(), key="epic"))
+
+    without_civ = civ_and_rise(with_civ=False)
+    await sync_account(session, account=epic, library=FakeLibrary(without_civ, key="epic"))
+
+    assert (await one_entitlement(session, CIV)).removed_at is not None
+    assert (await parents(session))["Rise and Fall"] == "Sid Meier's Civilization VI"
 
 
 @pytest.mark.parametrize(

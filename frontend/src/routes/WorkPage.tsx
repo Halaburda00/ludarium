@@ -13,6 +13,7 @@ import {
   type Credit,
   type EntitlementSummary,
   type WorkDetail,
+  type WorkLink,
 } from '@/lib/queries'
 
 // Who is named first, as the API orders credits: whoever put it out, then
@@ -104,6 +105,17 @@ function Details({ work }: { work: WorkDetail }) {
           <h1 id="work-title" className="font-heading text-2xl font-semibold">
             {work.title}
           </h1>
+          {work.parent ? (
+            <p className="text-sm text-muted-foreground">
+              {t('work.addonFor')}{' '}
+              <Link
+                to={`/library/${work.parent.id}`}
+                className="text-primary underline-offset-4 hover:underline"
+              >
+                {work.parent.title}
+              </Link>
+            </p>
+          ) : null}
           {work.release_date ? (
             <p className="text-sm text-muted-foreground">
               {t('work.released', { date: releaseDate(work.release_date, i18n.language) })}
@@ -133,9 +145,37 @@ function Details({ work }: { work: WorkDetail }) {
       {/* Keyed on the work, so the notes draft starts again on another game. */}
       <WorkState key={work.id} work={work} />
       <Copies copies={work.entitlements} total={work.playtime_minutes} />
+      {work.addons.length > 0 ? <Addons addons={work.addons} /> : null}
       {/* RAWG's terms: credit and an active link wherever its data is shown. */}
       {work.metacritic ? <ScoresCredit score={work.metacritic} /> : null}
     </article>
+  )
+}
+
+/** The add-ons the user owns for this game, which the grid folds under its card (#98). */
+function Addons({ addons }: { addons: WorkLink[] }) {
+  const { t } = useTranslation()
+  return (
+    <section aria-labelledby="work-addons" className="grid gap-3">
+      <h2 id="work-addons" className="font-heading text-lg font-semibold">
+        {t('work.addons', { count: addons.length })}
+      </h2>
+      <ul className="grid gap-1 text-sm">
+        {addons.map((addon) => (
+          <li key={addon.id}>
+            <Link
+              to={`/library/${addon.id}`}
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              {addon.title}
+            </Link>
+            {addon.item_kind && addon.item_kind !== 'dlc' ? (
+              <span className="text-muted-foreground"> · {t(`itemKind.${addon.item_kind}`)}</span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
