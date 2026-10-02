@@ -99,6 +99,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/entitlements/manual": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add
+         * @description A manual copy on the user's `manual` account, and the stub it is a copy of (ADR-0015).
+         */
+        post: operations["add_api_entitlements_manual_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/entitlements/manual/{entitlement_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read */
+        get: operations["read_api_entitlements_manual__entitlement_id__get"];
+        /** Replace */
+        put: operations["replace_api_entitlements_manual__entitlement_id__put"];
+        post?: never;
+        /**
+         * Remove
+         * @description Delete the entry, and its stub when nothing else would miss it (ADR-0031).
+         *
+         *     A `DELETE` rather than a removal: rule 1 guards against a platform's silence,
+         *     and this is the user's own word about a row they typed in.
+         */
+        delete: operations["remove_api_entitlements_manual__entitlement_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/entitlements/removed": {
         parameters: {
             query?: never;
@@ -544,6 +589,8 @@ export interface components {
             provider_name: string;
             /** Provider Title */
             provider_title: string;
+            /** Store Label */
+            store_label: string | null;
             /** Store Url */
             store_url: string | null;
         };
@@ -600,7 +647,48 @@ export interface components {
             /** Username */
             username: string;
         };
+        /**
+         * ManualEntry
+         * @description A copy no platform knows about, as the user describes it.
+         *
+         *     The whole entry on every write, so the form that edits one sends what it
+         *     shows: a field left out is its default, never "unchanged".
+         */
+        ManualEntry: {
+            /** @default game */
+            item_kind: components["schemas"]["ItemKind"];
+            /** @default owned */
+            ownership_type: components["schemas"]["OwnershipType"];
+            /** Release Year */
+            release_year?: number | null;
+            /** Store Label */
+            store_label?: string | null;
+            title: components["schemas"]["Title"];
+        };
+        /**
+         * ManualEntryResponse
+         * @description The entry as the user last wrote it, and the work it is a copy of.
+         */
+        ManualEntryResponse: {
+            /** Id */
+            id: number;
+            item_kind: components["schemas"]["ItemKind"] | null;
+            ownership_type: components["schemas"]["OwnershipType"];
+            /** Release Year */
+            release_year: number | null;
+            /** Store Label */
+            store_label: string | null;
+            /** Title */
+            title: string;
+            /** Work Id */
+            work_id: number;
+        };
         Name: string;
+        /**
+         * OwnershipType
+         * @enum {string}
+         */
+        OwnershipType: "owned" | "subscription" | "free" | "family_shared" | "trial" | "physical";
         /**
          * PlayStatus
          * @enum {string}
@@ -814,6 +902,7 @@ export interface components {
          * @enum {string}
          */
         SyncTrigger: "manual" | "scheduled" | "ingest" | "import";
+        Title: string;
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -1085,6 +1174,142 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SyncRunResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_api_entitlements_manual_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualEntry"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualEntryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_api_entitlements_manual__entitlement_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entitlement_id: number;
+            };
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualEntryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_api_entitlements_manual__entitlement_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entitlement_id: number;
+            };
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualEntry"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualEntryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_api_entitlements_manual__entitlement_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entitlement_id: number;
+            };
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

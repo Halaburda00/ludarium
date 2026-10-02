@@ -9,6 +9,7 @@ import { useAppliedTheme } from '@/lib/theme'
 import Library from '@/routes/Library'
 import WorkPage from '@/routes/WorkPage'
 import Login from '@/routes/Login'
+import ManualEntryPage from '@/routes/ManualEntry'
 import Onboarding from '@/routes/Onboarding'
 import Removed from '@/routes/Removed'
 
@@ -23,6 +24,8 @@ export function Router() {
         <Route path="/library" element={<Library />} />
         <Route path="/library/:workId" element={<WorkPage />} />
         <Route path="/removed" element={<Removed />} />
+        <Route path="/manual/new" element={<ManualEntryPage />} />
+        <Route path="/manual/:entitlementId" element={<ManualEntryPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/library" replace />} />
     </Routes>

@@ -19,6 +19,9 @@ import {
 // whoever made it.
 const ROLES = ['publisher', 'developer', 'porting', 'support'] as const
 
+/** The provider every copy the user added by hand belongs to. */
+const MANUAL = 'manual'
+
 /** Where the grid was, so going back returns to the same search rather than the top. */
 export type FromLibrary = { search: string } | null
 
@@ -194,13 +197,32 @@ function Copies({ copies, total }: { copies: EntitlementSummary[]; total: number
                   >
                     {copy.provider_name}
                   </a>
+                ) : copy.store_label ? (
+                  // Where a manual copy lives, in the user's words.
+                  t('work.manualCopy', { provider: copy.provider_name, store: copy.store_label })
                 ) : (
                   copy.provider_name
                 )}
               </th>
               {/* The platform's own name for it, which is not the work's title
                   (rule 5): what the user will find in that store. */}
-              <td className="py-2 pr-4">{copy.provider_title}</td>
+              <td className="py-2 pr-4">
+                {copy.provider_title}
+                {/* The user's own entry, so the user's to change (#97). A
+                    platform's copy is the platform's, and has no such link. */}
+                {copy.provider === MANUAL ? (
+                  <>
+                    {' '}
+                    <Link
+                      to={`/manual/${copy.id}`}
+                      aria-label={t('work.editLabel', { title: copy.provider_title })}
+                      className="text-primary underline-offset-4 hover:underline"
+                    >
+                      {t('work.edit')}
+                    </Link>
+                  </>
+                ) : null}
+              </td>
               <td className="py-2 text-right tabular-nums">
                 <Playtime minutes={copy.playtime_minutes} />
               </td>

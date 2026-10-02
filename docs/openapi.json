@@ -244,6 +244,17 @@
             "title": "Provider Title",
             "type": "string"
           },
+          "store_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Label"
+          },
           "store_url": {
             "anyOf": [
               {
@@ -262,6 +273,7 @@
           "provider_name",
           "provider_item_id",
           "provider_title",
+          "store_label",
           "playtime_minutes",
           "store_url",
           "kept"
@@ -374,9 +386,131 @@
         "title": "LoginRequest",
         "type": "object"
       },
+      "ManualEntry": {
+        "additionalProperties": false,
+        "description": "A copy no platform knows about, as the user describes it.\n\nThe whole entry on every write, so the form that edits one sends what it\nshows: a field left out is its default, never \"unchanged\".",
+        "properties": {
+          "item_kind": {
+            "$ref": "#/components/schemas/ItemKind",
+            "default": "game"
+          },
+          "ownership_type": {
+            "$ref": "#/components/schemas/OwnershipType",
+            "default": "owned"
+          },
+          "release_year": {
+            "anyOf": [
+              {
+                "maximum": 2100.0,
+                "minimum": 1950.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Year"
+          },
+          "store_label": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Label"
+          },
+          "title": {
+            "$ref": "#/components/schemas/Title"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "ManualEntry",
+        "type": "object"
+      },
+      "ManualEntryResponse": {
+        "description": "The entry as the user last wrote it, and the work it is a copy of.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "item_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ItemKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ownership_type": {
+            "$ref": "#/components/schemas/OwnershipType"
+          },
+          "release_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Year"
+          },
+          "store_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Label"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "work_id": {
+            "title": "Work Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "work_id",
+          "title",
+          "store_label",
+          "ownership_type",
+          "item_kind",
+          "release_year"
+        ],
+        "title": "ManualEntryResponse",
+        "type": "object"
+      },
       "Name": {
         "maxLength": 100,
         "minLength": 1,
+        "type": "string"
+      },
+      "OwnershipType": {
+        "enum": [
+          "owned",
+          "subscription",
+          "free",
+          "family_shared",
+          "trial",
+          "physical"
+        ],
+        "title": "OwnershipType",
         "type": "string"
       },
       "PlayStatus": {
@@ -904,6 +1038,11 @@
           "import"
         ],
         "title": "SyncTrigger",
+        "type": "string"
+      },
+      "Title": {
+        "maxLength": 300,
+        "minLength": 1,
         "type": "string"
       },
       "ValidationError": {
@@ -1623,6 +1762,240 @@
         "summary": "Run",
         "tags": [
           "enrichment"
+        ]
+      }
+    },
+    "/api/entitlements/manual": {
+      "post": {
+        "description": "A manual copy on the user's `manual` account, and the stub it is a copy of (ADR-0015).",
+        "operationId": "add_api_entitlements_manual_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualEntry"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualEntryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add",
+        "tags": [
+          "entitlements"
+        ]
+      }
+    },
+    "/api/entitlements/manual/{entitlement_id}": {
+      "delete": {
+        "description": "Delete the entry, and its stub when nothing else would miss it (ADR-0031).\n\nA `DELETE` rather than a removal: rule 1 guards against a platform's silence,\nand this is the user's own word about a row they typed in.",
+        "operationId": "remove_api_entitlements_manual__entitlement_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entitlement_id",
+            "required": true,
+            "schema": {
+              "title": "Entitlement Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove",
+        "tags": [
+          "entitlements"
+        ]
+      },
+      "get": {
+        "operationId": "read_api_entitlements_manual__entitlement_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entitlement_id",
+            "required": true,
+            "schema": {
+              "title": "Entitlement Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualEntryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read",
+        "tags": [
+          "entitlements"
+        ]
+      },
+      "put": {
+        "operationId": "replace_api_entitlements_manual__entitlement_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entitlement_id",
+            "required": true,
+            "schema": {
+              "title": "Entitlement Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualEntry"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualEntryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Replace",
+        "tags": [
+          "entitlements"
         ]
       }
     },

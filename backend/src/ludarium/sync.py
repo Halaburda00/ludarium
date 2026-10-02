@@ -535,7 +535,7 @@ async def _apply(
             session, run=run, reporter=reporter, entitlement=entitlement, item=item
         )
 
-    await _stub(session, run=run, account=account, entitlements=fresh)
+    await create_stubs(session, user_id=account.user_id, entitlements=fresh, run_id=run.id)
     await _classify(session, run=run, reporter=reporter, entitlements=seen, items=items)
     # Counted rather than incremented: a counter touched inside the loop is
     # dirty at every flush in it, which was an `UPDATE sync_run` per item.
@@ -722,9 +722,9 @@ async def _assert_fields(
     )
 
 
-async def _stub(
-    session: AsyncSession, *, run: SyncRun, account: Account, entitlements: list[Entitlement]
-) -> None:
+async def create_stubs(
+    session: AsyncSession, *, user_id: int, entitlements: list[Entitlement], run_id: int | None
+) -> list[Work]:
     """A work, its default edition and the primary link, in this transaction (ADR-0015).
 
     So that no entitlement is ever work-less: the grid is work-centric from the
@@ -749,7 +749,7 @@ async def _stub(
     """
 
     if not entitlements:
-        return
+        return []
 
     works = []
     for entitlement in entitlements:
@@ -780,16 +780,18 @@ async def _stub(
                 entitlement_id=entitlement.id,
                 work_id=work.id,
                 role=WorkLinkRole.PRIMARY,
-                created_by_run_id=run.id,
+                # Null for a manual entry, which no run created (ADR-0031).
+                created_by_run_id=run_id,
             )
         )
         # `platform_count` is left at its default: `derived` belongs to M4, and
         # with one platform connected a strategy tested against a constant
         # proves nothing.
-        session.add(UserWorkState(user_id=account.user_id, work_id=work.id))
+        session.add(UserWorkState(user_id=user_id, work_id=work.id))
     # No flush after the last phase: nothing between here and `_apply`'s own
     # asks the database anything, and it flushes before the aggregates read
     # these rows back.
+    return works
 
 
 async def _classify(

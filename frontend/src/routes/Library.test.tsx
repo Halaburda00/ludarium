@@ -30,6 +30,7 @@ function copy(overrides: Partial<EntitlementSummary> = {}): EntitlementSummary {
     provider_name: 'Steam',
     provider_item_id: '570',
     provider_title: 'Dota 2',
+    store_label: null,
     playtime_minutes: 120,
     store_url: 'https://store.steampowered.com/app/570',
     kept: false,

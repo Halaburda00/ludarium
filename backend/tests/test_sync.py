@@ -961,7 +961,7 @@ async def test_a_cancelled_run_does_not_stay_running_forever(
         await asyncio.sleep(10)
         raise AssertionError("unreachable")
 
-    monkeypatch.setattr(sync_module, "_stub", dawdle)
+    monkeypatch.setattr(sync_module, "create_stubs", dawdle)
 
     with pytest.raises(TimeoutError):
         await asyncio.wait_for(

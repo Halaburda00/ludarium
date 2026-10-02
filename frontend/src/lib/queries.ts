@@ -64,6 +64,14 @@ export type ItemKind = Schemas['ItemKind']
 export type StateUpdate = Partial<Schemas['StateUpdate']>
 /** A copy a run no longer saw, offered back in one click (rule 1). */
 export type RemovedEntitlement = Schemas['RemovedEntitlement']
+/** A copy no platform reports — a disc, a key, an itch.io download — as the user wrote it. */
+export type ManualEntry = Schemas['ManualEntryResponse']
+/**
+ * What the form sends: the whole entry every time. `Required`, because a
+ * field with a default reads as optional, and the form always says each one.
+ */
+export type ManualEntryForm = Required<Schemas['ManualEntry']>
+export type OwnershipType = Schemas['OwnershipType']
 export type Connection = Schemas['ConnectRequest']
 export type Credentials = Schemas['LoginRequest']
 
@@ -407,5 +415,41 @@ export function useLetGo() {
     mutationFn: (id) => api(`/api/entitlements/${id}/keep`, { method: 'DELETE' }),
     // As `useRestore`: a refusal means the page was out of date.
     onSettled: () => client.invalidateQueries({ queryKey: worksKey }),
+  })
+}
+
+/** One manual entry as the user last wrote it, for the form that edits it (#97). */
+export function useManualEntry(id: number, enabled = true): UseQueryResult<ManualEntry, ApiError> {
+  return useQuery<ManualEntry, ApiError>({
+    enabled,
+    queryKey: [...worksKey, 'manual', id],
+    queryFn: ({ signal }) => api<ManualEntry>(`/api/entitlements/manual/${id}`, { signal }),
+    retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
+  })
+}
+
+/**
+ * Add a manual entry, or replace one when `id` is given. Either way the
+ * library changes, so the grid and every work page are asked again.
+ */
+export function useSaveManualEntry(id: number | null) {
+  const client = useQueryClient()
+  return useMutation<ManualEntry, ApiError, ManualEntryForm>({
+    mutationFn: (entry) =>
+      id === null
+        ? api<ManualEntry>('/api/entitlements/manual', { method: 'POST', body: entry })
+        : api<ManualEntry>(`/api/entitlements/manual/${id}`, { method: 'PUT', body: entry }),
+    onSuccess: () => client.invalidateQueries({ queryKey: worksKey }),
+  })
+}
+
+/** Delete a manual entry for good: there is no removed view for what the user typed (ADR-0031). */
+export function useDeleteManualEntry() {
+  const client = useQueryClient()
+  return useMutation<unknown, ApiError, number>({
+    mutationFn: (id) => api(`/api/entitlements/manual/${id}`, { method: 'DELETE' }),
+    // Not refetched: the entry's own query would ask for a row that is gone
+    // and answer 404 under the page that is leaving it.
+    onSuccess: () => client.invalidateQueries({ queryKey: worksKey, refetchType: 'none' }),
   })
 }

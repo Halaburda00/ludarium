@@ -55,6 +55,7 @@ function summary(id: number, title: string): WorkSummary {
         provider_name: 'Steam',
         provider_item_id: '292030',
         provider_title: 'The Witcher 3: Wild Hunt - Complete Edition',
+        store_label: null,
         playtime_minutes: 3247,
         store_url: 'https://store.steampowered.com/app/292030',
         kept: false,
@@ -65,6 +66,7 @@ function summary(id: number, title: string): WorkSummary {
         provider_name: 'Epic Games',
         provider_item_id: 'abc',
         provider_title: 'The Witcher 3: Wild Hunt',
+        store_label: null,
         playtime_minutes: 118,
         store_url: null,
         kept: false,
@@ -142,6 +144,8 @@ describe('the work page', () => {
     expect(epic).toHaveTextContent('Epic Games')
     expect(epic).toHaveTextContent('1 h 58 min')
     expect(total).toHaveTextContent('56 h 5 min')
+    // A platform's copy is the platform's: only a manual entry has a form.
+    expect(within(copies).queryByRole('link', { name: /^Edit/ })).toBeNull()
   })
 
   it('says a work outside the library is not in it', async () => {

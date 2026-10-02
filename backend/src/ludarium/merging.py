@@ -282,7 +282,24 @@ async def collect_orphan_stubs(session: AsyncSession) -> OrphanReport:
         else:
             deleted.append(work_id)
 
-    for batch in in_batches(deleted):
+    await delete_works(session, deleted)
+
+    if kept:
+        logger.info(
+            "%d works have no entitlement but are kept: matched, a parent, or edited by the user",
+            len(kept),
+        )
+    return OrphanReport(deleted=deleted, kept=kept)
+
+
+async def delete_works(session: AsyncSession, work_ids: Sequence[int]) -> None:
+    """Delete works and every row that names them without a foreign key. Does not commit.
+
+    The caller decides which works nobody would miss; this only makes sure that
+    nothing polymorphic is left pointing at an id SQLite may hand out again.
+    """
+
+    for batch in in_batches(work_ids):
         editions = list(await session.scalars(select(Edition.id).where(Edition.work_id.in_(batch))))
         # Polymorphic, so no foreign key cascades these away.
         await _delete_provenance(session, EntityType.WORK, batch)
@@ -302,13 +319,6 @@ async def collect_orphan_stubs(session: AsyncSession) -> OrphanReport:
         )
         # Editions and default state go with the work, by `ON DELETE CASCADE`.
         await session.execute(delete(Work).where(Work.id.in_(batch)))
-
-    if kept:
-        logger.info(
-            "%d works have no entitlement but are kept: matched, a parent, or edited by the user",
-            len(kept),
-        )
-    return OrphanReport(deleted=deleted, kept=kept)
 
 
 async def _worth_keeping(session: AsyncSession, work_id: int) -> bool:
