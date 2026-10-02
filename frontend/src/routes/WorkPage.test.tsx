@@ -144,6 +144,8 @@ describe('the work page', () => {
     expect(epic).toHaveTextContent('Epic Games')
     expect(epic).toHaveTextContent('1 h 58 min')
     expect(total).toHaveTextContent('56 h 5 min')
+    // A platform's copy is the platform's: only a manual entry has a form.
+    expect(within(copies).queryByRole('link', { name: /^Edit/ })).toBeNull()
   })
 
   it('says a work outside the library is not in it', async () => {
