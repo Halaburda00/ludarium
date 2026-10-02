@@ -517,6 +517,12 @@ export interface components {
             status: components["schemas"]["SyncStatus"];
         };
         /**
+         * Addons
+         * @description Whether an add-on whose game is owned is a card of its own (#98).
+         * @enum {string}
+         */
+        Addons: "fold" | "separate";
+        /**
          * CompanyRole
          * @enum {string}
          */
@@ -939,6 +945,10 @@ export interface components {
          * @description One work with what the grid leaves out: its summary, date and who made it (#54).
          */
         WorkDetail: {
+            /** Addon Count */
+            addon_count: number;
+            /** Addons */
+            addons: components["schemas"]["WorkLink"][];
             /** Companies */
             companies: components["schemas"]["Credit"][];
             /** Completed At */
@@ -962,6 +972,7 @@ export interface components {
             metacritic: components["schemas"]["Score"] | null;
             /** Notes */
             notes: string | null;
+            parent: components["schemas"]["WorkLink"] | null;
             play_status: components["schemas"]["PlayStatus"];
             /** Playtime Minutes */
             playtime_minutes: number;
@@ -981,8 +992,21 @@ export interface components {
             /** Title */
             title: string;
         };
+        /**
+         * WorkLink
+         * @description Another work in the library, named well enough to link to.
+         */
+        WorkLink: {
+            /** Id */
+            id: number;
+            item_kind: components["schemas"]["ItemKind"] | null;
+            /** Title */
+            title: string;
+        };
         /** WorkSummary */
         WorkSummary: {
+            /** Addon Count */
+            addon_count: number;
             cover: components["schemas"]["Cover"] | null;
             /** Entitlements */
             entitlements: components["schemas"]["EntitlementSummary"][];
@@ -1747,6 +1771,7 @@ export interface operations {
                 year_max?: number | null;
                 status?: components["schemas"]["PlayStatus"][];
                 hidden?: components["schemas"]["Hidden"];
+                addons?: components["schemas"]["Addons"];
                 playtime_min?: number | null;
                 playtime_max?: number | null;
                 limit?: number;

@@ -89,6 +89,15 @@
         "title": "AccountResponse",
         "type": "object"
       },
+      "Addons": {
+        "description": "Whether an add-on whose game is owned is a card of its own (#98).",
+        "enum": [
+          "fold",
+          "separate"
+        ],
+        "title": "Addons",
+        "type": "string"
+      },
       "CompanyRole": {
         "enum": [
           "developer",
@@ -1138,6 +1147,17 @@
       "WorkDetail": {
         "description": "One work with what the grid leaves out: its summary, date and who made it (#54).",
         "properties": {
+          "addon_count": {
+            "title": "Addon Count",
+            "type": "integer"
+          },
+          "addons": {
+            "items": {
+              "$ref": "#/components/schemas/WorkLink"
+            },
+            "title": "Addons",
+            "type": "array"
+          },
           "companies": {
             "items": {
               "$ref": "#/components/schemas/Credit"
@@ -1240,6 +1260,16 @@
             ],
             "title": "Notes"
           },
+          "parent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkLink"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "play_status": {
             "$ref": "#/components/schemas/PlayStatus"
           },
@@ -1339,6 +1369,7 @@
           "steam_reviews",
           "cover",
           "entitlements",
+          "addon_count",
           "summary",
           "release_date",
           "companies",
@@ -1346,13 +1377,49 @@
           "rating",
           "notes",
           "started_at",
-          "completed_at"
+          "completed_at",
+          "addons",
+          "parent"
         ],
         "title": "WorkDetail",
         "type": "object"
       },
+      "WorkLink": {
+        "description": "Another work in the library, named well enough to link to.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "item_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ItemKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "item_kind"
+        ],
+        "title": "WorkLink",
+        "type": "object"
+      },
       "WorkSummary": {
         "properties": {
+          "addon_count": {
+            "title": "Addon Count",
+            "type": "integer"
+          },
           "cover": {
             "anyOf": [
               {
@@ -1470,7 +1537,8 @@
           "metacritic",
           "steam_reviews",
           "cover",
-          "entitlements"
+          "entitlements",
+          "addon_count"
         ],
         "title": "WorkSummary",
         "type": "object"
@@ -2872,6 +2940,15 @@
             "schema": {
               "$ref": "#/components/schemas/Hidden",
               "default": "exclude"
+            }
+          },
+          {
+            "in": "query",
+            "name": "addons",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Addons",
+              "default": "fold"
             }
           },
           {

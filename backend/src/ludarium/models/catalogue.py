@@ -69,6 +69,14 @@ class Work(Base):
         *_ordered_by("metacritic_score", "metacritic_score"),
         *_ordered_by("steam_review_score", STEAM_SCORE),
         *_ordered_by("release_date", "release_date"),
+        # The add-ons of a work: counted on each card, and searched through
+        # while they are folded under it (#98).
+        Index(
+            "ix_work_parent_work_id",
+            "parent_work_id",
+            sqlite_where=text("parent_work_id IS NOT NULL"),
+            postgresql_where=text("parent_work_id IS NOT NULL"),
+        ),
         Index(
             "uq_work_igdb_id",
             "igdb_id",

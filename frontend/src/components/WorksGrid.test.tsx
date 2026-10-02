@@ -23,6 +23,7 @@ function work(id: number, overrides: Partial<WorkSummary> = {}): WorkSummary {
     metacritic: null,
     steam_reviews: null,
     cover: null,
+    addon_count: 0,
     entitlements: [],
     ...overrides,
   }

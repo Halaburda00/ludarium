@@ -48,6 +48,7 @@ function summary(id: number, title: string): WorkSummary {
       url: 'https://store.steampowered.com/app/292030#app_reviews_hash',
     },
     cover: null,
+    addon_count: 0,
     entitlements: [
       {
         id: 10,
@@ -92,6 +93,8 @@ const WITCHER: WorkDetail = {
   notes: null,
   started_at: null,
   completed_at: null,
+  addons: [],
+  parent: null,
 }
 
 describe('the work page', () => {

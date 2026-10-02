@@ -59,6 +59,7 @@ function work(
     steam_reviews: null,
     cover: null,
     entitlements,
+    addon_count: 0,
   }
 }
 
