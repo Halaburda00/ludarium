@@ -151,6 +151,46 @@ describe('the work page', () => {
     expect(within(copies).queryByRole('link', { name: /^Edit/ })).toBeNull()
   })
 
+  it('lists the add-ons folded under a game, and names the game on an add-on', async () => {
+    const RISE: WorkDetail = {
+      ...WITCHER,
+      id: 8,
+      title: 'Hearts of Stone',
+      item_kind: 'dlc',
+      parent: { id: 7, title: 'The Witcher 3: Wild Hunt', item_kind: 'game' },
+    }
+    stubFetch({
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works/7': {
+        body: {
+          ...WITCHER,
+          addon_count: 2,
+          addons: [
+            { id: 8, title: 'Hearts of Stone', item_kind: 'dlc' },
+            { id: 9, title: 'The Witcher 3 Soundtrack', item_kind: 'soundtrack' },
+          ],
+        },
+      },
+      'GET /api/works/8': { body: RISE },
+    })
+    renderApp(<Router />, { route: '/library/7' })
+
+    const addons = await screen.findByRole('region', { name: 'Your 2 add-ons' })
+    // A kind other than an add-on's own is said; a DLC is what an add-on is.
+    expect(addons).toHaveTextContent('The Witcher 3 Soundtrack · Soundtrack')
+    await userEvent.click(within(addons).getByRole('link', { name: 'Hearts of Stone' }))
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Hearts of Stone' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'The Witcher 3: Wild Hunt' })).toHaveAttribute(
+      'href',
+      '/library/7',
+    )
+    expect(screen.queryByRole('region', { name: /add-on/ })).toBeNull()
+    expect(missingKeys).toEqual([])
+  })
+
   it('says a work outside the library is not in it', async () => {
     stubFetch({
       'GET /api/accounts': { body: ACCOUNTS },

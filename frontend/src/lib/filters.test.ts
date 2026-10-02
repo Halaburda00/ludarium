@@ -54,6 +54,12 @@ describe('reading filters from the address', () => {
   it('reads a value given twice once', () => {
     expect(read('kind=game&kind=game').kind).toEqual(['game'])
   })
+
+  it('folds add-ons unless the address says otherwise, and only in a way it knows', () => {
+    expect(read('').addons).toBe('fold')
+    expect(read('addons=separate').addons).toBe('separate')
+    expect(read('addons=hide').addons).toBe('fold')
+  })
 })
 
 describe('writing filters to the address', () => {
@@ -78,6 +84,7 @@ describe('writing filters to the address', () => {
       year_max: 2020,
       playtime_max: 0,
       hidden: 'include',
+      addons: 'separate',
     }
     expect(readFilters(writeFilters(filters, new URLSearchParams()))).toEqual(filters)
   })
@@ -96,6 +103,7 @@ describe('counting active filters', () => {
   it('counts a range once, whichever ends are set', () => {
     expect(activeCount({ ...NO_FILTERS, year_min: 2010, year_max: 2020 })).toBe(1)
     expect(activeCount({ ...NO_FILTERS, hidden: 'include', kind: ['dlc', 'game'] })).toBe(2)
+    expect(activeCount({ ...NO_FILTERS, addons: 'separate' })).toBe(1)
     expect(activeCount(NO_FILTERS)).toBe(0)
   })
 })

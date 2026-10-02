@@ -1010,6 +1010,23 @@ describe('hidden games', () => {
   })
 })
 
+describe('add-ons', () => {
+  it('can be listed as games of their own again', async () => {
+    const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works': { body: THREE },
+      'GET /api/works?addons=separate': { body: THREE },
+    })
+    renderApp(<Library />)
+
+    await userEvent.selectOptions(await screen.findByLabelText('Add-ons'), 'As separate games')
+
+    await screen.findByText('Portal 2')
+    expect(calls.map((call) => call.path)).toContain('/api/works?addons=separate')
+  })
+})
+
 describe('the filter panel', () => {
   it('asks the API for what is ticked, in its own parameter names', async () => {
     const calls = stubFetch({
