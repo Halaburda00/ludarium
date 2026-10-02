@@ -180,7 +180,7 @@ says so: search needs a backend of its own.
 - [ ] DLC folded under its parent game (`ItemKind` classification moved to M2a)
 - [ ] Filter state in the URL; saved views
 - [ ] `PlayStatus`, personal rating, notes
-- [ ] Manual entry — physical copies, unredeemed keys, itch.io
+- [x] Manual entry — physical copies, unredeemed keys, itch.io; deleting one is a `DELETE` (ADR-0031)
 - [x] Removed-from-account view with one-click restore; a restored copy is kept (ADR-0030)
 - [ ] Demo mode with a fixed seed dataset
 
