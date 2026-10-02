@@ -134,6 +134,9 @@ async def merge_work(
     details["claims"] = {
         "children": await _repoint_claims(session, details["children"], source_id, target_id),
         "target": await _repoint_claims(session, [target_id], source_id, None),
+        # An add-on folded into its own game: its claim is about to move onto
+        # the game, where it would name the game itself.
+        "source": await _repoint_claims(session, [source_id], target_id, None),
     }
     details["editions"] = await _fold_editions(session, source_id, target_id)
     details["links"] = await _move_links(session, source_id, target_id)
@@ -222,6 +225,7 @@ async def undo_merge(session: AsyncSession, *, audit_id: int, actor: MatchActor)
     claims = details.get("claims", {"children": [], "target": []})
     await _restore_claims(session, claims["children"], target_id, work.id)
     await _restore_claims(session, claims["target"], None, work.id)
+    await _restore_claims(session, claims.get("source", []), None, target_id)
     await _unfold_editions(session, details["editions"], target_id, work.id)
     await _unmove_links(session, details["links"], target_id, work.id)
     await _unfold_provenance(session, EntityType.WORK, details["provenance"], target_id, work.id)

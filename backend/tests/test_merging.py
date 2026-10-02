@@ -854,3 +854,34 @@ async def test_a_target_that_was_the_source_s_add_on_stops_claiming_it(
 
     unmerged = await undo_merge(session, audit_id=audit.id, actor=MatchActor.USER)
     assert (target.parent_work_id, claim.value) == (unmerged.work_id, unmerged.work_id)
+
+
+async def test_an_add_on_merged_into_its_game_does_not_make_the_game_its_own_parent(
+    session: AsyncSession,
+) -> None:
+    """The source's claim names the target; folded onto the target it would name itself."""
+
+    game = await make_work(session, "Civilization VI")
+    game.is_matched = True
+    addon = await make_work(session, "Civilization VI: Rise and Fall")
+    claim = await record(
+        session,
+        entity_type=EntityType.WORK,
+        entity_id=addon.id,
+        field="parent_work_id",
+        source_kind=SourceKind.PLATFORM_API,
+        source_ref="epic",
+        value=game.id,
+    )
+    await resolve(
+        session, entity_type=EntityType.WORK, entity_id=addon.id, fields=["parent_work_id"]
+    )
+
+    audit = await merge_work(
+        session, source_id=addon.id, target_id=game.id, layer=None, actor=MatchActor.AUTO
+    )
+    assert (game.parent_work_id, claim.value) == (None, None)
+
+    unmerged = await undo_merge(session, audit_id=audit.id, actor=MatchActor.USER)
+    restored = await session.get_one(Work, unmerged.work_id)
+    assert (restored.parent_work_id, claim.value) == (game.id, game.id)

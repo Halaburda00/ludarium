@@ -776,7 +776,7 @@ table that references the source is dealt with explicitly:
 | `image_asset` | Moved; `checksum` deduplicates identical covers |
 | `work_embedding` | Source row deleted, target re-embedded — the composite document changed |
 | `title_alias`, `match_candidate`, `match_audit` | `work_id` repointed |
-| `work.parent_work_id` | Children of the source are repointed at the target, and a source that was itself a child carries its parent over only if the target has none. Missing this leaves the `ON DELETE RESTRICT` on the self-FK blocking the final delete. The `parent_work_id` provenance rows move with the column: a child's claim naming the source names the target, and the target's own claim naming the source is cleared, so the next resolve cannot put the deleted id back (#98) |
+| `work.parent_work_id` | Children of the source are repointed at the target, and a source that was itself a child carries its parent over only if the target has none. Missing this leaves the `ON DELETE RESTRICT` on the self-FK blocking the final delete. The `parent_work_id` provenance rows move with the column: a child's claim naming the source names the target, the target's own claim naming the source is cleared, and so is the source's claim naming the target, which would otherwise make the target its own parent. The next resolve cannot put a deleted id or a self-reference on the column (#98) |
 | `work` (source) | Deleted last, in the same transaction |
 
 Rows of tables that do not exist yet — `field_pin`, the
