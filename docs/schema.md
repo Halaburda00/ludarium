@@ -416,6 +416,7 @@ What the user actually owns, on one account. This is the row a sync touches.
 | `provider_item_id` | TEXT | yes | | Steam appid, GOG product id. Null for `manual` |
 | `provider_title` | TEXT | no | | Exactly as the platform returned it, always requested in English. Never overwritten by metadata; it is the matcher's input and the fallback display title |
 | `provider_title_key` | TEXT | no | | `provider_title` folded as `work.title_key` is, so a search for the store's name finds the game (ADR-0028) |
+| `store_label` | TEXT | yes | | Where a `manual` copy lives, in the user's words — "PS5 disc", "itch.io". Null on synced rows, whose platform says it. Written by the user only (ADR-0031) |
 | `ownership_type` | TEXT | no | `'owned'` | `OwnershipType` |
 | `item_kind` | TEXT | yes | | As reported by the provider; the resolved value lives on `work` |
 | `playtime_minutes` | INTEGER | yes | | Playtime on this one account. Where two sources report it for the same entitlement — the platform API and the local agent — the higher figure wins, because the lower one is stale |

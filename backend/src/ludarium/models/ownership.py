@@ -64,6 +64,11 @@ class Entitlement(Base):
     # Folded for search, so the name someone saw in the store finds the game
     # (#53). Derived by the validator below, never assigned directly.
     provider_title_key: Mapped[str]
+    # Where a manual copy lives, in the user's words: "PS5 disc", "itch.io",
+    # "Humble key". The platform says this by being the platform, so a synced
+    # row leaves it null. Written straight, as `kept_at` is: the user is the
+    # only writer of a manual row, and nothing competes for it.
+    store_label: Mapped[str | None]
     ownership_type: Mapped[OwnershipType] = mapped_column(
         enum_column(OwnershipType, "ownership_type"),
         default=OwnershipType.OWNED,
