@@ -130,6 +130,11 @@ async def merge_work(
         "target_parent_work_id": target.parent_work_id,
     }
     details["children"] = await _adopt_children(session, source, target)
+    # The rows behind those columns, or the next resolve puts the deleted id back.
+    details["claims"] = {
+        "children": await _repoint_claims(session, details["children"], source_id, target_id),
+        "target": await _repoint_claims(session, [target_id], source_id, None),
+    }
     details["editions"] = await _fold_editions(session, source_id, target_id)
     details["links"] = await _move_links(session, source_id, target_id)
     details["provenance"] = await _fold_provenance(session, EntityType.WORK, source_id, target_id)
@@ -213,6 +218,10 @@ async def undo_merge(session: AsyncSession, *, audit_id: int, actor: MatchActor)
     await _repoint_back(
         session, Work.id, Work.parent_work_id, details["children"], target_id, work.id
     )
+    # A payload written before parents were claimed (#98) has none to put back.
+    claims = details.get("claims", {"children": [], "target": []})
+    await _restore_claims(session, claims["children"], target_id, work.id)
+    await _restore_claims(session, claims["target"], None, work.id)
     await _unfold_editions(session, details["editions"], target_id, work.id)
     await _unmove_links(session, details["links"], target_id, work.id)
     await _unfold_provenance(session, EntityType.WORK, details["provenance"], target_id, work.id)
@@ -402,6 +411,45 @@ async def _adopt_children(session: AsyncSession, source: Work, target: Work) -> 
         target.parent_work_id = source.parent_work_id
     await session.flush()
     return children
+
+
+async def _repoint_claims(
+    session: AsyncSession, work_ids: Sequence[int], from_id: int, to_id: int | None
+) -> list[int]:
+    """Point every `parent_work_id` claim on these works that names `from_id` at `to_id`.
+
+    The claim's value is a work id, so a merge that moves a column has to move
+    the claim with it (#98). Returns the rows it changed, for the undo.
+    """
+
+    changed: list[int] = []
+    for batch in in_batches(work_ids):
+        for row in await session.scalars(
+            select(FieldProvenance).where(
+                FieldProvenance.entity_type == EntityType.WORK,
+                FieldProvenance.entity_id.in_(batch),
+                FieldProvenance.field == "parent_work_id",
+            )
+        ):
+            if row.value == from_id:
+                row.value = to_id
+                changed.append(row.id)
+    await session.flush()
+    return changed
+
+
+async def _restore_claims(
+    session: AsyncSession, row_ids: Sequence[int], from_value: int | None, to_id: int
+) -> None:
+    """`_repoint_claims` undone, for the rows that still say what the merge left them saying."""
+
+    for batch in in_batches(row_ids):
+        for row in await session.scalars(
+            select(FieldProvenance).where(FieldProvenance.id.in_(batch))
+        ):
+            if row.value == from_value:
+                row.value = to_id
+    await session.flush()
 
 
 async def _fold_editions(session: AsyncSession, source_id: int, target_id: int) -> dict[str, Any]:
