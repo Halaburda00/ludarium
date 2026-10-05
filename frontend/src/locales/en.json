@@ -88,7 +88,9 @@
     "matches_partial_other": "{{count}} matches so far",
     "noMatches": "Nothing in the library matches “{{search}}”.",
     "removedLink": "Removed games",
-    "addGame": "Add a game"
+    "addGame": "Add a game",
+    "addonCount_one": "+{{count}} add-on",
+    "addonCount_other": "+{{count}} add-ons"
   },
   "work": {
     "back": "← Library",
@@ -132,7 +134,10 @@
     "letGoHint": "The next sync that does not find it on {{provider}} will move it to removed games.",
     "manualCopy": "{{provider}} · {{store}}",
     "edit": "Edit",
-    "editLabel": "Edit {{title}}"
+    "editLabel": "Edit {{title}}",
+    "addonFor": "Add-on for",
+    "addons_one": "Your add-on",
+    "addons_other": "Your {{count}} add-ons"
   },
   "filters": {
     "title": "Filters",
@@ -157,7 +162,10 @@
     "hiddenInclude": "Show with the rest",
     "hiddenOnly": "Show only these",
     "clear": "Clear filters",
-    "noMatches": "No games match these filters."
+    "noMatches": "No games match these filters.",
+    "addons": "Add-ons",
+    "addonsFold": "Under their game",
+    "addonsSeparate": "As separate games"
   },
   "sorting": {
     "label": "Sort by",

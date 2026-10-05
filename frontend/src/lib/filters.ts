@@ -11,6 +11,8 @@ import type { ItemKind, PlayStatus } from '@/lib/queries'
  */
 
 export type Hidden = 'exclude' | 'include' | 'only'
+/** Whether an add-on whose game is owned is listed through that game, or as a card of its own. */
+export type Addons = 'fold' | 'separate'
 
 export type Filters = {
   platform: string[]
@@ -29,6 +31,7 @@ export type Filters = {
   playtime_min: number | null
   playtime_max: number | null
   hidden: Hidden
+  addons: Addons
 }
 
 export const KINDS = [
@@ -53,6 +56,7 @@ export const STATUSES = [
 ] as const satisfies readonly PlayStatus[]
 
 const HIDDEN = ['exclude', 'include', 'only'] as const satisfies readonly Hidden[]
+const ADDONS = ['fold', 'separate'] as const satisfies readonly Addons[]
 
 export type RangeName = 'metacritic' | 'steam' | 'year' | 'playtime'
 
@@ -93,6 +97,7 @@ export const NO_FILTERS: Filters = {
   playtime_min: null,
   playtime_max: null,
   hidden: 'exclude',
+  addons: 'fold',
 }
 
 /** Every key this module owns in the address. Anything else — `q`, above all — is left alone. */
@@ -104,6 +109,7 @@ const KEYS = [
   ...RANGE_NAMES.flatMap((name) => [`${name}_min`, `${name}_max`]),
   'steam_reviews_min',
   'hidden',
+  'addons',
 ]
 
 /**
@@ -122,6 +128,7 @@ export function readFilters(params: URLSearchParams): Filters {
     return value >= min && value <= max ? value : null
   }
   const hidden = params.get('hidden')
+  const addons = params.get('addons')
   return {
     // A key the backend does not know is still refused there; the syntax is
     // all that can be checked here without a copy of its list.
@@ -140,6 +147,7 @@ export function readFilters(params: URLSearchParams): Filters {
     playtime_min: range('playtime_min', RANGES.playtime),
     playtime_max: range('playtime_max', RANGES.playtime),
     hidden: hidden !== null && isOneOf(HIDDEN)(hidden) ? hidden : 'exclude',
+    addons: addons !== null && isOneOf(ADDONS)(addons) ? addons : 'fold',
   }
 }
 
@@ -185,7 +193,9 @@ export function activeCount(filters: Filters): number {
     RANGE_NAMES.filter(
       (name) => filters[`${name}_min`] !== null || filters[`${name}_max`] !== null,
     ).length +
-    (filters.hidden === 'exclude' ? 0 : 1)
+    (filters.hidden === 'exclude' ? 0 : 1) +
+    // Widens rather than narrows, as `hidden` can, and is cleared with the rest.
+    (filters.addons === 'fold' ? 0 : 1)
   )
 }
 
@@ -205,6 +215,7 @@ function entries(filters: Filters): [string, string][] {
     out.push(['steam_reviews_min', String(filters.steam_reviews_min)])
   }
   if (filters.hidden !== 'exclude') out.push(['hidden', filters.hidden])
+  if (filters.addons !== 'fold') out.push(['addons', filters.addons])
   return out
 }
 

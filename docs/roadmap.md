@@ -177,7 +177,7 @@ says so: search needs a backend of its own.
       release date, either way, each on its own keyset. Agreed after this
       roadmap was written: "what should I play tonight" is mostly a question of
       order
-- [ ] DLC folded under its parent game (`ItemKind` classification moved to M2a)
+- [x] DLC folded under its parent game (`ItemKind` classification moved to M2a); the parent from Epic's `mainGameItem` (ADR-0032)
 - [ ] Filter state in the URL; saved views
 - [ ] `PlayStatus`, personal rating, notes
 - [x] Manual entry — physical copies, unredeemed keys, itch.io; deleting one is a `DELETE` (ADR-0031)

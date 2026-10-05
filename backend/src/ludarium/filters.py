@@ -27,6 +27,7 @@ from typing import Annotated, Any, Self
 
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints, model_validator
 from sqlalchemy import ColumnElement, false, func, select, true
+from sqlalchemy.orm import InstrumentedAttribute, aliased
 
 from ludarium.enums import ItemKind, PlayStatus, ProviderKind
 from ludarium.models import (
@@ -79,6 +80,16 @@ def _known_platforms(keys: list[str]) -> list[str]:
     return keys
 
 
+class Hidden(StrEnum):
+    """Whether the works the user hid are in the listing."""
+
+    # The default: hidden means "not in my library view", which is the point of
+    # hiding something. The work stays owned and counted; only the view skips it.
+    EXCLUDE = "exclude"
+    INCLUDE = "include"
+    ONLY = "only"
+
+
 @dataclass(frozen=True, slots=True)
 class Scope:
     """What a predicate may need beside its own value."""
@@ -86,6 +97,10 @@ class Scope:
     user_id: int
     # `LibraryFilters.steam_reviews_min`.
     steam_reviews: int
+    # `LibraryFilters.addons`: whether an owned add-on is listed through its game.
+    fold: bool = False
+    # `LibraryFilters.hidden`, which decides whether a game is there to fold under.
+    hidden: Hidden = Hidden.EXCLUDE
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,22 +164,96 @@ def _in_genre(slugs: list[str], _: Scope) -> ColumnElement[bool]:
     )
 
 
-class Hidden(StrEnum):
-    """Whether the works the user hid are in the listing."""
+class Addons(StrEnum):
+    """Whether an add-on whose game is owned is a card of its own (#98)."""
 
-    # The default: hidden means "not in my library view", which is the point of
-    # hiding something. The work stays owned and counted; only the view skips it.
-    EXCLUDE = "exclude"
-    INCLUDE = "include"
-    ONLY = "only"
+    # The default: listed through its game, whose card counts it.
+    FOLD = "fold"
+    SEPARATE = "separate"
+
+
+def owns(
+    work_id: ColumnElement[Any] | InstrumentedAttribute[Any], user_id: int
+) -> ColumnElement[bool]:
+    """Whether a live copy of the user's reaches this work, as `_owned_works` asks it."""
+
+    return (
+        select(EntitlementWork.work_id)
+        .join(Entitlement, Entitlement.id == EntitlementWork.entitlement_id)
+        .where(EntitlementWork.work_id == work_id, *owned_by(user_id))
+        .exists()
+    )
+
+
+def _on_addons(addons: Addons, scope: Scope) -> ColumnElement[bool]:
+    # Folded only under a game that is owned now and listed under the same
+    # `hidden` choice: an add-on for a game the user never had, one whose copy
+    # was removed, or one whose game is hidden while it is not, would otherwise
+    # leave the library with nothing on screen to find it through.
+    if addons is Addons.SEPARATE:
+        return true()
+    parent = Work.parent_work_id
+    return ~(
+        parent.is_not(None)
+        & owns(parent, scope.user_id)
+        & _shown(_hidden_of(parent, scope.user_id), scope.hidden)
+    )
+
+
+def _hidden_of(work_id: InstrumentedAttribute[Any], user_id: int) -> ColumnElement[bool]:
+    """Whether the user hid this work, false where they have no state for it, as `_hidden` is."""
+
+    # Aliased: the listing outer-joins `UserWorkState` for the work itself, and
+    # the bare table would correlate to that row instead of the parent's.
+    state = aliased(UserWorkState)
+    flag = (
+        select(state.is_hidden)
+        .where(state.work_id == work_id, state.user_id == user_id)
+        .scalar_subquery()
+    )
+    return func.coalesce(flag, false())
+
+
+type OnWork = Callable[[type[Work]], ColumnElement[bool]]
+
+
+def through_addons(condition: OnWork, scope: Scope) -> ColumnElement[bool]:
+    """`condition` on the work, or, while add-ons are folded, on one it holds (#98).
+
+    A folded add-on has no card, so a search or a kind that names it has to find
+    its game instead, or the add-on could not be found at all. The other filters
+    describe the game itself and are not asked of its add-ons: Rise and Fall
+    released in 2018 does not make Civilization VI a 2018 game.
+    """
+
+    own = condition(Work)
+    if not scope.fold:
+        return own
+    child = aliased(Work)
+    held = (
+        select(child.id)
+        .where(child.parent_work_id == Work.id, condition(child), owns(child.id, scope.user_id))
+        .exists()
+    )
+    return own | held
+
+
+def _of_kind(kinds: list[ItemKind], scope: Scope) -> ColumnElement[bool]:
+    return through_addons(lambda work: work.item_kind.in_(kinds), scope)
 
 
 def _on_hidden(hidden: Hidden, _: Scope) -> ColumnElement[bool]:
+    return _shown(_hidden, hidden)
+
+
+def _shown(flag: ColumnElement[bool], hidden: Hidden) -> ColumnElement[bool]:
+    """Whether a work with this hidden flag is in a listing under this `hidden` choice."""
+
     match hidden:
         case Hidden.EXCLUDE:
-            return _hidden.is_(false())
+            return flag.is_(false())
         case Hidden.ONLY:
-            return _hidden.is_(true())
+            return flag.is_(true())
         case Hidden.INCLUDE:
             return true()
 
@@ -182,7 +271,7 @@ class LibraryFilters(BaseModel):
         list[ItemKind],
         Field(default_factory=list, max_length=MAX_CHOICES),
         # An unclassified work has no kind, so it matches no choice of kinds.
-        Predicate(lambda kinds, _: Work.item_kind.in_(kinds)),
+        Predicate(_of_kind),
     ]
     # Any of them. A slug no work has matches nothing, as a kind would: unlike
     # a platform, the set of genres is data rather than code, and a genre IGDB
@@ -236,6 +325,7 @@ class LibraryFilters(BaseModel):
         Predicate(lambda statuses, _: _status.in_([status.value for status in statuses])),
     ]
     hidden: Annotated[Hidden, Field(default=Hidden.EXCLUDE), Predicate(_on_hidden)]
+    addons: Annotated[Addons, Field(default=Addons.FOLD), Predicate(_on_addons)]
     # Minutes, as `playtime_minutes` is everywhere else in the API.
     playtime_min: Annotated[
         int | None,
@@ -259,10 +349,20 @@ class LibraryFilters(BaseModel):
                 raise ValueError(f"{name}_min is greater than {name}_max")
         return self
 
+    def scope(self, user_id: int) -> Scope:
+        """What every predicate is built against, and the search beside them."""
+
+        return Scope(
+            user_id=user_id,
+            steam_reviews=self.steam_reviews_min,
+            fold=self.addons is Addons.FOLD,
+            hidden=self.hidden,
+        )
+
     def predicates(self, user_id: int) -> Iterator[ColumnElement[bool]]:
         """One clause per filter that was set, in declaration order."""
 
-        scope = Scope(user_id=user_id, steam_reviews=self.steam_reviews_min)
+        scope = self.scope(user_id)
         # The filters' own fields, not a subclass's: `ListingParams` adds the
         # page and the search, which are not filters and carry no predicate.
         for name, field in LibraryFilters.model_fields.items():

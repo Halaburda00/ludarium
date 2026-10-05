@@ -46,6 +46,8 @@ export type Score = Schemas['Score']
 export type SteamReviews = Schemas['SteamReviews']
 export type WorksPage = Schemas['WorksPage']
 export type WorkDetail = Schemas['WorkDetail']
+/** Another work in the library, named well enough to link to: an add-on, or its game. */
+export type WorkLink = Schemas['WorkLink']
 export type Credit = Schemas['Credit']
 /** A genre as IGDB names it; the UI translates it by `slug` where it can. */
 export type Genre = Schemas['GenreSummary']

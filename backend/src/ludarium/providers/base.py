@@ -119,6 +119,9 @@ class LibraryItem:
     playtime_minutes: int | None = None
     last_played_at: datetime | None = None
     acquired_at: datetime | None = None
+    # The platform's id for the game an add-on belongs to, on the same account.
+    # None where the platform does not say, which for a game is always.
+    parent_item_id: str | None = None
     # As received, for debugging a bad match. Credentials travel in the request,
     # never in the response, so nothing has to be stripped here (rule 7).
     raw: dict[str, Any] = field(default_factory=dict)

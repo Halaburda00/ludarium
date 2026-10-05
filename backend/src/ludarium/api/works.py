@@ -19,13 +19,14 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import ColumnElement, Select, select
+from sqlalchemy import ColumnElement, Select, func, select
+from sqlalchemy.orm import aliased
 
 from ludarium.api.genres import GenreSummary
 from ludarium.auth import CurrentSession
 from ludarium.db import SessionDep
 from ludarium.enums import CompanyRole, EntityType, ImageKind, ItemKind, PlayStatus, SteamRating
-from ludarium.filters import LibraryFilters
+from ludarium.filters import LibraryFilters, owns, through_addons
 from ludarium.models import (
     Account,
     Company,
@@ -184,6 +185,17 @@ class WorkSummary(BaseModel):
     # Null until the cover step has fetched one.
     cover: Cover | None
     entitlements: list[EntitlementSummary]
+    # How many of its add-ons the user owns, which a folded listing lists
+    # through this card rather than beside it (#98).
+    addon_count: int
+
+
+class WorkLink(BaseModel):
+    """Another work in the library, named well enough to link to."""
+
+    id: int
+    title: str
+    item_kind: ItemKind | None
 
 
 class Credit(BaseModel):
@@ -208,6 +220,10 @@ class WorkDetail(WorkSummary):
     notes: str | None
     started_at: datetime | None
     completed_at: datetime | None
+    # The add-ons the user owns for it, by title, and the game it is an add-on
+    # for where that game is owned (#98).
+    addons: list[WorkLink]
+    parent: WorkLink | None
 
 
 class StateUpdate(BaseModel):
@@ -352,7 +368,9 @@ async def listing(
     )
     wanted = search_key(params.q) if params.q is not None else ""
     if wanted:
-        page = page.where(_matches(wanted, user_id))
+        page = page.where(
+            through_addons(lambda work: _matches(work, wanted, user_id), params.scope(user_id))
+        )
     page = page.where(*params.predicates(user_id))
     if cursor is not None:
         page = page.where(ordering.after(*_after(cursor, ordering)))
@@ -373,7 +391,7 @@ async def listing(
     )
 
 
-def _matches(wanted: str, user_id: int) -> ColumnElement[bool]:
+def _matches(work: type[Work], wanted: str, user_id: int) -> ColumnElement[bool]:
     """A work whose title holds `wanted`, or one of whose live copies' store names does.
 
     Both folded as the sort key is, so a result set is matched by the rule it
@@ -390,12 +408,12 @@ def _matches(wanted: str, user_id: int) -> ColumnElement[bool]:
         select(EntitlementWork.work_id)
         .join(Entitlement, Entitlement.id == EntitlementWork.entitlement_id)
         .where(
-            EntitlementWork.work_id == Work.id,
+            EntitlementWork.work_id == work.id,
             *owned_by(user_id),
             Entitlement.provider_title_key.contains(wanted, autoescape=True),
         )
     )
-    return Work.title_key.contains(wanted, autoescape=True) | named.exists()
+    return work.title_key.contains(wanted, autoescape=True) | named.exists()
 
 
 @router.get("/{work_id}")
@@ -487,7 +505,32 @@ async def _detail(session: SessionDep, work_id: int, user_id: int) -> WorkDetail
         notes=state.notes if state else None,
         started_at=state.started_at if state else None,
         completed_at=state.completed_at if state else None,
+        addons=await _addons(session, work_id, user_id),
+        parent=await _parent(session, work, user_id),
     )
+
+
+async def _addons(session: SessionDep, work_id: int, user_id: int) -> list[WorkLink]:
+    child = aliased(Work)
+    rows = await session.execute(
+        select(child.id, child.title, child.item_kind)
+        .where(child.parent_work_id == work_id, owns(child.id, user_id))
+        .order_by(child.sort_key, child.id)
+    )
+    return [WorkLink(id=id_, title=title, item_kind=kind) for id_, title, kind in rows]
+
+
+async def _parent(session: SessionDep, work: Work, user_id: int) -> WorkLink | None:
+    if work.parent_work_id is None:
+        return None
+    row = (
+        await session.execute(
+            select(Work.id, Work.title, Work.item_kind).where(
+                Work.id == work.parent_work_id, owns(Work.id, user_id)
+            )
+        )
+    ).first()
+    return WorkLink(id=row[0], title=row[1], item_kind=row[2]) if row else None
 
 
 async def _genres(session: SessionDep, work_id: int) -> list[GenreSummary]:
@@ -566,6 +609,7 @@ async def _summaries(session: SessionDep, rows: Sequence[Row], user_id: int) -> 
     """The rows as the API describes them, in a fixed number of queries however many there are."""
 
     copies = await _entitlements(session, [work.id for work, _, _ in rows], user_id)
+    addons = await _addon_counts(session, [work.id for work, _, _ in rows], user_id)
     source = await session.scalar(select(Provider).where(Provider.key == SCORE_SOURCE))
     steam = await session.scalar(select(Provider).where(Provider.key == STEAM))
     covers = await _covers(session, [work.id for work, _, _ in rows])
@@ -586,6 +630,7 @@ async def _summaries(session: SessionDep, rows: Sequence[Row], user_id: int) -> 
             _score(work, source, held),
             _steam_reviews(work, steam),
             covers.get(work.id),
+            addons.get(work.id, 0),
         )
         for work, state, held in rows
         if copies.get(work.id)
@@ -622,6 +667,7 @@ def _describe(
     metacritic: Score | None,
     steam_reviews: SteamReviews | None,
     cover: Cover | None,
+    addon_count: int,
 ) -> WorkSummary:
     return WorkSummary(
         id=work.id,
@@ -642,7 +688,21 @@ def _describe(
         steam_reviews=steam_reviews,
         cover=cover,
         entitlements=copies,
+        addon_count=addon_count,
     )
+
+
+async def _addon_counts(session: SessionDep, work_ids: list[int], user_id: int) -> dict[int, int]:
+    """The owned add-ons of each work on the page, in one query."""
+
+    if not work_ids:
+        return {}
+    rows = await session.execute(
+        select(Work.parent_work_id, func.count())
+        .where(Work.parent_work_id.in_(work_ids), owns(Work.id, user_id))
+        .group_by(Work.parent_work_id)
+    )
+    return {parent: count for parent, count in rows.tuples() if parent is not None}
 
 
 async def _covers(session: SessionDep, work_ids: list[int]) -> dict[int, Cover]:

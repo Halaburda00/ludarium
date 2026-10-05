@@ -54,6 +54,7 @@ STRATEGIES: Final[Mapping[tuple[str, str], FieldStrategy]] = {
     ("work", "release_year"): FieldStrategy.PRECEDENCE,
     ("work", "release_date"): FieldStrategy.PRECEDENCE,
     ("work", "item_kind"): FieldStrategy.PRECEDENCE,
+    ("work", "parent_work_id"): FieldStrategy.PRECEDENCE,
     ("work", "metacritic_score"): FieldStrategy.SINGLE_SOURCE,
     ("work", "metacritic_url"): FieldStrategy.SINGLE_SOURCE,
     ("work", "steam_review_rating"): FieldStrategy.SINGLE_SOURCE,
