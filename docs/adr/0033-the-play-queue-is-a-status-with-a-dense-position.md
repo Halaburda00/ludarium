@@ -42,9 +42,11 @@ is a change of status, made through the state update.
 ## Consequences
 
 - A work whose copies have all been removed keeps its place: sync does not
-  write user state (rule 3). The listing does not show it, so the visible
-  queue can skip a number until the copy is restored or the work is taken out
-  of the queue.
+  write user state (rule 3). The listing does not show it, and it is back in
+  its place once a copy is restored. The "Up next" view and the work page
+  number the works shown, 1 to k, rather than the stored positions, so the
+  gap is never seen. A move sends the stored position of the work it swaps
+  with, so it lands beside that work and not beside the unseen one.
 - A merge keeps the better of the two places, and its undo puts both works
   back where they were. The rest of the queue is renumbered around them.
 - The downgrade turns a queued work back into `not_started`. The order is lost.
