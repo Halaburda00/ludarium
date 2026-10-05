@@ -210,3 +210,35 @@ describe('one move at a time', () => {
     )
   })
 })
+
+describe('a move after taking a work out', () => {
+  it('waits for the queue to come back before the next move is offered', async () => {
+    stubFetch({
+      'GET /api/accounts': { body: ACCOUNTS },
+      [QUEUE]: { body: PAGE },
+      'PATCH /api/works/1/state': { body: { ...WORKS[0], play_status: 'not_started' } },
+    })
+    const fetcher = vi.mocked(fetch)
+    const reply = fetcher.getMockImplementation()!
+    let reads = 0
+    let release: () => void = () => {}
+    fetcher.mockImplementation((input, init) => {
+      if (String(input).startsWith('/api/works?') && ++reads > 1) {
+        return new Promise((resolve) => {
+          release = () => void reply(input, init).then(resolve)
+        })
+      }
+      return reply(input, init)
+    })
+    renderApp(<Router />, { route: '/queue' })
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Take Hades out of the queue' }))
+
+    await vi.waitFor(() => expect(reads).toBe(2))
+    // Celeste's stored place is 3 until the queue is read back; the server
+    // already has it at 1.
+    expect(screen.getByRole('button', { name: 'Move Minit up' })).toBeDisabled()
+    release()
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Move Minit up' })).toBeEnabled())
+  })
+})

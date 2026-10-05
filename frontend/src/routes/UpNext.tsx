@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp, ArrowUpToLine, X } from 'lucide-react'
+import { useIsMutating } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
@@ -24,6 +25,10 @@ export default function UpNext() {
   const { t } = useTranslation()
   const queue = useQueue()
   const move = useMoveInQueue()
+  // Moves are sent with the positions the list holds, so none is offered
+  // while those may be stale: a move or a work taken out still under way, or
+  // the queue being read back after one.
+  const busy = useIsMutating() > 0 || queue.isFetching
 
   let body: React.ReactNode
   if (queue.isPending) {
@@ -49,9 +54,7 @@ export default function UpNext() {
             work={work}
             place={index + 1}
             last={index === works.length - 1}
-            // One move at a time: each is sent with the positions the list
-            // held before it, and a second sent alongside would read them stale.
-            busy={move.isPending}
+            busy={busy}
             onMove={(to) => move.mutate(queueMove(works, work.id, to))}
           />
         ))}
@@ -160,7 +163,7 @@ function Entry({
         <Button
           size="icon-sm"
           variant="ghost"
-          disabled={busy || leave.isPending}
+          disabled={busy}
           onClick={() => leave.mutate({ play_status: 'not_started' })}
           aria-label={t('queue.remove', { title })}
           title={t('queue.remove', { title })}
