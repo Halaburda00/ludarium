@@ -46,6 +46,7 @@ class Sort(StrEnum):
     PLAYTIME = "playtime"
     LAST_PLAYED = "last_played"
     RELEASE_DATE = "release_date"
+    QUEUE = "queue"
 
 
 class Direction(StrEnum):
@@ -98,6 +99,8 @@ KEYS: dict[Sort, Key] = {
     Sort.PLAYTIME: _on_state(UserWorkState.playtime_minutes),
     Sort.LAST_PLAYED: _on_state(UserWorkState.last_played_at),
     Sort.RELEASE_DATE: _on_work(Work.release_date),
+    # The user's queue, first to play at the top; unqueued works follow as nulls.
+    Sort.QUEUE: _on_state(UserWorkState.queue_position),
 }
 
 
@@ -173,7 +176,7 @@ class Ordering:
                     return moment.astimezone(UTC)
             case Sort.RELEASE_DATE if isinstance(raw, str):
                 return date.fromisoformat(raw)
-            case Sort.METACRITIC | Sort.STEAM_REVIEWS | Sort.PLAYTIME if (
+            case Sort.METACRITIC | Sort.STEAM_REVIEWS | Sort.PLAYTIME | Sort.QUEUE if (
                 isinstance(raw, int) and not isinstance(raw, bool) and raw in INTEGERS
             ):
                 return raw

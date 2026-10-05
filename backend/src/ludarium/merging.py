@@ -51,6 +51,7 @@ from ludarium.models import (
     WorkGenre,
 )
 from ludarium.queries import in_batches
+from ludarium.queue import arrange, free_position
 from ludarium.resolver import resolve, resolve_work_aggregates_many
 
 logger = logging.getLogger(__name__)
@@ -312,6 +313,16 @@ async def delete_works(session: AsyncSession, work_ids: Sequence[int]) -> None:
     nothing polymorphic is left pointing at an id SQLite may hand out again.
     """
 
+    # Their places in the queue go with them, and the queue closes up after.
+    queues: set[int] = set()
+    for batch in in_batches(work_ids):
+        queues.update(
+            await session.scalars(
+                select(UserWorkState.user_id).where(
+                    UserWorkState.work_id.in_(batch), UserWorkState.queue_position.is_not(None)
+                )
+            )
+        )
     for batch in in_batches(work_ids):
         editions = list(await session.scalars(select(Edition.id).where(Edition.work_id.in_(batch))))
         # Polymorphic, so no foreign key cascades these away.
@@ -332,6 +343,8 @@ async def delete_works(session: AsyncSession, work_ids: Sequence[int]) -> None:
         )
         # Editions and default state go with the work, by `ON DELETE CASCADE`.
         await session.execute(delete(Work).where(Work.id.in_(batch)))
+    for user_id in queues:
+        await arrange(session, user_id)
 
 
 async def _worth_keeping(session: AsyncSession, work_id: int) -> bool:
@@ -723,7 +736,8 @@ async def _merge_states(session: AsyncSession, source_id: int, target_id: int) -
     """User state per user: the source's fills what the target never set.
 
     A user with state only on the source keeps it whole, moved. `last_played_at`
-    takes the later of the two, since both are true.
+    takes the later of the two, since both are true. A queued work keeps the
+    better of the two places in the queue, and the queue closes the other one.
     """
 
     targets = {
@@ -734,14 +748,20 @@ async def _merge_states(session: AsyncSession, source_id: int, target_id: int) -
     }
     moved: list[int] = []
     merged: list[dict[str, Any]] = []
-    for state in await session.scalars(
-        select(UserWorkState).where(UserWorkState.work_id == source_id)
+    for state in list(
+        await session.scalars(select(UserWorkState).where(UserWorkState.work_id == source_id))
     ):
         kept = targets.get(state.user_id)
         if kept is None:
             moved.append(state.user_id)
             continue
-        previous: dict[str, Any] = {}
+        merged.append({"state": _snapshot(state), "target_before": {}})
+        place = state.queue_position
+        # Gone before the target can take its place in the queue.
+        await session.delete(state)
+        await session.flush()
+        parking = await free_position(session, state.user_id)
+        previous: dict[str, Any] = merged[-1]["target_before"]
         for field, default in USER_DEFAULTS.items():
             ours, theirs = getattr(kept, field), getattr(state, field)
             if ours == default and theirs != default:
@@ -752,8 +772,17 @@ async def _merge_states(session: AsyncSession, source_id: int, target_id: int) -
         ):
             previous["last_played_at"] = _jsonable(kept.last_played_at)
             kept.last_played_at = state.last_played_at
-        merged.append({"state": _snapshot(state), "target_before": previous})
-        await session.delete(state)
+        placed: dict[int, int] = {}
+        if place is not None and kept.play_status is PlayStatus.QUEUED:
+            if kept.queue_position is None:
+                previous["queue_position"] = None
+                kept.queue_position = parking
+                placed[target_id] = place
+            elif place < kept.queue_position:
+                previous["queue_position"] = kept.queue_position
+                placed[target_id] = place
+        if place is not None:
+            await arrange(session, state.user_id, placed)
     await session.flush()
     if moved:
         await session.execute(
@@ -775,12 +804,29 @@ async def _unmerge_states(
             .values(work_id=restored_id)
         )
     for entry in record["merged"]:
-        snapshot = entry["state"]
-        session.add(_restore(UserWorkState, {**snapshot, "work_id": restored_id}))
-        kept = await session.get(UserWorkState, (snapshot["user_id"], target_id))
+        snapshot = dict(entry["state"])
+        user_id = snapshot["user_id"]
+        before = _decoded(UserWorkState, entry["target_before"])
+        # Both rows go back to the places they held, which other works may
+        # hold now: they wait past the end while the queue is renumbered.
+        parking = await free_position(session, user_id)
+        placed: dict[int, int] = {}
+        if snapshot.get("queue_position") is not None:
+            placed[restored_id] = snapshot["queue_position"]
+            snapshot["queue_position"] = parking
+            parking += 1
+        kept = await session.get(UserWorkState, (user_id, target_id))
         if kept is not None:
-            for field, value in _decoded(UserWorkState, entry["target_before"]).items():
+            place = before.pop("queue_position", kept.queue_position)
+            for field, value in before.items():
                 setattr(kept, field, value)
+            # The user may have taken it out of the queue since the merge.
+            if kept.play_status is not PlayStatus.QUEUED:
+                kept.queue_position = None
+            elif place is not None and place != kept.queue_position:
+                placed[target_id] = place
+        session.add(_restore(UserWorkState, {**snapshot, "work_id": restored_id}))
+        await arrange(session, user_id, placed)
     await session.flush()
 
 

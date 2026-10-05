@@ -41,6 +41,7 @@ const GATE: WorkDetail = {
   item_kind: 'game',
   release_year: 2000,
   play_status: 'not_started',
+  queue_position: null,
   is_favourite: false,
   is_hidden: false,
   playtime_minutes: 0,

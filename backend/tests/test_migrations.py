@@ -570,3 +570,27 @@ def test_igdb_details_cached_without_genres_are_asked_for_again(settings: Settin
     command.upgrade(config, "head")
 
     assert query(settings.database_url, "SELECT resource FROM fetch_cache") == [("games",)]
+
+
+def test_a_queued_work_goes_back_to_not_started_on_a_downgrade(settings: Settings) -> None:
+    """The older schema has no queue: the downgrade must leave rows its CHECK accepts."""
+
+    config = alembic_config(settings.database_url)
+    command.upgrade(config, "head")
+    run_sql(
+        settings.database_url,
+        "INSERT INTO app_user (id, username, password_hash) VALUES (1, 'owner', 'x')",
+        "INSERT INTO work (id, title, sort_title, sort_key, title_key) "
+        "VALUES (1, 'Hades', 'Hades', 'hades', 'hades')",
+        "INSERT INTO work (id, title, sort_title, sort_key, title_key) "
+        "VALUES (2, 'Prey', 'Prey', 'prey', 'prey')",
+        "INSERT INTO user_work_state (user_id, work_id, play_status, queue_position) "
+        "VALUES (1, 1, 'queued', 1)",
+        "INSERT INTO user_work_state (user_id, work_id, play_status) VALUES (1, 2, 'playing')",
+    )
+
+    command.downgrade(config, "f878bd6caf3a")
+
+    assert query(
+        settings.database_url, "SELECT work_id, play_status FROM user_work_state ORDER BY work_id"
+    ) == [(1, "not_started"), (2, "playing")]
