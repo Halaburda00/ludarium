@@ -4,7 +4,13 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { Router } from '@/App'
 import { missingKeys } from '@/i18n'
-import type { Account, SyncOverview, WorkDetail, WorkSummary } from '@/lib/queries'
+import {
+  QUEUE_QUERY,
+  type Account,
+  type SyncOverview,
+  type WorkDetail,
+  type WorkSummary,
+} from '@/lib/queries'
 import { renderApp, stubFetch } from '@/test/render'
 
 const ACCOUNTS: Account[] = [
@@ -363,5 +369,47 @@ describe('what the user decides about a work', () => {
 
     expect(calls.some((call) => call.method === 'DELETE')).toBe(true)
     expect(missingKeys).toEqual([])
+  })
+})
+
+describe('the work in the play queue', () => {
+  it('adds a work to the queue by its status', async () => {
+    const calls = stubFetch({
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works/7': { body: WITCHER },
+      'PATCH /api/works/7/state': {
+        body: { ...WITCHER, play_status: 'queued', queue_position: 1 },
+      },
+      [`GET /api/works?${QUEUE_QUERY}`]: {
+        body: { works: [{ ...WITCHER, play_status: 'queued', queue_position: 1 }], next_cursor: null },
+      },
+    })
+    renderApp(<Router />, { route: '/library/7' })
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Add to queue' }))
+
+    expect(await screen.findByRole('link', { name: '#1 in your queue' })).toHaveAttribute(
+      'href',
+      '/queue',
+    )
+    expect(calls.find((call) => call.method === 'PATCH')?.body).toEqual({ play_status: 'queued' })
+  })
+
+  it('counts its place as the queue view shows it, not as stored', async () => {
+    const queued = { ...WITCHER, play_status: 'queued' as const, queue_position: 5 }
+    stubFetch({
+      'GET /api/accounts': { body: ACCOUNTS },
+      'GET /api/works/7': { body: queued },
+      [`GET /api/works?${QUEUE_QUERY}`]: {
+        body: {
+          works: [{ ...summary(3, 'Hades'), play_status: 'queued', queue_position: 2 }, queued],
+          next_cursor: null,
+        },
+      },
+    })
+    renderApp(<Router />, { route: '/library/7' })
+
+    expect(await screen.findByRole('link', { name: '#2 in your queue' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Take out of the queue' })).toBeEnabled()
   })
 })

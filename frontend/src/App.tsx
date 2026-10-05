@@ -12,6 +12,7 @@ import Login from '@/routes/Login'
 import ManualEntryPage from '@/routes/ManualEntry'
 import Onboarding from '@/routes/Onboarding'
 import Removed from '@/routes/Removed'
+import UpNext from '@/routes/UpNext'
 
 export function Router() {
   return (
@@ -24,6 +25,7 @@ export function Router() {
         <Route path="/library" element={<Library />} />
         <Route path="/library/:workId" element={<WorkPage />} />
         <Route path="/removed" element={<Removed />} />
+        <Route path="/queue" element={<UpNext />} />
         <Route path="/manual/new" element={<ManualEntryPage />} />
         <Route path="/manual/:entitlementId" element={<ManualEntryPage />} />
       </Route>

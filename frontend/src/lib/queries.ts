@@ -309,6 +309,103 @@ export function useUpdateState(id: number) {
     onSuccess: (work) => {
       client.setQueryData([...worksKey, 'detail', id], work)
       void client.invalidateQueries({ queryKey: worksKey, exact: false, refetchType: 'none' })
+      // Refetched where it is on screen: the queue view and a work page's
+      // place in it number what they show, and a status just changed that.
+      void client.invalidateQueries({ queryKey: queueKey })
+    },
+  })
+}
+
+/**
+ * The listing as the play queue reads it (ADR-0033): every queued work in its
+ * order, hidden ones and add-ons included, since queueing one is a choice the
+ * user made about that work itself.
+ */
+export const QUEUE_QUERY =
+  'status=queued&sort=queue&order=asc&hidden=include&addons=separate&limit=500'
+export const queueKey = [...worksKey, 'queue'] as const
+
+/**
+ * The queue, whole. A queue is a short list, so every page is fetched before
+ * it is shown: numbering it from a first page would number it wrong.
+ *
+ * A work whose every copy was removed keeps its place but is not listed, so
+ * the numbers on screen are the order of what is shown, not the stored
+ * positions.
+ */
+export function useQueue(enabled = true): UseQueryResult<WorkSummary[], ApiError> {
+  return useQuery<WorkSummary[], ApiError>({
+    enabled,
+    queryKey: queueKey,
+    queryFn: async ({ signal }) => {
+      const works: WorkSummary[] = []
+      let cursor: Cursor = null
+      do {
+        const params = new URLSearchParams(QUEUE_QUERY)
+        if (cursor !== null) params.set('cursor', cursor)
+        const page: WorksPage = await api<WorksPage>(`/api/works?${params}`, { signal })
+        works.push(...page.works)
+        cursor = page.next_cursor
+      } while (cursor !== null)
+      return works
+    },
+    retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
+  })
+}
+
+/**
+ * A move within the queue: the work, the index in the shown list it goes to,
+ * and the position to send for it.
+ *
+ * The position is the one the work now at that index holds, read before the
+ * move is shown. A work with no live copy keeps a place nobody sees, so an
+ * index sent as a position would land beside it rather than where the user
+ * put the work.
+ */
+export type QueueMove = { id: number; to: number; position: number }
+
+/** Where moving `id` to index `to` of the shown queue sends it. */
+export function queueMove(works: WorkSummary[], id: number, to: number): QueueMove {
+  return { id, to, position: works[to]?.queue_position ?? to + 1 }
+}
+
+/**
+ * `works` with the one at `id` moved to index `to`, renumbered as the server
+ * will: the positions the list held, handed out again in the new order.
+ */
+export function movedInQueue(works: WorkSummary[], id: number, to: number): WorkSummary[] {
+  const from = works.findIndex((work) => work.id === id)
+  if (from === -1) return works
+  const order = [...works]
+  const [work] = order.splice(from, 1)
+  order.splice(Math.min(Math.max(to, 0), order.length), 0, work)
+  const positions = works.map((work) => work.queue_position ?? 0)
+  return order.map((work, index) => ({ ...work, queue_position: positions[index] }))
+}
+
+/** Move a queued work, shown at once and put back if the server refuses. */
+export function useMoveInQueue() {
+  const client = useQueryClient()
+  return useMutation<WorkDetail, ApiError, QueueMove, { previous?: WorkSummary[] }>({
+    mutationFn: ({ id, position }) =>
+      api<WorkDetail>(`/api/works/${id}/queue`, { method: 'PUT', body: { position } }),
+    onMutate: async ({ id, to }) => {
+      await client.cancelQueries({ queryKey: queueKey })
+      const previous = client.getQueryData<WorkSummary[]>(queueKey)
+      if (previous) client.setQueryData(queueKey, movedInQueue(previous, id, to))
+      return { previous }
+    },
+    onError: (_error, _move, context) => {
+      if (context?.previous) client.setQueryData(queueKey, context.previous)
+    },
+    onSuccess: (work) => client.setQueryData([...worksKey, 'detail', work.id], work),
+    // Awaited for the queue: the positions shown after a move are the ones
+    // guessed for it, and the next move must not be sent from them. Every
+    // other listing only goes stale, since a move changes the queue order the
+    // library can sort by.
+    onSettled: async () => {
+      void client.invalidateQueries({ queryKey: worksKey, refetchType: 'none' })
+      await client.invalidateQueries({ queryKey: queueKey })
     },
   })
 }

@@ -88,6 +88,7 @@
     "matches_partial_other": "{{count}} matches so far",
     "noMatches": "Nothing in the library matches “{{search}}”.",
     "removedLink": "Removed games",
+    "queueLink": "Up next",
     "addGame": "Add a game",
     "addonCount_one": "+{{count}} add-on",
     "addonCount_other": "+{{count}} add-ons"
@@ -265,6 +266,19 @@
     "delete": "Delete “{{name}}”",
     "deleteShort": "Delete",
     "dropped": "“{{name}}” opened without what the library no longer has: {{dropped}}."
+  },
+  "queue": {
+    "title": "Up next",
+    "intro": "The games you chose to play next, in your order. Move one up when you want it sooner; take it out when you start playing or change your mind.",
+    "empty": "Nothing queued yet. Set a game's status to Up next, or use Add to queue on its page.",
+    "toTop": "Move {{title}} to the top",
+    "up": "Move {{title}} up",
+    "down": "Move {{title}} down",
+    "remove": "Take {{title}} out of the queue",
+    "add": "Add to queue",
+    "leave": "Take out of the queue",
+    "place": "#{{place}} in your queue",
+    "open": "See the queue"
   },
   "removed": {
     "title": "Removed from your accounts",

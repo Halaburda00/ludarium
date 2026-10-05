@@ -1,10 +1,17 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/field'
 import { STATUSES } from '@/lib/filters'
-import { useUpdateState, type PlayStatus, type WorkDetail } from '@/lib/queries'
+import {
+  useQueue,
+  useUpdateState,
+  type PlayStatus,
+  type StateUpdate,
+  type WorkDetail,
+} from '@/lib/queries'
 
 const RATINGS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
@@ -47,6 +54,7 @@ export function WorkState({ work }: { work: WorkDetail }) {
             ))}
           </select>
         </label>
+        <QueuePlace work={work} saving={saving} onChange={(change) => update.mutate(change)} />
         <label className="flex items-center gap-2">
           {t('work.state.rating')}
           <select
@@ -119,6 +127,54 @@ export function WorkState({ work }: { work: WorkDetail }) {
         </div>
       </div>
     </section>
+  )
+}
+
+/**
+ * The work's place in the play queue, or the way into it.
+ *
+ * The place is counted in the queue as the queue view shows it, so both say
+ * the same number even where a work with no live copy holds a place unseen.
+ */
+function QueuePlace({
+  work,
+  saving,
+  onChange,
+}: {
+  work: WorkDetail
+  saving: boolean
+  onChange: (change: StateUpdate) => void
+}) {
+  const { t } = useTranslation()
+  const queued = work.play_status === 'queued'
+  const queue = useQueue(queued)
+  if (!queued) {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={saving}
+        onClick={() => onChange({ play_status: 'queued' })}
+      >
+        {t('queue.add')}
+      </Button>
+    )
+  }
+  const place = (queue.data?.findIndex((queued) => queued.id === work.id) ?? -1) + 1
+  return (
+    <span className="flex items-center gap-2">
+      <Link to="/queue" className="text-primary underline-offset-4 hover:underline">
+        {place > 0 ? t('queue.place', { place }) : t('queue.open')}
+      </Link>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={saving}
+        onClick={() => onChange({ play_status: 'not_started' })}
+      >
+        {t('queue.leave')}
+      </Button>
+    </span>
   )
 }
 
