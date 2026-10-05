@@ -30,6 +30,8 @@ class ItemKind(StrEnum):
 
 class PlayStatus(StrEnum):
     NOT_STARTED = "not_started"
+    # Chosen to be played next, at a place in the user's queue.
+    QUEUED = "queued"
     PLAYING = "playing"
     COMPLETED = "completed"
     MASTERED = "mastered"

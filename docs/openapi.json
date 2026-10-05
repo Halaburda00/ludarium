@@ -525,6 +525,7 @@
       "PlayStatus": {
         "enum": [
           "not_started",
+          "queued",
           "playing",
           "completed",
           "mastered",
@@ -585,6 +586,21 @@
           "last_error"
         ],
         "title": "ProviderStatusResponse",
+        "type": "object"
+      },
+      "QueueMove": {
+        "additionalProperties": false,
+        "properties": {
+          "position": {
+            "minimum": 1.0,
+            "title": "Position",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "position"
+        ],
+        "title": "QueueMove",
         "type": "object"
       },
       "RemovedEntitlement": {
@@ -750,7 +766,8 @@
           "steam_reviews",
           "playtime",
           "last_played",
-          "release_date"
+          "release_date",
+          "queue"
         ],
         "title": "Sort",
         "type": "string"
@@ -1277,6 +1294,17 @@
             "title": "Playtime Minutes",
             "type": "integer"
           },
+          "queue_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Position"
+          },
           "rating": {
             "anyOf": [
               {
@@ -1361,6 +1389,7 @@
           "item_kind",
           "release_year",
           "play_status",
+          "queue_position",
           "is_favourite",
           "is_hidden",
           "playtime_minutes",
@@ -1492,6 +1521,17 @@
             "title": "Playtime Minutes",
             "type": "integer"
           },
+          "queue_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Position"
+          },
           "release_year": {
             "anyOf": [
               {
@@ -1530,6 +1570,7 @@
           "item_kind",
           "release_year",
           "play_status",
+          "queue_position",
           "is_favourite",
           "is_hidden",
           "playtime_minutes",
@@ -3150,6 +3191,75 @@
           }
         },
         "summary": "Detail",
+        "tags": [
+          "works"
+        ]
+      }
+    },
+    "/api/works/{work_id}/queue": {
+      "put": {
+        "description": "Put a queued work at a position in the queue, and answer with the work as it now is.\n\n409 for a work that is not queued: moving it would queue it, which is a\nchange of status and goes through the state update.",
+        "operationId": "move_in_queue_api_works__work_id__queue_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "work_id",
+            "required": true,
+            "schema": {
+              "title": "Work Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueueMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move In Queue",
         "tags": [
           "works"
         ]

@@ -16,6 +16,7 @@ function work(id: number, overrides: Partial<WorkSummary> = {}): WorkSummary {
     item_kind: 'game',
     release_year: null,
     play_status: 'not_started',
+    queue_position: null,
     is_favourite: false,
     is_hidden: false,
     playtime_minutes: 0,

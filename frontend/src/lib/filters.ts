@@ -47,6 +47,7 @@ export const KINDS = [
 
 export const STATUSES = [
   'not_started',
+  'queued',
   'playing',
   'completed',
   'mastered',

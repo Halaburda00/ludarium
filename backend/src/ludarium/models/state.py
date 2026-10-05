@@ -18,7 +18,20 @@ class UserWorkState(Base):
     """
 
     __tablename__ = "user_work_state"
-    __table_args__ = (CheckConstraint("rating BETWEEN 1 AND 10", name="rating_range"),)
+    __table_args__ = (
+        CheckConstraint("rating BETWEEN 1 AND 10", name="rating_range"),
+        # A position without the status, or the status without one, is a work
+        # the queue lists in the wrong place or not at all. `IS NOT NULL` is
+        # spelled out because a CHECK that comes out null passes.
+        CheckConstraint(
+            "(play_status = 'queued' AND queue_position IS NOT NULL AND queue_position >= 1)"
+            " OR (play_status <> 'queued' AND queue_position IS NULL)",
+            name="queue_position_iff_queued",
+        ),
+        # Nulls are distinct, so only queued works compete for a place. On
+        # PostgreSQL this is what refuses two concurrent moves (ADR-0017).
+        UniqueConstraint("user_id", "queue_position"),
+    )
 
     user_id: Mapped[int] = mapped_column(
         ForeignKey("app_user.id", ondelete="RESTRICT"),
@@ -34,6 +47,8 @@ class UserWorkState(Base):
         default=PlayStatus.NOT_STARTED,
         server_default=text(f"'{PlayStatus.NOT_STARTED.value}'"),
     )
+    # 1..n with no gaps, kept dense by `ludarium.queue`.
+    queue_position: Mapped[int | None]
     rating: Mapped[int | None]
     notes: Mapped[str | None]
     is_favourite: Mapped[bool] = mapped_column(default=False, server_default=false())

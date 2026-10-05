@@ -453,6 +453,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/works/{work_id}/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Move In Queue
+         * @description Put a queued work at a position in the queue, and answer with the work as it now is.
+         *
+         *     409 for a work that is not queued: moving it would queue it, which is a
+         *     change of status and goes through the state update.
+         */
+        put: operations["move_in_queue_api_works__work_id__queue_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/works/{work_id}/state": {
         parameters: {
             query?: never;
@@ -699,7 +722,7 @@ export interface components {
          * PlayStatus
          * @enum {string}
          */
-        PlayStatus: "not_started" | "playing" | "completed" | "mastered" | "dropped" | "on_hold" | "wishlist";
+        PlayStatus: "not_started" | "queued" | "playing" | "completed" | "mastered" | "dropped" | "on_hold" | "wishlist";
         /** ProviderStatusResponse */
         ProviderStatusResponse: {
             /** Display Name */
@@ -713,6 +736,11 @@ export interface components {
             /** Last Success At */
             last_success_at: string | null;
             status: components["schemas"]["SyncStatus"];
+        };
+        /** QueueMove */
+        QueueMove: {
+            /** Position */
+            position: number;
         };
         /**
          * RemovedEntitlement
@@ -787,7 +815,7 @@ export interface components {
          * Sort
          * @enum {string}
          */
-        Sort: "title" | "metacritic" | "steam_reviews" | "playtime" | "last_played" | "release_date";
+        Sort: "title" | "metacritic" | "steam_reviews" | "playtime" | "last_played" | "release_date" | "queue";
         /**
          * StateUpdate
          * @description Any subset of what the user decides about a work.
@@ -976,6 +1004,8 @@ export interface components {
             play_status: components["schemas"]["PlayStatus"];
             /** Playtime Minutes */
             playtime_minutes: number;
+            /** Queue Position */
+            queue_position: number | null;
             /** Rating */
             rating: number | null;
             /** Release Date */
@@ -1025,6 +1055,8 @@ export interface components {
             play_status: components["schemas"]["PlayStatus"];
             /** Playtime Minutes */
             playtime_minutes: number;
+            /** Queue Position */
+            queue_position: number | null;
             /** Release Year */
             release_year: number | null;
             /** Sort Title */
@@ -1820,6 +1852,43 @@ export interface operations {
             };
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_in_queue_api_works__work_id__queue_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                work_id: number;
+            };
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueueMove"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

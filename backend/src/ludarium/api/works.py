@@ -43,6 +43,7 @@ from ludarium.models import (
 )
 from ludarium.models.types import utcnow
 from ludarium.queries import owned_by
+from ludarium.queue import arrange, free_position
 from ludarium.sorting import INTEGERS, Direction, Ordering, Sort, SortValue
 from ludarium.titles import search_key
 
@@ -169,6 +170,8 @@ class WorkSummary(BaseModel):
     item_kind: ItemKind | None
     release_year: int | None
     play_status: PlayStatus
+    # 1..n while queued, null otherwise.
+    queue_position: int | None
     is_favourite: bool
     # Left out of the listing by the `hidden` filter's default, and still
     # returned: `hidden=include` lists hidden works beside the rest, and a list
@@ -248,6 +251,13 @@ class StateUpdate(BaseModel):
         if not self.model_fields_set:
             raise ValueError("nothing to change")
         return self
+
+
+class QueueMove(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Past the end means last; the queue has no gaps to put it in.
+    position: int = Field(ge=1)
 
 
 class WorksPage(BaseModel):
@@ -450,8 +460,19 @@ async def update_state(
     if "notes" in changes and not (changes["notes"] or "").strip():
         # Blank notes are no notes, so the detail view has one empty state.
         changes["notes"] = None
+    leaves_queue = False
+    if "play_status" in changes:
+        queued = changes["play_status"] is PlayStatus.QUEUED
+        if queued and state.queue_position is None:
+            # Read before the status is set: the query autoflushes.
+            changes["queue_position"] = await free_position(session, user_id)
+        elif not queued and state.queue_position is not None:
+            changes["queue_position"] = None
+            leaves_queue = True
     for field, value in changes.items():
         setattr(state, field, value)
+    if leaves_queue:
+        await arrange(session, user_id)
     # Set on the first move into each state and never cleared by moving back:
     # "finished it in 2024" stays true after a replay puts it back to playing.
     # Only when this request moved the status: a rating given today is not the
@@ -462,6 +483,27 @@ async def update_state(
             state.started_at = moment
         if state.play_status in FINISHED and state.completed_at is None:
             state.completed_at = moment
+    await session.commit()
+    return await _detail(session, work_id, user_id)
+
+
+@router.put("/{work_id}/queue")
+async def move_in_queue(
+    work_id: int, move: QueueMove, session: SessionDep, record: CurrentSession
+) -> WorkDetail:
+    """Put a queued work at a position in the queue, and answer with the work as it now is.
+
+    409 for a work that is not queued: moving it would queue it, which is a
+    change of status and goes through the state update.
+    """
+
+    user_id = record.user_id
+    if not (await session.execute(_owned_works(user_id).where(Work.id == work_id))).first():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such work in the library")
+    state = await session.get(UserWorkState, (user_id, work_id))
+    if state is None or state.queue_position is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "the work is not in the queue")
+    await arrange(session, user_id, {work_id: move.position})
     await session.commit()
     return await _detail(session, work_id, user_id)
 
@@ -680,6 +722,7 @@ def _describe(
         # transient `UserWorkState()` would not have them: SQLAlchemy applies
         # column defaults on flush, not on construction.
         play_status=state.play_status if state else PlayStatus.NOT_STARTED,
+        queue_position=state.queue_position if state else None,
         is_favourite=state.is_favourite if state else False,
         is_hidden=state.is_hidden if state else False,
         playtime_minutes=state.playtime_minutes if state else 0,

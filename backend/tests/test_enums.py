@@ -11,6 +11,7 @@ EXPECTED: dict[type[StrEnum], list[str]] = {
     enums.ItemKind: ["game", "dlc", "demo", "playtest", "soundtrack", "video", "tool", "mod"],
     enums.PlayStatus: [
         "not_started",
+        "queued",
         "playing",
         "completed",
         "mastered",

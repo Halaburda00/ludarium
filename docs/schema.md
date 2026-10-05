@@ -36,7 +36,7 @@ where nothing writes them yet.
 |---|---|
 | `OwnershipType` | `owned`, `subscription`, `free`, `family_shared`, `trial`, `physical` |
 | `ItemKind` | `game`, `dlc`, `demo`, `playtest`, `soundtrack`, `video`, `tool`, `mod` |
-| `PlayStatus` | `not_started`, `playing`, `completed`, `mastered`, `dropped`, `on_hold`, `wishlist` |
+| `PlayStatus` | `not_started`, `queued`, `playing`, `completed`, `mastered`, `dropped`, `on_hold`, `wishlist` |
 
 Supporting enums introduced by this document:
 
@@ -462,6 +462,7 @@ separate from `work` so that a metadata refresh can never touch it.
 | `user_id` | INTEGER | no | PK part | |
 | `work_id` | INTEGER | no | PK part | FK, `ON DELETE CASCADE` |
 | `play_status` | TEXT | no | `'not_started'` | `PlayStatus` |
+| `queue_position` | INTEGER | yes | | The work's place in the play queue, 1..n with no gaps. Set if and only if `play_status = 'queued'`, by `CHECK`; unique per user, so two concurrent moves cannot share a place. Renumbered as a whole on every change (`ludarium.queue`, ADR-0033) |
 | `rating` | INTEGER | yes | | 1–10, `CHECK` |
 | `notes` | TEXT | yes | | |
 | `is_favourite` | BOOLEAN | no | `false` | |
@@ -696,6 +697,7 @@ erDiagram
         int user_id PK
         int work_id PK
         string play_status "PlayStatus"
+        int queue_position "1..n while queued"
         int rating
         int playtime_minutes "sum across entitlements"
         int platform_count "distinct providers"

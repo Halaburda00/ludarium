@@ -176,7 +176,8 @@
       "steam_reviews": "Steam reviews",
       "playtime": "Hours played",
       "last_played": "Last played",
-      "release_date": "Release date"
+      "release_date": "Release date",
+      "queue": "Up next"
     },
     "order": {
       "title": {
@@ -202,6 +203,10 @@
       "release_date": {
         "asc": "Oldest first",
         "desc": "Newest first"
+      },
+      "queue": {
+        "asc": "Next first",
+        "desc": "Last first"
       }
     }
   },
@@ -217,6 +222,7 @@
   },
   "playStatus": {
     "not_started": "Not started",
+    "queued": "Up next",
     "playing": "Playing",
     "completed": "Completed",
     "mastered": "Mastered",

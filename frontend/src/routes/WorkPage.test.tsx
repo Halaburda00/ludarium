@@ -32,6 +32,7 @@ function summary(id: number, title: string): WorkSummary {
     item_kind: 'game',
     release_year: 2015,
     play_status: 'not_started',
+    queue_position: null,
     is_favourite: false,
     is_hidden: false,
     playtime_minutes: 3365,
