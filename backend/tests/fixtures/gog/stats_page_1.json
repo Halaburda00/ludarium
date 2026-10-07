@@ -1,0 +1,36 @@
+{
+  "page": 1,
+  "limit": 2,
+  "pages": 2,
+  "total": 3,
+  "_embedded": {
+    "items": [
+      {
+        "game": {
+          "id": "1495134320",
+          "title": "The Witcher 3: Wild Hunt — Remastered",
+          "url": "/en/game/the_witcher_3_wild_hunt_game_of_the_year_edition",
+          "achievementSupport": true,
+          "image": "https://images.gog-statics.com/ee9c88c3af91027d9121906fd0e838f11e890fbf74c9c9412e54622abc299f0a.png"
+        },
+        "stats": {
+          "48000000000000001": {
+            "achievementsPercentage": 61,
+            "playtime": 893,
+            "lastSession": "2026-10-01T18:15:00+00:00"
+          }
+        }
+      },
+      {
+        "game": {
+          "id": "5",
+          "title": "Freespace 2",
+          "url": "/en/game/freespace_2",
+          "achievementSupport": false,
+          "image": "https://images.gog-statics.com/d73f470c34ac19b3f35638d177689507d2663d9974c0b3ff4e5c6e733f916e2d.png"
+        },
+        "stats": []
+      }
+    ]
+  }
+}

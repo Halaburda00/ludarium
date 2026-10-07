@@ -1,0 +1,22 @@
+{
+  "_links": {
+    "self": {
+      "href": "https://api.gog.com/v2/games/1256837418?locale=en-US"
+    },
+    "store": {
+      "href": "https://www.gog.com/en/game/cyberpunk_2077_phantom_liberty"
+    },
+    "requiresGames": [
+      {
+        "href": "https://api.gog.com/v2/games/1423049311?locale=en-US"
+      }
+    ]
+  },
+  "_embedded": {
+    "productType": "DLC",
+    "product": {
+      "id": 1256837418,
+      "title": "Cyberpunk 2077: Phantom Liberty"
+    }
+  }
+}

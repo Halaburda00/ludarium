@@ -5,20 +5,30 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Field, Notice } from '@/components/ui/field'
 import { EPIC_LOGIN_URL } from '@/lib/epic'
+import { GOG_LOGIN_URL } from '@/lib/gog'
 import { useConnect } from '@/lib/queries'
 
-type Platform = 'steam' | 'epic'
+const PLATFORMS = ['steam', 'epic', 'gog'] as const
+type Platform = (typeof PLATFORMS)[number]
+
+// The platforms connected by signing in on their own page and pasting back
+// what it gives, rather than by typing a key.
+const SIGN_IN: Partial<Record<Platform, string>> = { epic: EPIC_LOGIN_URL, gog: GOG_LOGIN_URL }
+
+function isPlatform(value: string | null): value is Platform {
+  return PLATFORMS.some((platform) => platform === value)
+}
 
 export default function Onboarding() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const connect = useConnect()
-  // From the link a failed Epic sync offers, so "sign in again" lands on the
-  // right form rather than on Steam's.
+  // From the link a failed sync offers, so "sign in again" lands on the right
+  // form rather than on Steam's.
   const [params] = useSearchParams()
-  const [platform, setPlatform] = useState<Platform>(
-    params.get('provider') === 'epic' ? 'epic' : 'steam',
-  )
+  const asked = params.get('provider')
+  const [platform, setPlatform] = useState<Platform>(isPlatform(asked) ? asked : 'steam')
+  const signIn = SIGN_IN[platform]
   const [secret, setSecret] = useState('')
   const [steamId, setSteamId] = useState('')
   const [label, setLabel] = useState('Main')
@@ -31,7 +41,7 @@ export default function Onboarding() {
       </header>
 
       <div role="group" aria-label={t('onboarding.platform')} className="flex gap-2">
-        {(['steam', 'epic'] as const).map((choice) => (
+        {PLATFORMS.map((choice) => (
           <Button
             key={choice}
             type="button"
@@ -56,7 +66,7 @@ export default function Onboarding() {
           connect.mutate(
             {
               provider: platform,
-              // Epic's sign-in names the account; only Steam asks for it.
+              // A sign-in names the account; only Steam asks for it.
               external_account_id: platform === 'steam' ? steamId : '',
               label,
               credentials: secret,
@@ -100,21 +110,21 @@ export default function Onboarding() {
             <ol className="grid list-decimal gap-1 pl-5 text-sm text-muted-foreground">
               <li>
                 <a
-                  href={EPIC_LOGIN_URL}
-                  // Its own tab: the code it shows is pasted back here.
+                  href={signIn}
+                  // Its own tab: what it gives is pasted back here.
                   target="_blank"
                   rel="noreferrer"
                   className="text-primary underline-offset-4 hover:underline"
                 >
-                  {t('onboarding.epic.signIn')}
+                  {t(`onboarding.${platform}.signIn`)}
                 </a>
               </li>
-              <li>{t('onboarding.epic.copyCode')}</li>
+              <li>{t(`onboarding.${platform}.copyCode`)}</li>
             </ol>
             <Field
-              id="epic-code"
-              label={t('onboarding.epic.code')}
-              hint={t('onboarding.epic.codeHint')}
+              id="sign-in-code"
+              label={t(`onboarding.${platform}.code`)}
+              hint={t(`onboarding.${platform}.codeHint`)}
               type="password"
               autoComplete="off"
               value={secret}

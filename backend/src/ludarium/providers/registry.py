@@ -1,8 +1,8 @@
 """Which client answers for which provider key.
 
 The mapping is here rather than in the API layer so that the scheduler and the
-future ingest endpoint reach for the same one. Adding GOG in M4 is a line in
-`BUILDERS` and a client beside `SteamProvider`, not a new branch in an endpoint.
+ingest endpoint reach for the same one. A platform is a line in `BUILDERS` and
+`CONNECTORS` and a client beside `SteamProvider`, not a new branch in an endpoint.
 """
 
 from collections.abc import Awaitable, Callable
@@ -11,6 +11,7 @@ from typing import Final
 
 import httpx
 
+from ludarium.providers import gog
 from ludarium.providers.base import LibraryProvider
 from ludarium.providers.epic import EpicProvider, sign_in
 from ludarium.providers.steam import SteamCredentials, SteamProvider
@@ -79,8 +80,22 @@ async def _connect_epic(_: str, code: str, client: httpx.AsyncClient) -> Connect
     return Connected(signed.account_id, signed.refresh_token)
 
 
-BUILDERS: Final[dict[str, Builder]] = {"steam": _steam, "epic": _epic}
-CONNECTORS: Final[dict[str, Connector]] = {"steam": _connect_steam, "epic": _connect_epic}
+def _gog(external_account_id: str, secret: str, client: httpx.AsyncClient) -> LibraryProvider:
+    return gog.GogProvider(secret, external_account_id, client)
+
+
+async def _connect_gog(_: str, pasted: str, client: httpx.AsyncClient) -> Connected:
+    # As Epic's: the sign-in is the validation, and GOG names the account.
+    signed = await gog.sign_in(client, pasted)
+    return Connected(signed.user_id, signed.refresh_token)
+
+
+BUILDERS: Final[dict[str, Builder]] = {"steam": _steam, "epic": _epic, "gog": _gog}
+CONNECTORS: Final[dict[str, Connector]] = {
+    "steam": _connect_steam,
+    "epic": _connect_epic,
+    "gog": _connect_gog,
+}
 
 
 def supports(key: str) -> bool:

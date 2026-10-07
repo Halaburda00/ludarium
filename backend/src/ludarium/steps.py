@@ -21,7 +21,7 @@ from ludarium.db import Database
 from ludarium.details import describe_matched_works
 from ludarium.enrichment import EnrichmentInProgressError, Step, chained, enrich
 from ludarium.enums import SyncTrigger
-from ludarium.matching import anchor_epic_works, anchor_steam_works
+from ludarium.matching import anchor_epic_works, anchor_gog_works, anchor_steam_works
 from ludarium.metacritic import score_matched_works
 from ludarium.providers.epic import EpicCatalog
 from ludarium.providers.igdb import IgdbClient, IgdbCredentials
@@ -63,6 +63,9 @@ def _anchor(context: StepContext) -> Step | None:
         # After Steam, so an Epic copy of a game already anchored through its
         # appid is folded into that work rather than anchored beside it.
         anchor_epic_works(client, EpicCatalog(context.http)),
+        # After both for the same reason: a GOG copy of a game already anchored
+        # elsewhere folds into that work.
+        anchor_gog_works(client),
         describe_matched_works(client),
         fetch_covers(client, settings.data_dir),
     )
@@ -97,6 +100,8 @@ FOLLOWS: Final[Mapping[str, tuple[str, ...]]] = {
     # comes after matching rather than before: its review scores are for the
     # Steam appids IGDB has just given the Epic games.
     "epic": ("igdb", "steam_store", "rawg"),
+    # GOG states each item's kind in its library too, so it follows Epic's order.
+    "gog": ("igdb", "steam_store", "rawg"),
 }
 
 

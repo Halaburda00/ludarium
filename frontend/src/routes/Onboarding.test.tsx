@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { EPIC_LOGIN_URL } from '@/lib/epic'
+import { GOG_LOGIN_URL } from '@/lib/gog'
 import Onboarding from '@/routes/Onboarding'
 import { renderApp, stubFetch } from '@/test/render'
 
@@ -113,5 +114,46 @@ describe('connecting Epic', () => {
       'aria-pressed',
       'true',
     )
+  })
+})
+
+describe('connecting GOG', () => {
+  const PAGE = 'https://embed.gog.com/on_login_success?origin=client&code=not-a-real-code'
+
+  it('sends GOG to its own sign-in and posts the address it ends on', async () => {
+    const calls = stubFetch({
+      'POST /api/accounts': { status: 201, body: { id: 3, provider: 'gog' } },
+    })
+    renderApp(<Onboarding />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'GOG' }))
+    const signIn = screen.getByRole('link', { name: 'Sign in on gog.com' })
+    expect(signIn).toHaveAttribute('href', GOG_LOGIN_URL)
+    expect(signIn).toHaveAttribute('target', '_blank')
+    await userEvent.type(screen.getByLabelText("Address of GOG's page"), PAGE)
+    await userEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+    await waitFor(() => expect(calls).toHaveLength(1))
+    // The backend takes the code out of the address.
+    expect(calls[0].body).toEqual({
+      provider: 'gog',
+      external_account_id: '',
+      label: 'Main',
+      credentials: PAGE,
+    })
+  })
+
+  it('opens on GOG when a failed sync sent the user here to sign in again', () => {
+    stubFetch({})
+    renderApp(<Onboarding />, { route: '/onboarding?provider=gog' })
+
+    expect(screen.getByRole('heading', { name: 'Connect GOG' })).toBeInTheDocument()
+  })
+
+  it('opens on Steam for a provider it does not know', () => {
+    stubFetch({})
+    renderApp(<Onboarding />, { route: '/onboarding?provider=nowhere' })
+
+    expect(screen.getByRole('heading', { name: 'Connect Steam' })).toBeInTheDocument()
   })
 })

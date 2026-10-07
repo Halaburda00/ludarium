@@ -367,7 +367,7 @@ export default function Library() {
 }
 
 /** The platforms `POST /api/sync/{provider}` can sync. */
-const SYNCABLE = new Set(['steam', 'epic'])
+const SYNCABLE = new Set(['steam', 'epic', 'gog'])
 
 function providerName(overview: SyncOverview | undefined, key: string): string {
   return overview?.providers.find((provider) => provider.key === key)?.display_name ?? key
