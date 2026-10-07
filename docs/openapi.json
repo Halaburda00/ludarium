@@ -20,6 +20,16 @@
             ],
             "title": "Credentials"
           },
+          "error_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SyncErrorKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "external_account_id": {
             "anyOf": [
               {
@@ -37,6 +47,10 @@
           },
           "is_active": {
             "title": "Is Active",
+            "type": "boolean"
+          },
+          "is_derived": {
+            "title": "Is Derived",
             "type": "boolean"
           },
           "label": {
@@ -70,6 +84,10 @@
             "title": "Provider",
             "type": "string"
           },
+          "provider_name": {
+            "title": "Provider Name",
+            "type": "string"
+          },
           "status": {
             "$ref": "#/components/schemas/SyncStatus"
           }
@@ -84,9 +102,32 @@
           "last_success_at",
           "status",
           "last_error",
-          "credentials"
+          "error_kind",
+          "credentials",
+          "provider_name",
+          "is_derived"
         ],
         "title": "AccountResponse",
+        "type": "object"
+      },
+      "AccountUpdate": {
+        "additionalProperties": false,
+        "description": "The two things a user decides about an account. A field left out is left alone.",
+        "properties": {
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "label": {
+            "default": "Main",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "title": "AccountUpdate",
         "type": "object"
       },
       "Addons": {
@@ -1891,6 +1932,75 @@
           }
         },
         "summary": "Connect",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/api/accounts/{account_id}": {
+      "patch": {
+        "description": "Rename an account, or switch it off or on. Nothing about its games changes.",
+        "operationId": "update_api_accounts__account_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update",
         "tags": [
           "accounts"
         ]

@@ -125,6 +125,9 @@ function account(provider: string, id = 1): Account {
     status: 'success',
     last_error: null,
     credentials: '••••••••',
+    error_kind: null,
+    provider_name: provider,
+    is_derived: false,
   }
 }
 

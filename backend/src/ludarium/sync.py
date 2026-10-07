@@ -455,6 +455,16 @@ async def _report(
     if status is SyncStatus.SUCCESS:
         reporter.last_success_at = moment
         account.last_success_at = moment
+    await summarise(session, reporter)
+
+
+async def summarise(session: AsyncSession, reporter: Provider) -> None:
+    """Write the reporter's health from its accounts' latest runs (`_summary`).
+
+    Also for a change that is not a run: an account switched off stops
+    counting, and its last failure should stop reddening the provider with it.
+    """
+
     reporter.status, reporter.last_error = await _summary(session, reporter)
 
 

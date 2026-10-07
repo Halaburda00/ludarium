@@ -23,6 +23,9 @@ const ACCOUNT: Account = {
   status: 'success',
   last_error: null,
   credentials: '••••••••',
+  error_kind: null,
+  provider_name: 'Steam',
+  is_derived: false,
 }
 const EMPTY_LIBRARY: WorksPage = { works: [], next_cursor: null }
 const UNAUTHORISED = { status: 401, body: { detail: 'not signed in' } }

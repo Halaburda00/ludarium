@@ -5,7 +5,7 @@ from typing import Any
 import httpx
 import pytest
 import respx
-from conftest import TEST_PASSWORD, TEST_USERNAME
+from conftest import TEST_PASSWORD, TEST_USERNAME, make_account, make_entitlement, make_work
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ludarium.api.accounts import MASK
 from ludarium.config import Settings
 from ludarium.crypto import get_cipher
-from ludarium.models import Account, AppUser, Provider
+from ludarium.enums import SyncErrorKind, SyncStatus, SyncTrigger
+from ludarium.models import Account, AppUser, EntitlementWork, Provider, SyncRun
 from ludarium.providers import epic as epic_module
 from ludarium.providers import steam as steam_module
 
@@ -336,3 +337,94 @@ def test_connecting_an_account_a_report_made_takes_it_over(signed_in: TestClient
     # as about any connected account (ADR-0035).
     assert signed_in.post("/api/sync/steam").status_code == 200
     assert signed_in.post("/api/ingest", json=report).status_code == 409
+
+
+async def failed_steam_account(session: AsyncSession) -> Account:
+    """A connected Steam account whose last run failed on its credential."""
+
+    account = await make_account(session, external_account_id=STEAM_ID)
+    account.status, account.last_error = SyncStatus.FAILED, "steam rejected the key"
+    session.add(
+        SyncRun(
+            provider_id=account.provider_id,
+            account_id=account.id,
+            trigger=SyncTrigger.MANUAL,
+            status=SyncStatus.FAILED,
+            error_text="steam rejected the key",
+            error_kind=SyncErrorKind.CREDENTIALS,
+        )
+    )
+    provider = await session.get_one(Provider, account.provider_id)
+    provider.status, provider.last_error = SyncStatus.FAILED, "steam rejected the key"
+    await session.commit()
+    return account
+
+
+async def test_an_account_says_its_platform_whether_it_was_imported_and_who_can_fix_it(
+    signed_in: TestClient, session: AsyncSession
+) -> None:
+    account = await failed_steam_account(session)
+
+    [listed] = signed_in.get("/api/accounts").json()
+
+    assert listed["id"] == account.id
+    assert (listed["provider_name"], listed["is_derived"]) == ("Steam", False)
+    assert (listed["status"], listed["error_kind"]) == ("failed", "credentials")
+
+
+async def test_an_account_can_be_renamed(signed_in: TestClient, session: AsyncSession) -> None:
+    account = await failed_steam_account(session)
+
+    response = signed_in.patch(f"/api/accounts/{account.id}", json={"label": "  Family PC  "})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["label"] == "Family PC"
+    assert response.json()["is_active"] is True
+
+
+async def test_switching_an_account_off_stops_its_syncs_and_its_alarm_but_keeps_its_games(
+    signed_in: TestClient, session: AsyncSession
+) -> None:
+    account = await failed_steam_account(session)
+    work = await make_work(session)
+    entitlement = await make_entitlement(session, account)
+    session.add(EntitlementWork(entitlement_id=entitlement.id, work_id=work.id))
+    await session.commit()
+
+    response = signed_in.patch(f"/api/accounts/{account.id}", json={"is_active": False})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["is_active"] is False
+    # Not asked to sync, by hand or on the schedule.
+    assert signed_in.post("/api/sync/steam").status_code == 404
+    # The platform no longer reports a failure nobody is asked to fix.
+    providers = signed_in.get("/api/sync/runs").json()["providers"]
+    steam = next(provider for provider in providers if provider["key"] == "steam")
+    assert (steam["status"], steam["last_error"]) == ("pending", None)
+    # Switching off is not removing (rule 1).
+    titles = [work["title"] for work in signed_in.get("/api/works").json()["works"]]
+    assert titles == ["The Witcher 3: Wild Hunt"]
+
+    back = signed_in.patch(f"/api/accounts/{account.id}", json={"is_active": True})
+    assert back.json()["is_active"] is True
+    steam = next(
+        provider
+        for provider in signed_in.get("/api/sync/runs").json()["providers"]
+        if provider["key"] == "steam"
+    )
+    assert steam["status"] == "failed"
+
+
+@pytest.mark.parametrize(
+    "body", [{}, {"label": "   "}, {"label": "x" * 257}, {"is_active": None}, {"provider": "epic"}]
+)
+async def test_an_update_that_says_nothing_or_nonsense_is_refused(
+    signed_in: TestClient, session: AsyncSession, body: dict[str, Any]
+) -> None:
+    account = await failed_steam_account(session)
+
+    assert signed_in.patch(f"/api/accounts/{account.id}", json=body).status_code == 422
+
+
+async def test_an_account_that_is_not_there_is_a_404(signed_in: TestClient) -> None:
+    assert signed_in.patch("/api/accounts/999", json={"label": "Mine"}).status_code == 404
