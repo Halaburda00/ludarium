@@ -171,19 +171,19 @@ says so: search needs a backend of its own.
 
 ## M3 — Filters, statuses, backlog · ~5 days
 
-- [ ] Filter registry: one entry per filter, declarative, maps to SQL
-- [ ] Filters: platform, Metacritic, genre, year, playtime, `ItemKind`, status
-- [ ] Sort by title, Metacritic, Steam review score, playtime, last played and
+- [x] Filter registry: one entry per filter, declarative, maps to SQL
+- [x] Filters: platform, Metacritic, genre, year, playtime, `ItemKind`, status
+- [x] Sort by title, Metacritic, Steam review score, playtime, last played and
       release date, either way, each on its own keyset. Agreed after this
       roadmap was written: "what should I play tonight" is mostly a question of
       order
 - [x] DLC folded under its parent game (`ItemKind` classification moved to M2a); the parent from Epic's `mainGameItem` (ADR-0032)
-- [ ] Filter state in the URL; saved views
-- [ ] `PlayStatus`, personal rating, notes
+- [x] Filter state in the URL; saved views
+- [x] `PlayStatus`, personal rating, notes
 - [x] A play queue the user orders by hand: `queued` with a dense position (ADR-0033), and an "Up next" view to reorder it
 - [x] Manual entry — physical copies, unredeemed keys, itch.io; deleting one is a `DELETE` (ADR-0031)
 - [x] Removed-from-account view with one-click restore; a restored copy is kept (ADR-0030)
-- [ ] Demo mode with a fixed seed dataset
+- [x] Demo mode on a made-up library, read-only, with no scores or store links to invent (ADR-0034)
 
 **Done when:** the tool answers "what should I play tonight" better than any
 platform's own UI.

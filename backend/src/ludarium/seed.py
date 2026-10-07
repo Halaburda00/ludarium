@@ -87,8 +87,12 @@ PROVIDER_SEED: tuple[ProviderSpec, ...] = (
 )
 
 
-async def seed_providers(session: AsyncSession) -> None:
+async def seed_providers(session: AsyncSession, *, demo: bool = False) -> None:
     """Bring the provider table in step with the code. Safe to run on every start.
+
+    A demo links to no store: its games are made up, and a link built from a
+    made-up id is a real page about something else (ADR-0034). Set again on
+    every start, so a database that stops being a demo gets its links back.
 
     Reads the table, decides, and then writes — with nothing between the two
     but the transaction, which is the whole of the answer (ADR-0017). Startup
@@ -107,6 +111,8 @@ async def seed_providers(session: AsyncSession) -> None:
 
     for spec in PROVIDER_SEED:
         columns = asdict(spec)
+        if demo:
+            columns["store_url_template"] = None
         provider = existing.get(spec.key)
         if provider is None:
             session.add(Provider(**columns))

@@ -1,7 +1,8 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
-import { useAccounts } from '@/lib/queries'
+import { DemoContext } from '@/lib/demo'
+import { useAccounts, useHealth } from '@/lib/queries'
 
 /**
  * The gate in front of every screen that needs a session.
@@ -14,8 +15,12 @@ import { useAccounts } from '@/lib/queries'
 export default function RequireSession({ needsAccount }: { needsAccount?: boolean }) {
   const { t } = useTranslation()
   const accounts = useAccounts()
+  const health = useHealth()
 
-  if (accounts.isPending) {
+  // Waiting on the health check too, so a demo never draws the actions it
+  // refuses for a moment before hiding them. A failed one is no demo: the
+  // gate does not hold the library back over it.
+  if (accounts.isPending || health.isPending) {
     return <p className="p-6 text-sm text-muted-foreground">{t('common.loading')}</p>
   }
   if (accounts.error?.status === 401) {
@@ -30,5 +35,15 @@ export default function RequireSession({ needsAccount }: { needsAccount?: boolea
   if (needsAccount && accounts.data?.length === 0) {
     return <Navigate to="/onboarding" replace />
   }
-  return <Outlet />
+  const demo = health.data?.demo ?? false
+  return (
+    <DemoContext value={demo}>
+      {demo ? (
+        <p role="status" className="border-b bg-muted px-6 py-2 text-center text-sm">
+          {t('demo.banner')}
+        </p>
+      ) : null}
+      <Outlet />
+    </DemoContext>
+  )
 }

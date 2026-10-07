@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     # RAWG, for Metacritic scores. Optional for the same reason, and a key the
     # user registers themselves: RAWG's free tier is 20 000 requests a month.
     rawg_api_key: SecretStr | None = None
+    # A made-up library on an empty database, shown read-only to anyone who
+    # opens it, signed in without a password (`ludarium.demo`).
+    demo: bool = False
 
     # `LUDARIUM_USERNAME=` and `LUDARIUM_PASSWORD=` in a .env are the way "unset"
     # actually reaches us, and pydantic would take the empty string for an answer.

@@ -1,7 +1,7 @@
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -18,10 +18,12 @@ class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     version: str
     database: bool
+    # The client reads this to say so, and to offer nothing the demo refuses.
+    demo: bool
 
 
 @router.get("/health")
-async def health(session: SessionDep, response: Response) -> HealthResponse:
+async def health(session: SessionDep, request: Request, response: Response) -> HealthResponse:
     database_reachable = True
     try:
         await session.execute(text("SELECT 1"))
@@ -35,4 +37,5 @@ async def health(session: SessionDep, response: Response) -> HealthResponse:
         status="ok" if database_reachable else "degraded",
         version=__version__,
         database=database_reachable,
+        demo=request.app.state.settings.demo,
     )

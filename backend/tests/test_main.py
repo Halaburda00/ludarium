@@ -95,7 +95,7 @@ def test_a_failed_start_closes_the_pool(
 ) -> None:
     """Not only the missing-schema case: any failure has to hand the engine back."""
 
-    async def explode(session: AsyncSession) -> None:
+    async def explode(session: AsyncSession, *, demo: bool) -> None:
         raise RuntimeError("the seed disagreed with the schema")
 
     disposed: list[Database] = []

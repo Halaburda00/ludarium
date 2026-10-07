@@ -1,9 +1,10 @@
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 
 from ludarium import __version__
@@ -22,7 +23,8 @@ from ludarium.api import (
 from ludarium.api import sync as sync_api
 from ludarium.auth import bootstrap_user, current_session
 from ludarium.config import Settings, get_settings
-from ludarium.db import Database
+from ludarium.db import SAFE_METHODS, Database
+from ludarium.demo import seed_demo, visitor
 from ludarium.seed import reconcile_folded_keys, seed_providers
 from ludarium.steps import Scheduled
 
@@ -56,8 +58,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # Writing, so it announces itself: startup is not concurrent today,
             # and a second instance pointed at the same file would be.
             async with database.writing_session_factory() as session:
-                await seed_providers(session)
-                await bootstrap_user(
+                await seed_providers(session, demo=settings.demo)
+                user = await bootstrap_user(
                     session,
                     username=settings.username,
                     password=settings.password.get_secret_value(),
@@ -66,6 +68,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 # on these keys, and one computed by a different Unicode database
                 # would be served in the wrong place until something rewrote it.
                 await reconcile_folded_keys(session)
+                if settings.demo:
+                    await seed_demo(session, user_id=user.id)
+                    app.state.visitor = visitor(user.id)
         except OperationalError as exc:
             # Only the ones it can actually diagnose: no schema at all, or one
             # older than the code. Startup reads `work.sort_key`, so a database
@@ -88,6 +93,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await database.dispose()
 
 
+async def _read_only(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """Refuse every write to a demo, before it reaches an endpoint or a session.
+
+    Anyone can open a demo, and a demo anyone can change is one someone will
+    deface. By method rather than by route, so an endpoint added later is
+    covered without being listed, as `db.get_session` decides a transaction.
+    """
+
+    if request.method in SAFE_METHODS:
+        return await call_next(request)
+    return JSONResponse({"detail": "the demo is read-only"}, status_code=status.HTTP_403_FORBIDDEN)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     # force, because basicConfig is a no-op once the root logger has a handler:
@@ -102,6 +122,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Here rather than in `lifespan`: a request can only arrive once it has run,
     # but a test that builds the app and reads its state should not have to.
     app.state.scheduled = Scheduled()
+    # Set by `lifespan` on a demo, which signs every request in as it.
+    app.state.visitor = None
+    if settings.demo:
+        app.middleware("http")(_read_only)
     app.include_router(health.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
     # A backstop, not the mechanism. Every endpoint on these routers already

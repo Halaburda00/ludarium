@@ -4,6 +4,7 @@ import type { ReactElement } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 
 import '@/i18n'
+import type { Health } from '@/lib/queries'
 
 /**
  * A client per test.
@@ -29,6 +30,17 @@ export function renderApp(ui: ReactElement, { route = '/' }: { route?: string } 
 type Reply = { status?: number; body?: unknown }
 
 /**
+ * What the session gate asks every instance, answered as an ordinary one
+ * unless a test says otherwise: the gate waits on it, and naming it in every
+ * table would bury what each test is about.
+ */
+const AMBIENT: Record<string, Reply> = {
+  'GET /api/health': {
+    body: { status: 'ok', version: '0.0.0', database: true, demo: false } satisfies Health,
+  },
+}
+
+/**
  * `fetch`, answering from a table of `METHOD /path` to a reply.
  *
  * A stub rather than a mock server: the shapes are the ones `test_api_contract`
@@ -48,7 +60,7 @@ export function stubFetch(routes: Record<string, Reply>) {
       body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
       credentials: init?.credentials,
     })
-    const reply = routes[`${method} ${path}`]
+    const reply = routes[`${method} ${path}`] ?? AMBIENT[`${method} ${path}`]
     if (!reply) {
       throw new Error(`no stub for ${method} ${path}`)
     }

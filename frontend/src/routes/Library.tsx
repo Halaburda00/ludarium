@@ -9,6 +9,7 @@ import { ThemePicker } from '@/components/ThemePicker'
 import { WorksGrid } from '@/components/WorksGrid'
 import { Button } from '@/components/ui/button'
 import { Field, Notice } from '@/components/ui/field'
+import { useDemo } from '@/lib/demo'
 import { activeCount, NO_FILTERS, readFilters, writeFilters, type Filters } from '@/lib/filters'
 import { readSorting, writeSorting, type Sorting } from '@/lib/sorting'
 import { viewQuery } from '@/lib/views'
@@ -97,6 +98,7 @@ export default function Library() {
       .map((slug) => ({ slug, name: slug })),
   ]
   const logout = useLogout()
+  const demo = useDemo()
   const navigate = useNavigate()
 
   const runs = sync.data?.runs ?? []
@@ -141,33 +143,39 @@ export default function Library() {
         <h1 className="font-heading text-2xl font-semibold">{t('library.title')}</h1>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <ThemePicker />
-          {/* Not offered while the steps after a sync are running: another
-              sync would skip every step already underway, and the scores the
-              user is waiting for arrive on their own when they finish. */}
-          <Button
-            onClick={() => sync.mutate(platforms)}
-            disabled={sync.isPending || step !== null || platforms.length === 0}
-          >
-            {sync.isPending
-              ? t('library.syncing')
-              : step !== null
-                ? t('library.updating')
-                : t('library.sync')}
-          </Button>
-          {/* Always here, not only over an empty library: a second platform
-              is connected from a library that already has the first. */}
-          <Link
-            to="/onboarding"
-            className="px-2 text-sm text-primary underline-offset-4 hover:underline"
-          >
-            {t('library.connectAccount')}
-          </Link>
-          <Link
-            to="/manual/new"
-            className="px-2 text-sm text-primary underline-offset-4 hover:underline"
-          >
-            {t('library.addGame')}
-          </Link>
+          {/* A demo refuses every write (ADR-0034), so it is not offered the
+              actions that are nothing but one. */}
+          {demo ? null : (
+            <>
+              {/* Not offered while the steps after a sync are running: another
+                  sync would skip every step already underway, and the scores the
+                  user is waiting for arrive on their own when they finish. */}
+              <Button
+                onClick={() => sync.mutate(platforms)}
+                disabled={sync.isPending || step !== null || platforms.length === 0}
+              >
+                {sync.isPending
+                  ? t('library.syncing')
+                  : step !== null
+                    ? t('library.updating')
+                    : t('library.sync')}
+              </Button>
+              {/* Always here, not only over an empty library: a second platform
+                  is connected from a library that already has the first. */}
+              <Link
+                to="/onboarding"
+                className="px-2 text-sm text-primary underline-offset-4 hover:underline"
+              >
+                {t('library.connectAccount')}
+              </Link>
+              <Link
+                to="/manual/new"
+                className="px-2 text-sm text-primary underline-offset-4 hover:underline"
+              >
+                {t('library.addGame')}
+              </Link>
+            </>
+          )}
           <Link
             to="/queue"
             className="px-2 text-sm text-primary underline-offset-4 hover:underline"
@@ -180,19 +188,21 @@ export default function Library() {
           >
             {t('library.removedLink')}
           </Link>
-          <Button
-            variant="ghost"
-            onClick={() =>
-              // Sent away, not just emptied. Left here the screen would refetch
-              // a library it is no longer allowed to read and answer its own
-              // 401 with an error the user has already asked for.
-              logout.mutate(undefined, {
-                onSuccess: () => void navigate('/login', { replace: true }),
-              })
-            }
-          >
-            {t('common.signOut')}
-          </Button>
+          {demo ? null : (
+            <Button
+              variant="ghost"
+              onClick={() =>
+                // Sent away, not just emptied. Left here the screen would refetch
+                // a library it is no longer allowed to read and answer its own
+                // 401 with an error the user has already asked for.
+                logout.mutate(undefined, {
+                  onSuccess: () => void navigate('/login', { replace: true }),
+                })
+              }
+            >
+              {t('common.signOut')}
+            </Button>
+          )}
         </div>
       </header>
 

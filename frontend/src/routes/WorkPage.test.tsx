@@ -214,7 +214,7 @@ describe('the work page', () => {
     renderApp(<Router />, { route: '/library/witcher' })
 
     expect(await screen.findByText('This game is not in your library.')).toBeInTheDocument()
-    expect(calls.map((call) => call.path)).toEqual(['/api/accounts'])
+    expect(calls.map((call) => call.path)).toEqual(['/api/accounts', '/api/health'])
   })
 
   it('offers to try again when the server fails', async () => {

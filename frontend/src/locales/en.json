@@ -318,5 +318,8 @@
     "subscription": "Subscription",
     "family_shared": "Shared with me",
     "trial": "Trial"
+  },
+  "demo": {
+    "banner": "This is a demo: a made-up library, and nothing in it can be changed."
   }
 }

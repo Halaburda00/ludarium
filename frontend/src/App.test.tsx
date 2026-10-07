@@ -1,9 +1,13 @@
-import { screen } from '@testing-library/react'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
+import { MemoryRouter } from 'react-router-dom'
+
 import { Router } from '@/App'
-import type { Account, WorksPage } from '@/lib/queries'
+import { createClient } from '@/lib/client'
+import type { Account, Health, WorksPage } from '@/lib/queries'
 import { renderApp, stubFetch } from '@/test/render'
 
 // The whole response, not the two fields the gate reads: a stub that answers
@@ -61,6 +65,58 @@ describe('routing', () => {
     renderApp(<Router />, { route: '/somewhere-else' })
 
     expect(await screen.findByRole('heading', { name: 'Library' })).toBeInTheDocument()
+  })
+
+  it('shows a demo as one, without the actions it would refuse', async () => {
+    stubFetch({
+      'GET /api/accounts': { body: [ACCOUNT] },
+      'GET /api/works': { body: EMPTY_LIBRARY },
+      'GET /api/health': {
+        body: { status: 'ok', version: '0.0.0', database: true, demo: true } satisfies Health,
+      },
+    })
+    renderApp(<Router />, { route: '/library' })
+
+    expect(await screen.findByRole('heading', { name: 'Library' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('This is a demo')
+    for (const action of ['Sync now', 'Sign out']) {
+      expect(screen.queryByRole('button', { name: action })).not.toBeInTheDocument()
+    }
+    for (const action of ['Connect an account', 'Add a game']) {
+      expect(screen.queryByRole('link', { name: action })).not.toBeInTheDocument()
+    }
+    // Reading is what a demo is for.
+    expect(screen.getByRole('link', { name: 'Up next' })).toBeInTheDocument()
+  })
+
+  it('does not hold the library back over a failed health check', async () => {
+    stubFetch({
+      'GET /api/accounts': { body: [ACCOUNT] },
+      'GET /api/works': { body: EMPTY_LIBRARY },
+      'GET /api/health': { status: 503, body: { detail: 'down' } },
+    })
+    // The library's own client, not the test one: its defaults retry a failed
+    // query three times with backoff, which `renderApp` turns off.
+    render(
+      <QueryClientProvider client={createClient()}>
+        <MemoryRouter initialEntries={['/library']}>
+          <Router />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByRole('heading', { name: 'Library' })).toBeInTheDocument()
+  })
+
+  it('offers an ordinary instance every action', async () => {
+    stubFetch({
+      'GET /api/accounts': { body: [ACCOUNT] },
+      'GET /api/works': { body: EMPTY_LIBRARY },
+    })
+    renderApp(<Router />, { route: '/library' })
+
+    expect(await screen.findByRole('button', { name: 'Sign out' })).toBeInTheDocument()
+    expect(screen.queryByText(/This is a demo/)).not.toBeInTheDocument()
   })
 
   it('returns to the login screen after signing out', async () => {

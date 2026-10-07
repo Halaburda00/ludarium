@@ -13,7 +13,12 @@ def test_health_reports_the_version_and_a_reachable_database(client: TestClient)
     response = client.get("/api/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": __version__, "database": True}
+    assert response.json() == {
+        "status": "ok",
+        "version": __version__,
+        "database": True,
+        "demo": False,
+    }
 
 
 def test_health_is_unavailable_when_the_database_is_not(app: FastAPI) -> None:
@@ -30,4 +35,9 @@ def test_health_is_unavailable_when_the_database_is_not(app: FastAPI) -> None:
         response = client.get("/api/health")
 
     assert response.status_code == 503
-    assert response.json() == {"status": "degraded", "version": __version__, "database": False}
+    assert response.json() == {
+        "status": "degraded",
+        "version": __version__,
+        "database": False,
+        "demo": False,
+    }
