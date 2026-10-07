@@ -331,5 +331,30 @@
   },
   "demo": {
     "banner": "This is a demo: a made-up library, and nothing in it can be changed."
+  },
+  "accounts": {
+    "title": "Accounts",
+    "intro": "Every account your library comes from. Switching one off stops its syncs; its games stay in your library.",
+    "link": "Accounts",
+    "empty": "No accounts yet.",
+    "label": "Name",
+    "labelFor": "Name of the {{provider}} account {{id}}",
+    "save": "Save",
+    "imported": "Imported",
+    "importedHint": "Made by an import, and updated only when you import again.",
+    "off": "Off",
+    "switchOff": "Switch off",
+    "switchOn": "Switch on",
+    "switchOffLabel": "Switch off {{label}} on {{provider}}",
+    "switchOnLabel": "Switch on {{label}} on {{provider}}",
+    "lastSuccess": "Last synced {{date}}",
+    "never": "Never synced",
+    "status": {
+      "pending": "Not synced yet",
+      "running": "Syncing",
+      "success": "Working",
+      "partial": "Partly synced",
+      "failed": "Failing"
+    }
   }
 }

@@ -150,6 +150,21 @@ export function useConnect() {
   })
 }
 
+export type AccountUpdate = Partial<Schemas['AccountUpdate']>
+
+/** Rename an account, or switch it off or on. Its health moves the provider's, so both refresh. */
+export function useUpdateAccount() {
+  const client = useQueryClient()
+  return useMutation<Account, ApiError, { id: number; changes: AccountUpdate }>({
+    mutationFn: ({ id, changes }) =>
+      api<Account>(`/api/accounts/${id}`, { method: 'PATCH', body: changes }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: accountsKey })
+      void client.invalidateQueries({ queryKey: syncOverviewKey })
+    },
+  })
+}
+
 export function useSync() {
   const client = useQueryClient()
   return useMutation<SyncOutcome, ApiError, string[]>({

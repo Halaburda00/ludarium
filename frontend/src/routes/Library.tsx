@@ -74,7 +74,8 @@ export default function Library() {
   const platforms = [
     ...new Set(
       (accounts.data ?? [])
-        .filter((account) => account.is_active)
+        // An imported account has no sync of its own (ADR-0035).
+        .filter((account) => account.is_active && !account.is_derived)
         .map((account) => account.provider),
     ),
   ].filter((provider) => SYNCABLE.has(provider))
@@ -187,6 +188,12 @@ export default function Library() {
             className="px-2 text-sm text-primary underline-offset-4 hover:underline"
           >
             {t('library.removedLink')}
+          </Link>
+          <Link
+            to="/accounts"
+            className="px-2 text-sm text-primary underline-offset-4 hover:underline"
+          >
+            {t('accounts.link')}
           </Link>
           {demo ? null : (
             <Button
