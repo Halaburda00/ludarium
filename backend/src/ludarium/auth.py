@@ -193,6 +193,7 @@ def _unauthenticated() -> HTTPException:
 
 
 async def current_session(
+    request: Request,
     session: SessionDep,
     token: Annotated[str | None, Cookie(alias=COOKIE_NAME)] = None,
 ) -> UserSession:
@@ -201,8 +202,14 @@ async def current_session(
     An expired row is rejected and left alone: a dependency that deleted it
     would be writing on a read path, against `db.get_session`'s contract that
     the endpoint owns the commit. Sweeping them up is a scheduled job's work.
+
+    A demo has no cookie to ask about: everyone who opens it is its visitor,
+    and the instance is read-only, so there is nothing a session would guard.
     """
 
+    visitor: UserSession | None = request.app.state.visitor
+    if visitor is not None:
+        return visitor
     if token is None:
         raise _unauthenticated()
     record = await session.scalar(

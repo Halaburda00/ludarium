@@ -327,6 +327,10 @@
             "title": "Database",
             "type": "boolean"
           },
+          "demo": {
+            "title": "Demo",
+            "type": "boolean"
+          },
           "status": {
             "enum": [
               "ok",
@@ -343,7 +347,8 @@
         "required": [
           "status",
           "version",
-          "database"
+          "database",
+          "demo"
         ],
         "title": "HealthResponse",
         "type": "object"

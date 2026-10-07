@@ -639,6 +639,8 @@ export interface components {
         HealthResponse: {
             /** Database */
             database: boolean;
+            /** Demo */
+            demo: boolean;
             /**
              * Status
              * @enum {string}
