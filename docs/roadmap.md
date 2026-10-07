@@ -195,9 +195,10 @@ platform's own UI.
 Epic moved to M2b.
 
 - [ ] `GogProvider`
-- [ ] Steam Family Sharing: titles lent by a family group arrive as
-      `family_shared` entitlements naming the lender. `GetOwnedGames` never
-      returns them, so this is a second source rather than a flag on the first
+- ~~Steam Family Sharing~~ — dropped (#62): the family endpoints refuse the
+  Web API key and want a user access token, and a lent game is not the
+  user's library. `family_shared` stays in the enum; a lent game can be a
+  manual entry
 - [ ] `POST /api/ingest` as a public contract: one payload shape carrying the
       reporting provider, the account it describes, and a list of items
       (`provider_item_id`, `title`, `ownership_type`, `playtime_minutes`,
@@ -208,11 +209,12 @@ Epic moved to M2b.
       step without reverse-engineering three APIs. Posts through `/api/ingest`;
       the accounts it discovers are created derived, with no credentials
 - [ ] CSV/JSON import
-- [ ] Multiple accounts per platform, with labels
+- [ ] Multiple accounts per platform, with labels: the backend has allowed it
+      since M1, and an accounts screen makes it usable
 - [ ] Scheduled sync on APScheduler, writing runs with
       `SyncTrigger.scheduled`; per-provider interval, skipped while a run for
       that provider is already in flight
-- [ ] Matching layer 2: the curated alias dataset (layer 1 shipped in M2)
+- Matching layer 2 moved to M6: it consumes `ludamatch-data`, which M6 builds
 
 **Done when:** the library covers every platform you actually use, and it
 refreshes itself without being asked.
@@ -251,6 +253,7 @@ it out and finishes the cascade.
 - [ ] Optional LLM layer, batched, structured output, cached
 - [ ] Golden set of ~300 pairs, precision/recall measured **per layer**
 - [ ] `ludamatch-data`: alias dataset generated offline from Wikidata, CC0
+- [ ] Matching layer 2: the curated alias dataset in the cascade (moved from M4)
 - [ ] Manual review queue in the Ludarium UI
 
 **Done when:** the first user's library matches at ~95% with no manual work,
