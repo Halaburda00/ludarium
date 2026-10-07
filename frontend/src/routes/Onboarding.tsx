@@ -29,15 +29,25 @@ export default function Onboarding() {
   const asked = params.get('provider')
   const [platform, setPlatform] = useState<Platform>(isPlatform(asked) ? asked : 'steam')
   const signIn = SIGN_IN[platform]
+  // The account being signed in again, from the accounts screen (#129).
+  const repairing = params.get('account') || null
   const [secret, setSecret] = useState('')
-  const [steamId, setSteamId] = useState('')
-  const [label, setLabel] = useState('Main')
+  const [steamId, setSteamId] = useState(platform === 'steam' ? (repairing ?? '') : '')
+  const [label, setLabel] = useState(params.get('label') || 'Main')
+  // A sign-in that named another account than the one being repaired. It is
+  // connected all the same, as its own account, and the user has to know.
+  const [other, setOther] = useState(false)
 
   return (
     <main className="mx-auto grid min-h-dvh max-w-md content-center gap-6 px-6">
       <header className="grid gap-2">
         <h1 className="font-heading text-2xl font-semibold">{t(`onboarding.${platform}.title`)}</h1>
         <p className="text-sm text-muted-foreground">{t(`onboarding.${platform}.intro`)}</p>
+        {repairing ? (
+          <p className="text-sm">
+            {t('onboarding.repairing', { label: params.get('label') || label, id: repairing })}
+          </p>
+        ) : null}
       </header>
 
       <div role="group" aria-label={t('onboarding.platform')} className="flex gap-2">
@@ -51,6 +61,7 @@ export default function Onboarding() {
               // What was typed for one platform means nothing to the other.
               setSecret('')
               connect.reset()
+              setOther(false)
               setPlatform(choice)
             }}
           >
@@ -72,11 +83,15 @@ export default function Onboarding() {
               credentials: secret,
             },
             {
-              onSuccess: () => {
+              onSuccess: (connected) => {
                 // Dropped from state the moment the server has it. It is never
                 // put in `localStorage`, never in the URL, and never rendered
                 // back — the response carries a mask, not the secret (rule 7).
                 setSecret('')
+                if (repairing && connected.external_account_id !== repairing) {
+                  setOther(true)
+                  return
+                }
                 void navigate('/library', { replace: true })
               },
             },
@@ -139,6 +154,11 @@ export default function Onboarding() {
           onChange={(event) => setLabel(event.target.value)}
         />
         {connect.isError ? <Notice>{connect.error.detail}</Notice> : null}
+        {other ? (
+          <Notice>
+            {t('onboarding.otherAccount', { provider: t(`onboarding.${platform}.name`) })}
+          </Notice>
+        ) : null}
         <Button type="submit" disabled={connect.isPending}>
           {connect.isPending ? t(`onboarding.${platform}.working`) : t('onboarding.submit')}
         </Button>

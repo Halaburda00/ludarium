@@ -51,7 +51,9 @@
       "code": "Address of GOG's page",
       "codeHint": "Starts with https://embed.gog.com/on_login_success",
       "working": "Signing in to GOG…"
-    }
+    },
+    "repairing": "Signing in again for {{label}} ({{id}}).",
+    "otherAccount": "That sign-in was for another {{provider}} account. It is connected as an account of its own; sign in with the one you meant to repair to fix that one."
   },
   "library": {
     "title": "Library",

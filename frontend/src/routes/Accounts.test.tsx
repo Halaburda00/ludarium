@@ -80,9 +80,11 @@ describe('accounts', () => {
     renderApp(<Accounts />)
 
     await screen.findByRole('heading', { name: /Epic Games/ })
+    // To the form for this account, not for the platform: with two accounts
+    // on one platform, the form has to say which one it is repairing.
     expect(within(row(/Epic Games/)).getByRole('link', { name: 'Sign in again' })).toHaveAttribute(
       'href',
-      '/onboarding?provider=epic',
+      '/onboarding?provider=epic&account=abc123&label=Main',
     )
     // An imported account has no sign-in, whatever its last failure says.
     expect(within(row(/Battle.net/)).queryByRole('link')).not.toBeInTheDocument()

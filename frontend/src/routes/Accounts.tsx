@@ -168,7 +168,13 @@ function Row({
         ) : null}
         {editable && signInAgain ? (
           <Link
-            to={`/onboarding?provider=${account.provider}`}
+            // The account as well as the platform: with two on one platform,
+            // the form has to say which one it is repairing.
+            to={`/onboarding?${new URLSearchParams({
+              provider: account.provider,
+              account: account.external_account_id ?? '',
+              label: account.label,
+            }).toString()}`}
             className="px-2 text-sm text-primary underline-offset-4 hover:underline"
           >
             {t('library.signInAgain')}
