@@ -180,7 +180,7 @@ says so: search needs a backend of its own.
 - [x] DLC folded under its parent game (`ItemKind` classification moved to M2a); the parent from Epic's `mainGameItem` (ADR-0032)
 - [ ] Filter state in the URL; saved views
 - [ ] `PlayStatus`, personal rating, notes
-- [ ] A play queue the user orders by hand: `queued` with a dense position (ADR-0033), then an "Up next" view
+- [x] A play queue the user orders by hand: `queued` with a dense position (ADR-0033), and an "Up next" view to reorder it
 - [x] Manual entry — physical copies, unredeemed keys, itch.io; deleting one is a `DELETE` (ADR-0031)
 - [x] Removed-from-account view with one-click restore; a restored copy is kept (ADR-0030)
 - [ ] Demo mode with a fixed seed dataset

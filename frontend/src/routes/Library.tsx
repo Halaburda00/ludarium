@@ -169,6 +169,12 @@ export default function Library() {
             {t('library.addGame')}
           </Link>
           <Link
+            to="/queue"
+            className="px-2 text-sm text-primary underline-offset-4 hover:underline"
+          >
+            {t('library.queueLink')}
+          </Link>
+          <Link
             to="/removed"
             className="px-2 text-sm text-primary underline-offset-4 hover:underline"
           >
