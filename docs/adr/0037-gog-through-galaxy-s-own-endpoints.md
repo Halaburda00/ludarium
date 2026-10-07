@@ -52,8 +52,9 @@ stays None. An access token lasts an hour, and every sync asks for a new one.
 the user id, or an empty list (41 of 191) where there is nothing to say. The
 endpoint is keyed by the profile's name, not the user id (measured: the id
 answers 404). The name is read from `embed.gog.com/userData.json` on every
-sync and kept nowhere, since the user can rename it. `playtime` is read as
-minutes. If the statistics fail, the library fails with them. A library whose
+sync and kept nowhere, since the user can rename it. `playtime` is in
+minutes: the owner's 893 for The Witcher 3 matches the roughly 15 hours GOG
+shows them. If the statistics fail, the library fails with them. A library whose
 playtime silently went missing would lower every total until the next run.
 
 **Every GOG copy is `owned`.** Nothing in the answers tells a giveaway from a

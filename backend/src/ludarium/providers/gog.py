@@ -293,7 +293,7 @@ def _as_game(product: Mapping[str, Any], stats: Mapping[str, Any] | None) -> Lib
         # Nothing in the answer tells a giveaway from a purchase.
         ownership_type=OwnershipType.OWNED,
         item_kind=ItemKind.GAME,
-        # Minutes (ADR-0037).
+        # Minutes, checked against the hours GOG shows (ADR-0037).
         playtime_minutes=playtime if isinstance(playtime, int) and playtime >= 0 else None,
         last_played_at=_moment((stats or {}).get("lastSession")),
         raw={
