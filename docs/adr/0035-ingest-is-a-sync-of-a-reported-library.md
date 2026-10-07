@@ -75,6 +75,10 @@ to the local agent's issue, not to this contract.
   change.
 - A report needs a reporter row. Only `manual` is seeded today. The Galaxy
   upload seeds `galaxy` and the platforms it reports for.
+- Connecting an account a report made takes it over: it stops being derived,
+  its platform syncs it, and later reports about it are refused. The copies
+  the report brought stay and are upserted by the first sync, which also
+  marks removed whatever the platform does not list.
 - A derived account appears in `GET /api/accounts`. The accounts screen (#129)
   is where it should be told apart from a connected one.
 - Nothing runs enrichment after an ingest yet. `steps.FOLLOWS` is keyed by the

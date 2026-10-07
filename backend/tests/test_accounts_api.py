@@ -311,3 +311,28 @@ def test_a_spent_epic_code_is_a_400_that_says_to_sign_in_again(signed_in: TestCl
 
     assert response.status_code == 400
     assert "fresh one" in response.json()["detail"]
+
+
+@respx.mock
+def test_connecting_an_account_a_report_made_takes_it_over(signed_in: TestClient) -> None:
+    report = {
+        "version": 1,
+        "reporter": "manual",
+        "account": {"provider": "steam", "external_account_id": STEAM_ID, "label": "Imported"},
+        "items": [{"provider_item_id": "620", "title": "Portal 2"}],
+    }
+    assert signed_in.post("/api/ingest", json=report).status_code == 200
+    respx.get(OWNED_GAMES_URL).mock(
+        return_value=httpx.Response(200, json=recorded("owned_games.json"))
+    )
+
+    # The store step the sync queues after itself; its answer is not this test's.
+    respx.get(url__startswith="https://api.steampowered.com/IStoreBrowseService/").mock(
+        return_value=httpx.Response(503)
+    )
+    assert connect(signed_in).status_code == 200
+
+    # Connected now, so its platform syncs it, and a report about it is refused
+    # as about any connected account (ADR-0035).
+    assert signed_in.post("/api/sync/steam").status_code == 200
+    assert signed_in.post("/api/ingest", json=report).status_code == 409
