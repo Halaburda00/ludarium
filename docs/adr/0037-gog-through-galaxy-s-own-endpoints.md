@@ -37,7 +37,14 @@ stays None. An access token lasts an hour, and every sync asks for a new one.
   nor the v2 catalogue (404). They are not counted as unreadable: a short
   count would make every run partial, and a partial run never sweeps (rule 1).
 - An add-on's game is the `requiresGames` link of `api.gog.com/v2/games/{id}`.
-  All six measured add-ons named a game the account owns.
+  All six measured add-ons named a game the account owns. An add-on v1 lists
+  and v2 answers 404 for keeps its place without a game, rather than failing
+  the library.
+- A catalogue that names none of the ids it was asked about fails the run.
+  Measured, it named 47 of 172, so an empty answer is an outage, and read as
+  "no add-ons" the sweep would remove every add-on (rule 1). A partial answer
+  cannot be told from ids it never knew; its cost is an add-on marked removed
+  until the next run lists it again, which restores it.
 
 **Playtime comes from the profile's statistics.**
 `www.gog.com/u/{username}/games/stats` answers with the same bearer token:
@@ -66,9 +73,11 @@ IGDB's Steam appids recorded, as an Epic-only game does, so the store's
 reviews and RAWG can find it.
 
 **A refused token is redirected, not answered 401.** Measured: the account
-endpoints send an unknown bearer to the sign-in page with a 302. A token
-minted a moment before cannot be the problem, so a redirect is read as the
-sign-in having ended, and the UI offers to sign in again.
+endpoints on `embed.gog.com` send an unknown bearer to the sign-in page with a
+302. A token minted a moment before cannot be the problem, so a redirect there
+is read as the sign-in having ended, and the UI offers to sign in again. On
+the profile's host it was not measured, and a redirect there is an answer the
+code cannot read, not a reason to sign in again.
 
 ## Consequences
 
