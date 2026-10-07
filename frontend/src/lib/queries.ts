@@ -76,6 +76,7 @@ export type ManualEntryForm = Required<Schemas['ManualEntry']>
 export type OwnershipType = Schemas['OwnershipType']
 export type Connection = Schemas['ConnectRequest']
 export type Credentials = Schemas['LoginRequest']
+export type Health = Schemas['HealthResponse']
 
 export const accountsKey = ['accounts'] as const
 export const worksKey = ['works'] as const
@@ -102,6 +103,18 @@ export function useAccounts(): UseQueryResult<Account[], ApiError> {
     // A 401 is an answer, not a network blip. Retrying it delays the redirect
     // to the login screen for no gain.
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
+  })
+}
+
+/**
+ * Whether the instance is a demo (ADR-0034). Public, so it answers before a
+ * session does, and asked once: an instance does not become a demo mid-visit.
+ */
+export function useHealth(): UseQueryResult<Health, ApiError> {
+  return useQuery<Health, ApiError>({
+    queryKey: ['health'],
+    queryFn: () => api<Health>('/api/health'),
+    staleTime: Infinity,
   })
 }
 
