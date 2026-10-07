@@ -1,4 +1,7 @@
-"""Matching layer 1: a Steam appid, looked up in IGDB `external_games` (#47).
+"""Matching layer 1: a store's own id, looked up in IGDB `external_games` (#47).
+
+A Steam appid or a GOG product id is looked up directly; an Epic game first
+needs its store offers (#74).
 
 A hard id is not a similarity score, so this layer anchors a work, folds it
 into the work already anchored to the same game (#48), or leaves it alone.
@@ -49,6 +52,8 @@ EPIC: Final = "epic"
 NAMESPACE: Final = "igdb"
 EXTERNAL_GAMES: Final = "external_games/steam"
 EXTERNAL_GAMES_EPIC: Final = "external_games/epic"
+GOG: Final = "gog"
+EXTERNAL_GAMES_GOG: Final = "external_games/gog"
 EXTERNAL_GAMES_ENDPOINT: Final = "external_games"
 # Which Steam appids IGDB files each game under, for works owned only elsewhere.
 STEAM_APPIDS: Final = "external_games/steam_by_game"
@@ -68,11 +73,32 @@ MAX_AGE: Final = timedelta(days=30)
 def anchor_steam_works(igdb: IgdbClient) -> Step:
     """The enrichment step, run under the `igdb` provider."""
 
+    return _by_store_id(igdb, store=Store.STEAM, library=LIBRARY, cache=EXTERNAL_GAMES)
+
+
+def anchor_gog_works(igdb: IgdbClient) -> Step:
+    """Layer 1 for GOG (#128): a product id is a hard id in IGDB as an appid is.
+
+    Measured on a 190-game library, IGDB named 179 of them. A GOG game has no
+    Steam copy to give RAWG an appid to confirm a score by, so IGDB's appids are
+    recorded afterwards, as for Epic.
+    """
+
+    by_product = _by_store_id(igdb, store=Store.GOG, library=GOG, cache=EXTERNAL_GAMES_GOG)
+
+    async def step(run: EnrichmentRun) -> None:
+        await by_product(run)
+        await _record_steam_appids(run, igdb)
+
+    return step
+
+
+def _by_store_id(igdb: IgdbClient, *, store: Store, library: str, cache: str) -> Step:
+    """Anchor a library's unmatched games by the store's own id for each."""
+
     async def external_games(appids: Sequence[str]) -> dict[str, Payload]:
         try:
-            matches = await match_by_external_id(
-                igdb, [StoreId(Store.STEAM, appid) for appid in appids]
-            )
+            matches = await match_by_external_id(igdb, [StoreId(store, appid) for appid in appids])
         except MalformedRowError as exc:
             # A `ProviderError`, so the run fails as IGDB's rather than as a bug.
             raise MalformedResponseError(str(exc)) from exc
@@ -81,9 +107,9 @@ def anchor_steam_works(igdb: IgdbClient) -> Step:
     games = _game_names(igdb)
 
     async def step(run: EnrichmentRun) -> None:
-        targets = await _unmatched_games(run.database)
+        targets = await _unmatched_games(run.database, library)
         anchors = await run.fetch(
-            EXTERNAL_GAMES,
+            cache,
             [appid for appid, _ in targets],
             fetch=external_games,
             batch_size=BATCH_SIZE,
@@ -101,7 +127,7 @@ def anchor_steam_works(igdb: IgdbClient) -> Step:
             batch_size=BATCH_SIZE,
             max_age=MAX_AGE,
         )
-        await _anchor(run, targets, found, names, _vouch)
+        await _anchor(run, targets, found, names, _vouch_through(library))
         await _collect_orphans(run.database)
 
     return step
@@ -131,8 +157,8 @@ def _game(payload: Payload | None) -> int | None:
     return whole_number(payload.get("game")) if isinstance(payload, dict) else None
 
 
-async def _unmatched_games(database: Database) -> list[tuple[str, int]]:
-    """Each Steam appid behind an unmatched game, with the work it reaches, oldest work first.
+async def _unmatched_games(database: Database, library: str) -> list[tuple[str, int]]:
+    """Each store id behind an unmatched game, with the work it reaches, oldest work first.
 
     Oldest first because two stubs can carry appids IGDB files under one game
     — a standard and a GOTY release — and `docs/schema.md` gives the anchor to
@@ -152,7 +178,7 @@ async def _unmatched_games(database: Database) -> list[tuple[str, int]]:
             .join(Account, Account.id == Entitlement.account_id)
             .join(Provider, Provider.id == Account.provider_id)
             .where(
-                Provider.key == LIBRARY,
+                Provider.key == library,
                 Entitlement.provider_item_id.is_not(None),
                 Work.is_matched.is_(False),
                 Work.item_kind == ItemKind.GAME,
@@ -289,13 +315,20 @@ async def _anchor_one(
     )
 
 
-async def _vouch(session: AsyncSession, work_id: int, appid: str) -> None:
+def _vouch_through(library: str) -> Vouch:
     """Mark the link that led to `work_id` with the layer that vouched for it.
 
-    Only this appid's: another entitlement reaching the same work got there some
-    other way, and saying otherwise would be an audit trail that lies.
+    Only this store id's: another entitlement reaching the same work got there
+    some other way, and saying otherwise would be an audit trail that lies.
     """
 
+    async def vouch(session: AsyncSession, work_id: int, appid: str) -> None:
+        await _vouch(session, work_id, appid, library)
+
+    return vouch
+
+
+async def _vouch(session: AsyncSession, work_id: int, appid: str, library: str) -> None:
     await session.execute(
         update(EntitlementWork)
         .where(
@@ -305,7 +338,7 @@ async def _vouch(session: AsyncSession, work_id: int, appid: str) -> None:
                 select(Entitlement.id)
                 .join(Account, Account.id == Entitlement.account_id)
                 .join(Provider, Provider.id == Account.provider_id)
-                .where(Provider.key == LIBRARY, Entitlement.provider_item_id == appid)
+                .where(Provider.key == library, Entitlement.provider_item_id == appid)
             ),
         )
         .values(match_layer=MatchLayer.HARD_ID)
