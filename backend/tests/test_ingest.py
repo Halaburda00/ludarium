@@ -256,3 +256,21 @@ def test_an_oversized_report_is_refused_before_it_is_read(
 
 def test_ingest_needs_a_session(client: TestClient) -> None:
     assert client.post("/api/ingest", json=payload()).status_code == 401
+
+
+async def test_a_switched_off_account_takes_no_report(
+    signed_in: TestClient, session: AsyncSession
+) -> None:
+    send(signed_in, payload())
+    account = await session.scalar(select(Account))
+    assert account is not None
+    await session.commit()
+    assert (
+        signed_in.patch(f"/api/accounts/{account.id}", json={"is_active": False}).status_code == 200
+    )
+
+    answer = send(signed_in, payload(items=GAMES[:1]), expected=409)
+
+    assert "switched off" in answer["detail"]
+    # Nothing was swept: switching off is not removing (rule 1).
+    assert signed_in.get("/api/entitlements/removed").json() == []

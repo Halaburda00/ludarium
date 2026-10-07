@@ -79,7 +79,10 @@ to the local agent's issue, not to this contract.
   its platform syncs it, and later reports about it are refused. The copies
   the report brought stay and are upserted by the first sync, which also
   marks removed whatever the platform does not list.
-- A derived account appears in `GET /api/accounts`. The accounts screen (#129)
-  is where it should be told apart from a connected one.
+- A report about an account the user switched off is refused with 409 as
+  well (#129). An import is the only thing that writes to a derived account,
+  so switching one off would otherwise mean nothing.
+- A derived account appears in `GET /api/accounts` with `is_derived`, and the
+  accounts screen (#129) marks it as imported.
 - Nothing runs enrichment after an ingest yet. `steps.FOLLOWS` is keyed by the
   syncing provider, and none of the reporters is in it.
