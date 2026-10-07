@@ -1,0 +1,36 @@
+{
+  "sortBy": null,
+  "productsPerPage": 100,
+  "moviesCount": 1,
+  "hasHiddenProducts": true,
+  "page": 2,
+  "totalProducts": 4,
+  "totalPages": 2,
+  "products": [
+    {
+      "id": 1083619800,
+      "availability": {
+        "isAvailable": true,
+        "isAvailableInAccount": true
+      },
+      "title": "The Evil Within 2",
+      "url": "/en/game/the_evil_within_2",
+      "worksOn": {
+        "Windows": true,
+        "Mac": false,
+        "Linux": false
+      },
+      "category": "Action",
+      "isMovie": false,
+      "isGame": true,
+      "slug": "the_evil_within_2",
+      "dlcCount": 0,
+      "releaseDate": {
+        "date": "2017-10-12 00:00:00.000000",
+        "timezone_type": 1,
+        "timezone": "+02:00"
+      },
+      "isHidden": false
+    }
+  ]
+}

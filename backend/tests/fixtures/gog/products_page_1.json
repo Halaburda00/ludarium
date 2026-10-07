@@ -1,0 +1,82 @@
+{
+  "sortBy": null,
+  "productsPerPage": 100,
+  "moviesCount": 1,
+  "hasHiddenProducts": true,
+  "page": 1,
+  "totalProducts": 4,
+  "totalPages": 2,
+  "products": [
+    {
+      "id": 1495134320,
+      "availability": {
+        "isAvailable": false,
+        "isAvailableInAccount": true
+      },
+      "title": "The Witcher 3: Wild Hunt — Remastered",
+      "url": "/en/game/the_witcher_3_wild_hunt_game_of_the_year_edition",
+      "worksOn": {
+        "Windows": true,
+        "Mac": false,
+        "Linux": false
+      },
+      "category": "Role-playing",
+      "isMovie": false,
+      "isGame": true,
+      "slug": "the_witcher_3_wild_hunt_game_of_the_year_edition_game",
+      "dlcCount": 0,
+      "releaseDate": {
+        "date": "2016-08-30 00:00:00.000000",
+        "timezone_type": 1,
+        "timezone": "+02:00"
+      },
+      "isHidden": false
+    },
+    {
+      "id": 5,
+      "availability": {
+        "isAvailable": true,
+        "isAvailableInAccount": true
+      },
+      "title": "Freespace 2",
+      "url": "/en/game/freespace_2",
+      "worksOn": {
+        "Windows": true,
+        "Mac": false,
+        "Linux": false
+      },
+      "category": "Simulation",
+      "isMovie": false,
+      "isGame": true,
+      "slug": "freespace_2",
+      "dlcCount": 0,
+      "releaseDate": {
+        "date": "1999-09-30 00:00:00.000000",
+        "timezone_type": 1,
+        "timezone": "+02:00"
+      },
+      "isHidden": false
+    },
+    {
+      "id": 1423049311,
+      "availability": {
+        "isAvailable": false,
+        "isAvailableInAccount": true
+      },
+      "title": "Cyberpunk 2077",
+      "url": "/en/game/cyberpunk_2077_ultimate_edition",
+      "worksOn": {
+        "Windows": true,
+        "Mac": false,
+        "Linux": false
+      },
+      "category": "",
+      "isMovie": false,
+      "isGame": true,
+      "slug": "cyberpunk_2077_game",
+      "dlcCount": 0,
+      "releaseDate": null,
+      "isHidden": false
+    }
+  ]
+}

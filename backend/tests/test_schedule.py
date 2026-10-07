@@ -87,6 +87,7 @@ def test_every_platform_with_a_client_syncs_every_six_hours_by_default(
     intervals = schedule_for(context).intervals(["steam", "epic", "igdb", "manual"])
 
     assert intervals == {"steam": timedelta(hours=6), "epic": timedelta(hours=6)}
+    assert "gog" in schedule_for(context).intervals(["gog"])
 
 
 def test_a_platform_can_be_given_its_own_interval_or_none(context: StepContext) -> None:
@@ -247,7 +248,7 @@ def test_the_app_schedules_its_platforms_and_a_demo_does_not(settings: Settings)
     create_schema(settings.database_url)
 
     with TestClient(create_app(settings)) as client:
-        assert set(client.app.state.schedule.next_runs()) == {"steam", "epic"}  # type: ignore[attr-defined]
+        assert set(client.app.state.schedule.next_runs()) == {"steam", "epic", "gog"}  # type: ignore[attr-defined]
     with TestClient(create_app(settings.model_copy(update={"demo": True}))) as client:
         assert client.app.state.schedule is None  # type: ignore[attr-defined]
 

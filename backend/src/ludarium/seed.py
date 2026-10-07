@@ -49,6 +49,14 @@ PROVIDER_SEED: tuple[ProviderSpec, ...] = (
         # does not carry, and a guessed one would be a broken link.
     ),
     ProviderSpec(
+        key="gog",
+        kind=ProviderKind.PLATFORM,
+        source_kind=SourceKind.PLATFORM_API,
+        display_name="GOG",
+        # No store link: GOG's pages are keyed by a slug, and `/game/{id}`
+        # sends the visitor to the catalogue's front page (ADR-0037).
+    ),
+    ProviderSpec(
         key="igdb",
         kind=ProviderKind.METADATA,
         source_kind=SourceKind.METADATA_PROVIDER,

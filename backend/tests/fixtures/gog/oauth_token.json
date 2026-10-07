@@ -1,0 +1,9 @@
+{
+  "expires_in": 3600,
+  "scope": "",
+  "token_type": "bearer",
+  "access_token": "fixture-access-token",
+  "user_id": "48000000000000001",
+  "refresh_token": "fixture-refresh-token",
+  "session_id": "fixture-session"
+}

@@ -33,7 +33,7 @@ async def test_seeds_the_libraries_the_metadata_providers_and_manual(
 
     providers = {provider.key: provider for provider in await session.scalars(select(Provider))}
 
-    assert set(providers) == {"steam", "epic", "steam_store", "igdb", "rawg", "manual"}
+    assert set(providers) == {"steam", "epic", "gog", "steam_store", "igdb", "rawg", "manual"}
     steam = providers["steam"]
     assert steam.kind is ProviderKind.PLATFORM
     assert steam.source_kind is SourceKind.PLATFORM_API
@@ -52,6 +52,10 @@ async def test_seeds_the_libraries_the_metadata_providers_and_manual(
     assert (epic.kind, epic.source_kind) == (ProviderKind.PLATFORM, SourceKind.PLATFORM_API)
     # No slug in the library to build a store link from, so none rather than a broken one.
     assert epic.store_url_template is None
+    gog = providers["gog"]
+    assert (gog.kind, gog.source_kind) == (ProviderKind.PLATFORM, SourceKind.PLATFORM_API)
+    # GOG's pages are keyed by slug; an id-built link lands on the catalogue.
+    assert gog.store_url_template is None
     rawg = providers["rawg"]
     assert rawg.source_kind is SourceKind.METADATA_PROVIDER
     # RAWG: "no data redistribution".
@@ -146,6 +150,7 @@ async def test_a_second_instance_seeds_behind_the_first(db: Database) -> None:
     assert providers == {
         "steam": "Steam",
         "epic": "Epic Games",
+        "gog": "GOG",
         "steam_store": "Steam Store",
         "igdb": "IGDB",
         "rawg": "RAWG",
