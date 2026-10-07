@@ -81,6 +81,10 @@ class SyncSchedule:
                 # answer already; one missed while asleep is one run, not many.
                 max_instances=1,
                 coalesce=True,
+                # Late is not never. APScheduler's default grace is a second,
+                # past which a run is dropped, and a host that sleeps would
+                # then skip every run it slept through.
+                misfire_grace_time=None,
                 next_run_time=first,
             )
         self._scheduler.start()

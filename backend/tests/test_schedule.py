@@ -258,3 +258,32 @@ def test_an_interval_for_an_unknown_platform_stops_the_start(settings: Settings)
 
     with pytest.raises(ConfigurationError, match="gogg"), TestClient(create_app(broken)):
         pass  # pragma: no cover
+
+
+async def test_a_run_missed_while_asleep_still_runs_once(context: StepContext) -> None:
+    schedule = schedule_for(context)
+    called: list[str] = []
+
+    async def sync_provider(key: str) -> list[SyncRun]:
+        called.append(key)
+        return []
+
+    schedule.sync_provider = sync_provider  # type: ignore[method-assign]
+    # Due hours ago, as after a suspended host wakes: late is not never.
+    schedule.start([provider("steam")], now=datetime.now(UTC) - timedelta(hours=3))
+    try:
+        await asyncio.sleep(0.2)
+    finally:
+        await schedule.stop()
+
+    assert called == ["steam"]
+
+
+async def test_after_stopping_the_scheduler_is_stopped(context: StepContext) -> None:
+    schedule = schedule_for(context)
+    schedule.start([provider("steam")], now=NOW)
+
+    await schedule.stop()
+
+    # Before the engine is disposed, not on some later turn of the loop.
+    assert not schedule._scheduler.running
