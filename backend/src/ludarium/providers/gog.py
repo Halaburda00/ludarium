@@ -231,11 +231,13 @@ class GogProvider:
         """
 
         addons: dict[str, str] = {}
+        named = 0
         for start in range(0, len(ids), CATALOG_BATCH):
             batch = ids[start : start + CATALOG_BATCH]
             found = await _get_list(
                 self._client, CATALOG, params={"ids": ",".join(batch)}, what="the catalogue"
             )
+            named += len(found)
             for product in found:
                 if (
                     isinstance(product, dict)
@@ -244,6 +246,15 @@ class GogProvider:
                     and isinstance(product.get("title"), str)
                 ):
                     addons[str(product["id"])] = product["title"]
+        # A catalogue that knows none of them is an outage in the shape of an
+        # answer: measured, it named 47 of 172. Read as "no add-ons", the sweep
+        # would remove every add-on the account owns (rule 1). A partial answer
+        # cannot be told apart from ids it never knew, and its cost is an
+        # add-on marked removed until the next run lists it again.
+        if ids and not named:
+            raise MalformedResponseError(
+                f"gog's catalogue named none of the {len(ids)} owned ids it was asked about"
+            )
         parents: dict[str, tuple[str, str | None]] = {}
         for product_id, title in addons.items():
             detail = await _get(

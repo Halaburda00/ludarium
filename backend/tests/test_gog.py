@@ -271,3 +271,17 @@ def test_a_connected_gog_account_syncs_into_the_library(signed_in: TestClient) -
     assert by_title["The Witcher 3: Wild Hunt — Remastered"]["playtime_minutes"] == 893
     copy = by_title["Freespace 2"]["entitlements"][0]
     assert (copy["provider"], copy["provider_name"], copy["store_url"]) == ("gog", "GOG", None)
+
+
+@respx.mock
+async def test_a_catalogue_that_names_none_of_the_ids_fails_rather_than_sweeps(
+    gog: GogProvider,
+) -> None:
+    routes = mount()
+    # Asked about three ids, it knew none. Measured, it always knows some: an
+    # empty answer is an outage-shaped one, and a library read through it would
+    # lose its add-ons to the sweep (rule 1).
+    routes["catalog"].mock(return_value=httpx.Response(200, json=[]))
+
+    with pytest.raises(MalformedResponseError, match="none of"):
+        await gog.fetch_library()
