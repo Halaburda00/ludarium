@@ -157,6 +157,7 @@ async def sync_account(
     account: Account,
     library: LibraryProvider,
     trigger: SyncTrigger = SyncTrigger.MANUAL,
+    origin: EntitlementOrigin = EntitlementOrigin.SYNC,
 ) -> SyncRun:
     """Run one sync and return it, finished either way.
 
@@ -183,7 +184,8 @@ async def sync_account(
             account=account,
             reporter=reporter,
             items=fetched.items,
-            sweep=not fetched.skipped,
+            sweep=fetched.complete and not fetched.skipped,
+            origin=origin,
         )
     except ProviderError as exc:
         # Safe to store: `ProviderError` never carries a credential, which is
@@ -501,6 +503,7 @@ async def _apply(
     reporter: Provider,
     items: list[LibraryItem],
     sweep: bool,
+    origin: EntitlementOrigin,
 ) -> None:
     """One library, in phases rather than one item at a time.
 
@@ -522,7 +525,7 @@ async def _apply(
     for item in items:
         entitlement = known.get(item.provider_item_id)
         if entitlement is None:
-            entitlement = _blank(account, item)
+            entitlement = _blank(account, item, origin)
             session.add(entitlement)
             # Back into the map, so a provider that lists one item twice finds
             # the row it just made rather than colliding with it.
@@ -591,11 +594,11 @@ async def _known(session: AsyncSession, *, account: Account) -> dict[str, Entitl
     return {str(entitlement.provider_item_id): entitlement for entitlement in rows}
 
 
-def _blank(account: Account, item: LibraryItem) -> Entitlement:
+def _blank(account: Account, item: LibraryItem, origin: EntitlementOrigin) -> Entitlement:
     return Entitlement(
         user_id=account.user_id,
         account_id=account.id,
-        origin=EntitlementOrigin.SYNC,
+        origin=origin,
         provider_item_id=item.provider_item_id,
         # Seeded because the column is NOT NULL and the row has to exist before
         # a provenance row can address it. The resolver owns it from the next
