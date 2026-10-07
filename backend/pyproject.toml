@@ -65,6 +65,12 @@ strict = true
 warn_unreachable = true
 plugins = ["pydantic.mypy"]
 
+# APScheduler 3 ships no type information. Its surface here is two classes in
+# `ludarium.schedule`, whose own signatures are what mypy checks.
+[[tool.mypy.overrides]]
+module = ["apscheduler.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 addopts = "--cov=src/ludarium --cov-report=term-missing"

@@ -211,9 +211,9 @@ Epic moved to M2b.
 - [ ] CSV/JSON import
 - [ ] Multiple accounts per platform, with labels: the backend has allowed it
       since M1, and an accounts screen makes it usable
-- [ ] Scheduled sync on APScheduler, writing runs with
+- [x] Scheduled sync on APScheduler, writing runs with
       `SyncTrigger.scheduled`; per-provider interval, skipped while a run for
-      that provider is already in flight
+      that provider is already in flight (ADR-0036)
 - Matching layer 2 moved to M6: it consumes `ludamatch-data`, which M6 builds
 
 **Done when:** the library covers every platform you actually use, and it
