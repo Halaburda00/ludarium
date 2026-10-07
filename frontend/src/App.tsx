@@ -6,6 +6,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import RequireSession from '@/components/RequireSession'
 import { createClient } from '@/lib/client'
 import { useAppliedTheme } from '@/lib/theme'
+import Accounts from '@/routes/Accounts'
 import Library from '@/routes/Library'
 import WorkPage from '@/routes/WorkPage'
 import Login from '@/routes/Login'
@@ -26,6 +27,7 @@ export function Router() {
         <Route path="/library/:workId" element={<WorkPage />} />
         <Route path="/removed" element={<Removed />} />
         <Route path="/queue" element={<UpNext />} />
+        <Route path="/accounts" element={<Accounts />} />
         <Route path="/manual/new" element={<ManualEntryPage />} />
         <Route path="/manual/:entitlementId" element={<ManualEntryPage />} />
       </Route>

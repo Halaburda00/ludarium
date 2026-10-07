@@ -6,20 +6,21 @@ than a failed background run they find later.
 """
 
 from datetime import datetime
-from typing import Final
+from typing import Annotated, Final, Self
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from pydantic import BaseModel, Field, SecretStr
-from sqlalchemy import select
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints, model_validator
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.api.common import provider_or_404
 from ludarium.auth import CurrentSession
 from ludarium.crypto import get_cipher
 from ludarium.db import SessionDep
-from ludarium.enums import SyncStatus
-from ludarium.models import Account, Provider
+from ludarium.enums import SyncErrorKind, SyncStatus
+from ludarium.models import Account, Provider, SyncRun
 from ludarium.models.types import utcnow
 from ludarium.providers import (
     InvalidCredentialsError,
@@ -29,6 +30,7 @@ from ludarium.providers import (
 )
 from ludarium.providers.registry import UnsupportedProviderError
 from ludarium.providers.registry import connect as settle
+from ludarium.sync import summarise
 
 # Fixed, and deliberately not derived from the credential: a mask that mirrors
 # the length of a secret is a fact about the secret (rule 7). The UI needs to
@@ -68,13 +70,41 @@ class AccountResponse(BaseModel):
     # worst across its accounts and cannot say which one (#26).
     status: SyncStatus
     last_error: str | None
+    # Who can fix the last failure: `credentials` is the user's, by signing in
+    # again. From the account's latest finished run; null when it succeeded.
+    error_kind: SyncErrorKind | None
     credentials: str | None
+    provider_name: str
+    # Made by an import rather than connected: no credential, and synced only by
+    # whatever reported it (ADR-0035).
+    is_derived: bool
 
 
-def _describe(account: Account, provider_key: str) -> AccountResponse:
+class AccountUpdate(BaseModel):
+    """The two things a user decides about an account. A field left out is left alone."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)
+    ] = "Main"
+    # Off stops every sync of it, by hand or on the schedule. Its games stay:
+    # switching an account off is not removing anything (rule 1).
+    is_active: bool = True
+
+    @model_validator(mode="after")
+    def _says_something(self) -> Self:
+        if not self.model_fields_set:
+            raise ValueError("nothing to change")
+        return self
+
+
+def _describe(
+    account: Account, provider: Provider, error_kind: SyncErrorKind | None = None
+) -> AccountResponse:
     return AccountResponse(
         id=account.id,
-        provider=provider_key,
+        provider=provider.key,
         external_account_id=account.external_account_id,
         label=account.label,
         is_active=account.is_active,
@@ -82,8 +112,27 @@ def _describe(account: Account, provider_key: str) -> AccountResponse:
         last_success_at=account.last_success_at,
         status=account.status,
         last_error=account.last_error,
+        error_kind=error_kind,
         credentials=MASK if account.credentials_encrypted else None,
+        provider_name=provider.display_name,
+        is_derived=account.is_derived,
     )
+
+
+async def _error_kinds(session: AsyncSession, account_ids: list[int]) -> dict[int, SyncErrorKind]:
+    """The error kind of each account's latest finished run, where it failed."""
+
+    latest = (
+        select(func.max(SyncRun.id))
+        .where(SyncRun.account_id.in_(account_ids), SyncRun.status != SyncStatus.RUNNING)
+        .group_by(SyncRun.account_id)
+    )
+    rows = await session.execute(
+        select(SyncRun.account_id, SyncRun.error_kind).where(SyncRun.id.in_(latest))
+    )
+    return {
+        account_id: kind for account_id, kind in rows if account_id is not None and kind is not None
+    }
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -151,7 +200,7 @@ async def connect(
         existing.is_derived = False
         await session.commit()
         response.status_code = status.HTTP_200_OK
-        return _describe(existing, provider.key)
+        return _describe(existing, provider)
 
     account = Account(
         user_id=record.user_id,
@@ -170,15 +219,47 @@ async def connect(
             status.HTTP_409_CONFLICT,
             f"`{payload.provider}` account {connected.external_account_id} is already connected",
         ) from exc
-    return _describe(account, provider.key)
+    return _describe(account, provider)
 
 
 @router.get("")
 async def connected(session: SessionDep, record: CurrentSession) -> list[AccountResponse]:
-    rows = await session.execute(
-        select(Account, Provider.key)
-        .join(Provider, Provider.id == Account.provider_id)
-        .where(Account.user_id == record.user_id)
-        .order_by(Account.id)
+    rows = list(
+        await session.execute(
+            select(Account, Provider)
+            .join(Provider, Provider.id == Account.provider_id)
+            .where(Account.user_id == record.user_id)
+            .order_by(Account.id)
+        )
     )
-    return [_describe(account, key) for account, key in rows]
+    kinds = await _error_kinds(session, [account.id for account, _ in rows])
+    return [_describe(account, provider, kinds.get(account.id)) for account, provider in rows]
+
+
+@router.patch("/{account_id}")
+async def update(
+    account_id: int, payload: AccountUpdate, session: SessionDep, record: CurrentSession
+) -> AccountResponse:
+    """Rename an account, or switch it off or on. Nothing about its games changes."""
+
+    account = await session.get(Account, account_id)
+    if account is None or account.user_id != record.user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such account")
+    changes = payload.model_dump(include=payload.model_fields_set)
+    for field, value in changes.items():
+        setattr(account, field, value)
+    if "is_active" in changes:
+        # Every provider that has reported for it: its own platform's, and an
+        # importer's for a derived account. Their health counts active
+        # accounts only, so switching one changes what they report.
+        reporters = await session.scalars(
+            select(Provider).where(
+                Provider.id.in_(select(SyncRun.provider_id).where(SyncRun.account_id == account.id))
+            )
+        )
+        for reporter in reporters:
+            await summarise(session, reporter)
+    await session.commit()
+    provider = await session.get_one(Provider, account.provider_id)
+    kinds = await _error_kinds(session, [account.id])
+    return _describe(account, provider, kinds.get(account.id))

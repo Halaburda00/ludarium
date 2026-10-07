@@ -35,6 +35,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/accounts/{account_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update
+         * @description Rename an account, or switch it off or on. Nothing about its games changes.
+         */
+        patch: operations["update_api_accounts__account_id__patch"];
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -547,12 +567,15 @@ export interface components {
             created_at: string;
             /** Credentials */
             credentials: string | null;
+            error_kind: components["schemas"]["SyncErrorKind"] | null;
             /** External Account Id */
             external_account_id: string | null;
             /** Id */
             id: number;
             /** Is Active */
             is_active: boolean;
+            /** Is Derived */
+            is_derived: boolean;
             /** Label */
             label: string;
             /** Last Error */
@@ -561,7 +584,25 @@ export interface components {
             last_success_at: string | null;
             /** Provider */
             provider: string;
+            /** Provider Name */
+            provider_name: string;
             status: components["schemas"]["SyncStatus"];
+        };
+        /**
+         * AccountUpdate
+         * @description The two things a user decides about an account. A field left out is left alone.
+         */
+        AccountUpdate: {
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean;
+            /**
+             * Label
+             * @default Main
+             */
+            label: string;
         };
         /**
          * Addons
@@ -1204,6 +1245,43 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_api_accounts__account_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: number;
+            };
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

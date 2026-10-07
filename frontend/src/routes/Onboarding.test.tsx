@@ -157,3 +157,33 @@ describe('connecting GOG', () => {
     expect(screen.getByRole('heading', { name: 'Connect Steam' })).toBeInTheDocument()
   })
 })
+
+describe('signing an account in again', () => {
+  it('names the account and fills in what it already knows', () => {
+    stubFetch({})
+    renderApp(<Onboarding />, {
+      route: '/onboarding?provider=steam&account=76561197960287930&label=Family%20PC',
+    })
+
+    expect(screen.getByText('Signing in again for Family PC (76561197960287930).')).toBeInTheDocument()
+    expect(screen.getByLabelText('SteamID64')).toHaveValue('76561197960287930')
+    expect(screen.getByLabelText('Name for this account')).toHaveValue('Family PC')
+  })
+
+  it('says so when the sign-in was for another account', async () => {
+    stubFetch({
+      'POST /api/accounts': {
+        status: 201,
+        body: { id: 9, provider: 'epic', external_account_id: 'someone-else' },
+      },
+    })
+    renderApp(<Onboarding />, { route: '/onboarding?provider=epic&account=abc123&label=Main' })
+
+    await userEvent.type(screen.getByLabelText('Authorization code'), 'not-a-real-code')
+    await userEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'That sign-in was for another Epic Games account',
+    )
+  })
+})

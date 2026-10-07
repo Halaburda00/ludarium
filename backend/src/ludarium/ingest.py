@@ -117,6 +117,10 @@ class ConnectedAccountError(IngestRefusedError):
     """The report describes an account the user connected, whose own sync reports it."""
 
 
+class InactiveAccountError(IngestRefusedError):
+    """The report describes an account the user switched off, which nothing syncs (#129)."""
+
+
 class ReportedLibrary:
     """A report, answering as a platform would."""
 
@@ -166,6 +170,13 @@ async def ingest(
     if account is not None and (not account.is_derived or account.user_id != user_id):
         raise ConnectedAccountError(
             f"this `{platform.key}` account is connected, and its own sync reports it"
+        )
+    if account is not None and not account.is_active:
+        # Switching an account off stops everything that writes to it, and an
+        # import is the only thing that writes to a derived one. Refused rather
+        # than ignored, so the uploader is told why nothing changed.
+        raise InactiveAccountError(
+            f"this `{platform.key}` account is switched off; switch it on to import into it"
         )
     if account is None:
         account = Account(

@@ -125,12 +125,35 @@ function account(provider: string, id = 1): Account {
     status: 'success',
     last_error: null,
     credentials: '••••••••',
+    error_kind: null,
+    provider_name: provider,
+    is_derived: false,
   }
 }
 
 const ACCOUNTS = [account('steam')]
 
 describe('library', () => {
+  it('does not sync an account only an import fills', async () => {
+    const calls = stubFetch({
+      'GET /api/sync/runs': { body: IDLE },
+      'GET /api/accounts': { body: [account('epic'), { ...account('steam', 2), is_derived: true }] },
+      'GET /api/works': { body: THREE },
+      'POST /api/sync/epic': { body: synced(run({ provider: 'epic' })) },
+    })
+    renderApp(<Library />)
+
+    const sync = await screen.findByRole('button', { name: 'Sync now' })
+    await waitFor(() => expect(sync).toBeEnabled())
+    await userEvent.click(sync)
+
+    // The sync endpoint skips an imported account, so it is not asked (ADR-0035).
+    await waitFor(() => expect(calls.some((call) => call.method === 'POST')).toBe(true))
+    expect(calls.filter((call) => call.method === 'POST').map((call) => call.path)).toEqual([
+      '/api/sync/epic',
+    ])
+  })
+
   it('asks for a sync and reports what the run saw', async () => {
     const calls = stubFetch({
       'GET /api/sync/runs': { body: IDLE },

@@ -209,7 +209,7 @@ Epic moved to M2b.
       step without reverse-engineering three APIs. Posts through `/api/ingest`;
       the accounts it discovers are created derived, with no credentials
 - [ ] CSV/JSON import
-- [ ] Multiple accounts per platform, with labels: the backend has allowed it
+- [x] Multiple accounts per platform, with labels: the backend has allowed it
       since M1, and an accounts screen makes it usable
 - [x] Scheduled sync on APScheduler, writing runs with
       `SyncTrigger.scheduled`; per-provider interval, skipped while a run for

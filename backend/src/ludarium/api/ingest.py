@@ -9,7 +9,13 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from ludarium.api.sync import SyncRunResponse, describe_run
 from ludarium.auth import CurrentSession
 from ludarium.db import SessionDep
-from ludarium.ingest import ConnectedAccountError, IngestRefusedError, IngestReport, ingest
+from ludarium.ingest import (
+    ConnectedAccountError,
+    InactiveAccountError,
+    IngestRefusedError,
+    IngestReport,
+    ingest,
+)
 from ludarium.sync import SyncInProgressError
 
 PATH: Final = "/api/ingest"
@@ -34,7 +40,7 @@ async def report(
 
     try:
         finished = await ingest(session, payload, user_id=record.user_id)
-    except ConnectedAccountError as exc:
+    except (ConnectedAccountError, InactiveAccountError) as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     except IngestRefusedError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc

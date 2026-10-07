@@ -19,6 +19,9 @@ const ACCOUNTS: Account[] = [
     status: 'success',
     last_error: null,
     created_at: '2026-08-21T10:00:00Z',
+    error_kind: null,
+    provider_name: 'Steam',
+    is_derived: false,
   },
 ]
 
