@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import Depends, FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 from ludarium import __version__
@@ -26,8 +27,10 @@ from ludarium.auth import bootstrap_user, current_session
 from ludarium.config import Settings, get_settings
 from ludarium.db import SAFE_METHODS, Database
 from ludarium.demo import seed_demo, visitor
+from ludarium.models import Provider
+from ludarium.schedule import SyncSchedule
 from ludarium.seed import reconcile_folded_keys, seed_providers
-from ludarium.steps import Scheduled
+from ludarium.steps import Scheduled, StepContext
 
 # Bounded on purpose, and not only for the user waiting on onboarding: a run
 # that never returns is a `sync_run` row stuck at `running`, and the reclaim
@@ -54,6 +57,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # pool, which is what `SteamProvider` means by taking one rather than
     # opening its own.
     app.state.http = httpx.AsyncClient(timeout=HTTP_TIMEOUT)
+    schedule: SyncSchedule | None = None
     try:
         try:
             # Writing, so it announces itself: startup is not concurrent today,
@@ -72,6 +76,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 if settings.demo:
                     await seed_demo(session, user_id=user.id)
                     app.state.visitor = visitor(user.id)
+                providers = list(await session.scalars(select(Provider)))
         except OperationalError as exc:
             # Only the ones it can actually diagnose: no schema at all, or one
             # older than the code. Startup reads `work.sort_key`, so a database
@@ -86,10 +91,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "the database schema is missing or older than the code — "
                 "run `uv run alembic upgrade head`"
             ) from exc
+        # A demo has nothing to sync, and nothing that may write (ADR-0034).
+        if not settings.demo:
+            schedule = SyncSchedule(
+                StepContext(app.state.http, database, settings), app.state.scheduled
+            )
+            schedule.start(providers)
+        app.state.schedule = schedule
         yield
     finally:
         # Also on a failed start: whatever went wrong, the pools it opened are
-        # ours to close.
+        # ours to close. The schedule first, so a run it cancels can still
+        # close itself as failed through them.
+        if schedule is not None:
+            await schedule.stop()
         await app.state.http.aclose()
         await database.dispose()
 

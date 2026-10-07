@@ -182,3 +182,28 @@ def test_the_rawg_key_is_read_under_the_prefix_and_kept_secret(
     assert settings.rawg_api_key is not None
     assert settings.rawg_api_key.get_secret_value() == "not-a-real-rawg-key"
     assert "not-a-real-rawg-key" not in f"{settings!r} {settings.model_dump()}"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("", {}), ("  ", {}), ('{"epic": 24, "steam": 0}', {"epic": 24, "steam": 0})],
+)
+def test_sync_intervals_are_a_json_object_and_blank_is_none(
+    monkeypatch: pytest.MonkeyPatch, value: str, expected: dict[str, int]
+) -> None:
+    monkeypatch.setenv("LUDARIUM_SYNC_INTERVALS", value)
+
+    assert get_settings().sync_intervals == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "reason"),
+    [("epic=24", "must be a JSON object"), ('{"epic": -1}', "greater than or equal to 0")],
+)
+def test_a_sync_interval_that_cannot_be_read_stops_the_instance(
+    monkeypatch: pytest.MonkeyPatch, value: str, reason: str
+) -> None:
+    monkeypatch.setenv("LUDARIUM_SYNC_INTERVALS", value)
+
+    with pytest.raises(ConfigurationError, match=reason):
+        get_settings()

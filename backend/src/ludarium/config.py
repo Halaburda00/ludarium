@@ -1,10 +1,11 @@
+import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from cryptography.fernet import Fernet
-from pydantic import SecretStr, ValidationError, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -45,6 +46,13 @@ class Settings(BaseSettings):
     # RAWG, for Metacritic scores. Optional for the same reason, and a key the
     # user registers themselves: RAWG's free tier is 20 000 requests a month.
     rawg_api_key: SecretStr | None = None
+    # How often each platform's accounts are synced without being asked, in
+    # hours; 0 turns it off. One figure for every platform, and a JSON object
+    # overriding it per platform: `LUDARIUM_SYNC_INTERVALS='{"epic": 24}'`.
+    sync_interval_hours: int = Field(default=6, ge=0)
+    sync_intervals: Annotated[dict[str, Annotated[int, Field(ge=0)]], NoDecode] = Field(
+        default_factory=dict
+    )
     # A made-up library on an empty database, shown read-only to anyone who
     # opens it, signed in without a password (`ludarium.demo`).
     demo: bool = False
@@ -71,6 +79,22 @@ class Settings(BaseSettings):
     @classmethod
     def _blank_is_unset(cls, value: object) -> object:
         return None if isinstance(value, str) and not value.strip() else value
+
+    # Decoded here rather than by pydantic-settings, so that blank is unset as
+    # it is above, and a typo is reported as this field's problem instead of
+    # a parser's traceback.
+    @field_validator("sync_intervals", mode="before")
+    @classmethod
+    def _decode_intervals(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        if not value.strip():
+            return {}
+        try:
+            decoded: object = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError('must be a JSON object, such as {"epic": 24}') from exc
+        return decoded
 
     @model_validator(mode="after")
     def _igdb_needs_both_halves(self) -> "Settings":
