@@ -138,6 +138,11 @@ class FetchedLibrary:
 
     items: list[LibraryItem]
     skipped: int = 0
+    # Whether `items` is everything the account owns. Only a whole library may
+    # mark what it leaves out as removed (rule 1): a report of what changed
+    # would otherwise remove everything it did not mention. A platform's own
+    # answer is always whole; an ingest report says which it is (ADR-0035).
+    complete: bool = True
 
 
 class LibraryProvider(Protocol):

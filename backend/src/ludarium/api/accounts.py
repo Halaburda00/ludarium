@@ -145,6 +145,10 @@ async def connect(
         existing.credentials_encrypted = get_cipher().encrypt(connected.secret)
         existing.credentials_updated_at = utcnow()
         existing.is_active = True
+        # An account a report made is the user's once they connect it: its
+        # platform syncs it from now on, and reports about it are refused
+        # (ADR-0035). The copies the report brought are kept and upserted.
+        existing.is_derived = False
         await session.commit()
         response.status_code = status.HTTP_200_OK
         return _describe(existing, provider.key)

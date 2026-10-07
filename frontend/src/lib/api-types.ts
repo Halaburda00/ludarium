@@ -273,6 +273,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ingest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report
+         * @description Apply a report and answer with its run, which may have failed.
+         *
+         *     A failure is a status, as a sync's is, so the answer is 200 either way. 409
+         *     is for an account that is busy or connected, 422 for a report naming what
+         *     cannot report or be reported on.
+         */
+        post: operations["report_api_ingest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sync/runs": {
         parameters: {
             query?: never;
@@ -656,10 +680,59 @@ export interface components {
          */
         Hidden: "exclude" | "include" | "only";
         /**
+         * IngestAccount
+         * @description The account a report describes: on which platform, and which one there.
+         */
+        IngestAccount: {
+            external_account_id: components["schemas"]["Key"];
+            label: components["schemas"]["Key"];
+            provider: components["schemas"]["Key"];
+        };
+        /**
+         * IngestItem
+         * @description One owned item, as `LibraryItem` carries it.
+         */
+        IngestItem: {
+            /** Acquired At */
+            acquired_at?: string | null;
+            /** Installed */
+            installed?: boolean | null;
+            item_kind?: components["schemas"]["ItemKind"] | null;
+            /** Last Played At */
+            last_played_at?: string | null;
+            /** @default owned */
+            ownership_type: components["schemas"]["OwnershipType"];
+            parent_item_id?: components["schemas"]["Key"] | null;
+            /** Playtime Minutes */
+            playtime_minutes?: number | null;
+            provider_item_id: components["schemas"]["Key"];
+            /** Raw */
+            raw?: {
+                [key: string]: unknown;
+            };
+            /** Title */
+            title: string;
+        };
+        /** IngestReport */
+        IngestReport: {
+            account: components["schemas"]["IngestAccount"];
+            /**
+             * Complete
+             * @default false
+             */
+            complete: boolean;
+            /** Items */
+            items: components["schemas"]["IngestItem"][];
+            reporter: components["schemas"]["Key"];
+            /** Version */
+            version: number;
+        };
+        /**
          * ItemKind
          * @enum {string}
          */
         ItemKind: "game" | "dlc" | "demo" | "playtest" | "soundtrack" | "video" | "tool" | "mod";
+        Key: string;
         /**
          * LoginRequest
          * @description Bounded, because this is the one endpoint that answers before authenticating.
@@ -1544,6 +1617,41 @@ export interface operations {
                 };
                 content: {
                     "image/jpeg": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_api_ingest_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestReport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncRunResponse"];
                 };
             };
             /** @description Validation Error */
