@@ -363,6 +363,161 @@
         "title": "Hidden",
         "type": "string"
       },
+      "IngestAccount": {
+        "additionalProperties": false,
+        "description": "The account a report describes: on which platform, and which one there.",
+        "properties": {
+          "external_account_id": {
+            "$ref": "#/components/schemas/Key"
+          },
+          "label": {
+            "$ref": "#/components/schemas/Key"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Key"
+          }
+        },
+        "required": [
+          "provider",
+          "external_account_id",
+          "label"
+        ],
+        "title": "IngestAccount",
+        "type": "object"
+      },
+      "IngestItem": {
+        "additionalProperties": false,
+        "description": "One owned item, as `LibraryItem` carries it.",
+        "properties": {
+          "acquired_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acquired At"
+          },
+          "installed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installed"
+          },
+          "item_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ItemKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_played_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Played At"
+          },
+          "ownership_type": {
+            "$ref": "#/components/schemas/OwnershipType",
+            "default": "owned"
+          },
+          "parent_item_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Key"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "playtime_minutes": {
+            "anyOf": [
+              {
+                "maximum": 52560000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playtime Minutes"
+          },
+          "provider_item_id": {
+            "$ref": "#/components/schemas/Key"
+          },
+          "raw": {
+            "additionalProperties": true,
+            "title": "Raw",
+            "type": "object"
+          },
+          "title": {
+            "maxLength": 1024,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider_item_id",
+          "title"
+        ],
+        "title": "IngestItem",
+        "type": "object"
+      },
+      "IngestReport": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/IngestAccount"
+          },
+          "complete": {
+            "default": false,
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IngestItem"
+            },
+            "maxItems": 50000,
+            "title": "Items",
+            "type": "array"
+          },
+          "reporter": {
+            "$ref": "#/components/schemas/Key"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "reporter",
+          "account",
+          "items"
+        ],
+        "title": "IngestReport",
+        "type": "object"
+      },
       "ItemKind": {
         "enum": [
           "game",
@@ -375,6 +530,11 @@
           "mod"
         ],
         "title": "ItemKind",
+        "type": "string"
+      },
+      "Key": {
+        "maxLength": 256,
+        "minLength": 1,
         "type": "string"
       },
       "LoginRequest": {
@@ -2397,6 +2557,66 @@
         "summary": "Image",
         "tags": [
           "images"
+        ]
+      }
+    },
+    "/api/ingest": {
+      "post": {
+        "description": "Apply a report and answer with its run, which may have failed.\n\nA failure is a status, as a sync's is, so the answer is 200 either way. 409\nis for an account that is busy or connected, 422 for a report naming what\ncannot report or be reported on.",
+        "operationId": "report_api_ingest_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Report",
+        "tags": [
+          "ingest"
         ]
       }
     },

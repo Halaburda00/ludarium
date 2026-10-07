@@ -216,6 +216,8 @@ new `SourceKind`.
 | `sync_run` shape | `provider_id = galaxy`, `account_id` = the derived account. This is the one case where a run's provider differs from its account's provider |
 | CSV/JSON import | Runs against the `manual` provider with `source_kind = manual` and `origin = import`. It is the user asserting something, with no machine behind it |
 | Re-import | The same upsert key as any sync, so a second upload updates rather than duplicates |
+| Removal | Only a report that says it is the whole library (`complete: true`) sweeps. A partial one never marks anything removed (ADR-0035) |
+| Entry point | `POST /api/ingest`, applied by `sync_account` with `trigger = ingest` and `origin = import`. A report about an account the user connected is refused (ADR-0035) |
 
 The consequence worth knowing: because Galaxy writes at `local_agent`, a real
 `BattlenetProvider` added later would outrank it automatically, without a
