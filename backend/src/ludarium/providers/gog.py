@@ -257,8 +257,14 @@ class GogProvider:
             )
         parents: dict[str, tuple[str, str | None]] = {}
         for product_id, title in addons.items():
+            # Gone from the v2 catalogue while v1 still lists it, as a delisted
+            # add-on may be: still owned, and only its game goes unnamed.
             detail = await _get(
-                self._client, CATALOG_V2.format(id=product_id), None, what="an add-on"
+                self._client,
+                CATALOG_V2.format(id=product_id),
+                None,
+                what="an add-on",
+                missing_ok=True,
             )
             parents[product_id] = (title, _required_game(detail))
         return parents
@@ -379,15 +385,20 @@ async def _get(
     *,
     params: Mapping[str, str] | None = None,
     what: str,
+    missing_ok: bool = False,
 ) -> dict[str, Any]:
-    response: httpx.Response = await _retrying()(_get_once, client, url, token, params, what)
+    response: httpx.Response = await _retrying()(
+        _get_once, client, url, token, params, what, missing_ok
+    )
+    if missing_ok and response.status_code == httpx.codes.NOT_FOUND:
+        return {}
     return _object(response, what)
 
 
 async def _get_list(
     client: httpx.AsyncClient, url: str, *, params: Mapping[str, str], what: str
 ) -> list[Any]:
-    response: httpx.Response = await _retrying()(_get_once, client, url, None, params, what)
+    response: httpx.Response = await _retrying()(_get_once, client, url, None, params, what, False)
     try:
         payload = response.json()
     except ValueError:
@@ -403,6 +414,7 @@ async def _get_once(
     token: str | None,
     params: Mapping[str, str] | None,
     what: str,
+    missing_ok: bool,
 ) -> httpx.Response:
     headers = {"Authorization": f"Bearer {token}"} if token else None
     try:
@@ -417,6 +429,8 @@ async def _get_once(
         # answered 401. The token was minted a moment ago, so the sign-in, not
         # the token, is what failed.
         raise InvalidCredentialsError(f"gog refused a fresh sign-in for {what}")
+    if status == httpx.codes.NOT_FOUND and missing_ok:
+        return response
     if status == 429:
         raise RateLimitedError(f"gog is rate limiting {what}", retry_after_seconds(response))
     if status >= 500:

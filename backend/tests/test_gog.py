@@ -285,3 +285,16 @@ async def test_a_catalogue_that_names_none_of_the_ids_fails_rather_than_sweeps(
 
     with pytest.raises(MalformedResponseError, match="none of"):
         await gog.fetch_library()
+
+
+@respx.mock
+async def test_an_add_on_whose_detail_is_gone_keeps_its_place_without_a_parent(
+    gog: GogProvider,
+) -> None:
+    routes = mount()
+    routes["v2"].mock(return_value=httpx.Response(404))
+
+    fetched = await gog.fetch_library()
+
+    liberty = next(item for item in fetched.items if item.provider_item_id == "1256837418")
+    assert (liberty.item_kind, liberty.parent_item_id) == (ItemKind.DLC, None)
