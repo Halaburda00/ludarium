@@ -75,6 +75,20 @@ describe('accounts', () => {
     expect(within(row(/Battle.net/)).getByText('Imported')).toBeInTheDocument()
   })
 
+  it('shows an account’s id only beside another account on the same platform', async () => {
+    const second = account({ id: 5, external_account_id: '76561197960287931' })
+    stubFetch({ 'GET /api/accounts': { body: [account(), second, FAILING] } })
+    renderApp(<Accounts />)
+
+    await screen.findByRole('heading', { name: /Epic Games/ })
+    // Two Steam accounts, both called Main: the id is what tells them apart.
+    expect(screen.getByText('76561197960287930')).toBeInTheDocument()
+    expect(screen.getByText('76561197960287931')).toBeInTheDocument()
+    // One Epic account: its id is kept to the title.
+    expect(screen.queryByText('abc123')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Epic Games' })).toHaveAttribute('title', 'abc123')
+  })
+
   it('offers to sign in again only where that is the fix', async () => {
     stubFetch({ 'GET /api/accounts': { body: [account(), FAILING, IMPORTED] } })
     renderApp(<Accounts />)

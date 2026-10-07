@@ -26,6 +26,12 @@ export default function Accounts() {
   const demo = useDemo()
 
   const listed = (accounts.data ?? []).filter((account) => account.provider !== MANUAL)
+  // How many accounts each platform has here. An account's id is noise beside
+  // its platform's name until there is a second account it has to be told from.
+  const perPlatform = new Map<string, number>()
+  for (const account of listed) {
+    perPlatform.set(account.provider, (perPlatform.get(account.provider) ?? 0) + 1)
+  }
   let body: React.ReactNode
   if (accounts.isPending) {
     body = <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
@@ -40,6 +46,7 @@ export default function Accounts() {
           <Row
             key={account.id}
             account={account}
+            shared={(perPlatform.get(account.provider) ?? 0) > 1}
             // A demo refuses every write (ADR-0034), so it offers none.
             editable={!demo}
             busy={update.isPending && update.variables.id === account.id}
@@ -72,11 +79,14 @@ export default function Accounts() {
 
 function Row({
   account,
+  shared,
   editable,
   busy,
   onChange,
 }: {
   account: Account
+  // Another account is on the same platform.
+  shared: boolean
   editable: boolean
   busy: boolean
   onChange: (changes: { label?: string; is_active?: boolean }) => void
@@ -97,11 +107,12 @@ function Row({
       }
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="font-medium">
+        <h2 className="font-medium" title={account.external_account_id ?? undefined}>
           {account.provider_name}
-          {/* Beside the name, always: two accounts on one platform may share
-              one, and the id is what tells them apart. */}
-          {account.external_account_id ? (
+          {/* Shown where another account is on the same platform: their names
+              may be the same, and the id is what tells them apart. Otherwise
+              it waits in the title, for whoever needs to check it. */}
+          {shared && account.external_account_id ? (
             <span className="ml-2 font-mono text-xs text-muted-foreground">
               {account.external_account_id}
             </span>
