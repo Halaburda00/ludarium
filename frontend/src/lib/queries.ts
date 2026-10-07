@@ -115,6 +115,9 @@ export function useHealth(): UseQueryResult<Health, ApiError> {
     queryKey: ['health'],
     queryFn: () => api<Health>('/api/health'),
     staleTime: Infinity,
+    // The gate waits on this, and a failed check is read as no demo: retrying
+    // would only hold the library back for the seconds the backoff takes.
+    retry: false,
   })
 }
 

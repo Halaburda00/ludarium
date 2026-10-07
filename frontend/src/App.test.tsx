@@ -1,8 +1,12 @@
-import { screen } from '@testing-library/react'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
+import { MemoryRouter } from 'react-router-dom'
+
 import { Router } from '@/App'
+import { createClient } from '@/lib/client'
 import type { Account, Health, WorksPage } from '@/lib/queries'
 import { renderApp, stubFetch } from '@/test/render'
 
@@ -83,6 +87,25 @@ describe('routing', () => {
     }
     // Reading is what a demo is for.
     expect(screen.getByRole('link', { name: 'Up next' })).toBeInTheDocument()
+  })
+
+  it('does not hold the library back over a failed health check', async () => {
+    stubFetch({
+      'GET /api/accounts': { body: [ACCOUNT] },
+      'GET /api/works': { body: EMPTY_LIBRARY },
+      'GET /api/health': { status: 503, body: { detail: 'down' } },
+    })
+    // The library's own client, not the test one: its defaults retry a failed
+    // query three times with backoff, which `renderApp` turns off.
+    render(
+      <QueryClientProvider client={createClient()}>
+        <MemoryRouter initialEntries={['/library']}>
+          <Router />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByRole('heading', { name: 'Library' })).toBeInTheDocument()
   })
 
   it('offers an ordinary instance every action', async () => {
