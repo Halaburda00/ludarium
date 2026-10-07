@@ -194,7 +194,7 @@ platform's own UI.
 
 Epic moved to M2b.
 
-- [ ] `GogProvider`
+- [x] `GogProvider`, through GOG Galaxy's own endpoints, with playtime and layer 1 by product id (ADR-0037)
 - ~~Steam Family Sharing~~ — dropped (#62): the family endpoints refuse the
   Web API key and want a user access token, and a lent game is not the
   user's library. `family_shared` stays in the enum; a lent game can be a
