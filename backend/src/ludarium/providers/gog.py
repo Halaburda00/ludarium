@@ -40,6 +40,7 @@ from ludarium.providers.base import (
 )
 
 TOKEN: Final = "https://auth.gog.com/token"
+ACCOUNT_HOST: Final = "embed.gog.com"
 PRODUCTS: Final = "https://embed.gog.com/account/getFilteredProducts"
 OWNED: Final = "https://embed.gog.com/user/data/games"
 USER: Final = "https://embed.gog.com/userData.json"
@@ -424,10 +425,12 @@ async def _get_once(
             f"gog did not answer for {what}: {type(exc).__name__}"
         ) from None
     status = response.status_code
-    if status in (301, 302, 303, 307, 401, 403) and token:
-        # Measured: a refused token is sent to the sign-in page rather than
-        # answered 401. The token was minted a moment ago, so the sign-in, not
-        # the token, is what failed.
+    if status in (301, 302, 303, 307, 401, 403) and token and response.url.host == ACCOUNT_HOST:
+        # Measured on the account endpoints: a refused token is sent to the
+        # sign-in page rather than answered 401. The token was minted a moment
+        # ago, so the sign-in, not the token, is what failed. Not on the
+        # profile's host, where it was not measured and a redirect may be about
+        # the profile; there it is an answer this code cannot read.
         raise InvalidCredentialsError(f"gog refused a fresh sign-in for {what}")
     if status == httpx.codes.NOT_FOUND and missing_ok:
         return response

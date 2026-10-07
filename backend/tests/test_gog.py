@@ -298,3 +298,17 @@ async def test_an_add_on_whose_detail_is_gone_keeps_its_place_without_a_parent(
 
     liberty = next(item for item in fetched.items if item.provider_item_id == "1256837418")
     assert (liberty.item_kind, liberty.parent_item_id) == (ItemKind.DLC, None)
+
+
+@pytest.mark.parametrize("status", [302, 403])
+@respx.mock
+async def test_a_profile_page_that_will_not_answer_is_not_an_ended_sign_in(
+    gog: GogProvider, status: int
+) -> None:
+    routes = mount()
+    # Measured for the account endpoints only; the profile's statistics are
+    # another host, and a redirect there says nothing about the token.
+    routes["stats"].mock(return_value=httpx.Response(status, headers={"Location": "/u/other"}))
+
+    with pytest.raises(MalformedResponseError):
+        await gog.fetch_library()
