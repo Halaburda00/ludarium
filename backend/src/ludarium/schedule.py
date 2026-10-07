@@ -104,6 +104,12 @@ class SyncSchedule:
         # is what the operator needs to read, not a second error over it.
         if self._scheduler.running:
             self._scheduler.shutdown(wait=False)
+            # `AsyncIOScheduler.shutdown` only queues the stop on the loop. One
+            # turn lets it run: the timer is disarmed, and every job task that
+            # had not started is cancelled before it could touch the database.
+            # One that had started is in `_running` by then, since a job adds
+            # itself before its first await.
+            await asyncio.sleep(0)
         running = list(self._running)
         for task in running:
             task.cancel()
