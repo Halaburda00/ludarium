@@ -5,6 +5,7 @@ import { Link, useLocation } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Metacritic, ScoresCredit, Steam } from '@/components/Scores'
+import { initials } from '@/lib/initials'
 import type { EntitlementSummary, WorkSummary } from '@/lib/queries'
 import type { FromLibrary } from '@/routes/WorkPage'
 
@@ -264,7 +265,16 @@ function Cover({ work }: { work: WorkSummary }) {
           decoding="async"
           className="h-full w-full object-cover"
         />
-      ) : null}
+      ) : (
+        // Until a cover is fetched, and for good in a demo (ADR-0034): the
+        // title's initials, so a row of covers is not a row of blanks.
+        <span
+          aria-hidden
+          className="flex h-full w-full items-center justify-center font-heading text-3xl font-semibold text-muted-foreground"
+        >
+          {initials(work.title)}
+        </span>
+      )}
     </div>
   )
 }
