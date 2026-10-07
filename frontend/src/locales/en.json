@@ -41,6 +41,16 @@
       "code": "Authorization code",
       "codeHint": "32 letters and digits",
       "working": "Signing in to Epic…"
+    },
+    "gog": {
+      "name": "GOG",
+      "title": "Connect GOG",
+      "intro": "Ludarium reads your GOG library the way GOG Galaxy does. You sign in on GOG's own page; the sign-in is stored encrypted and never leaves this server.",
+      "signIn": "Sign in on gog.com",
+      "copyCode": "GOG then shows a nearly empty page. Copy its whole address from the address bar and paste it below. It works once, for a few minutes.",
+      "code": "Address of GOG's page",
+      "codeHint": "Starts with https://embed.gog.com/on_login_success",
+      "working": "Signing in to GOG…"
     }
   },
   "library": {
