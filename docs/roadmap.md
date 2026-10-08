@@ -199,7 +199,7 @@ Epic moved to M2b.
   Web API key and want a user access token, and a lent game is not the
   user's library. `family_shared` stays in the enum; a lent game can be a
   manual entry
-- [ ] `POST /api/ingest` as a public contract: one payload shape carrying the
+- [x] `POST /api/ingest` as a public contract: one payload shape carrying the
       reporting provider, the account it describes, and a list of items
       (`provider_item_id`, `title`, `ownership_type`, `playtime_minutes`,
       `installed`, `acquired_at`, plus an opaque `raw` object). Versioned,
