@@ -68,7 +68,7 @@ Vertical slices — every milestone ends with something that runs end to end.
 | M2b | Epic and review scores | Epic library, Steam review scores beside Metacritic |
 | M2c | A real grid | Virtualised grid, search, detail view, dark mode |
 | M3 | Filters, statuses, backlog | Filter registry, `PlayStatus`, manual entries, saved views |
-| M4 | GOG, local import | GOG, Steam Family Sharing, `galaxy-2.0.db` import, ingest contract, scheduled sync |
+| M4 | GOG, local import | GOG, CSV/JSON import, ingest contract, scheduled sync |
 | M5 | Docker, docs, first public release | Multi-arch image, export/backup, `v0.1.0` |
 | M6 | Matching layers 3–5 | Retrieval, classifier, LLM adjudication, the alias dataset |
 
