@@ -94,13 +94,13 @@ Single row in practice. Exists so `user_id` FKs point at something real.
 
 #### `provider`
 
-Seeded from code, not user-created. `manual`, `galaxy` and `agent` are provider
+Seeded from code, not user-created. `manual` and `agent` are provider
 rows too, so that every entitlement has a source and no FK needs to be nullable.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
 | `id` | INTEGER | no | PK | |
-| `key` | TEXT | no | | `UNIQUE`. `steam`, `steam_store`, `gog`, `epic`, `ea`, `ubisoft`, `battlenet`, `igdb`, `rawg`, `galaxy`, `agent`, `manual` |
+| `key` | TEXT | no | | `UNIQUE`. `steam`, `steam_store`, `gog`, `epic`, `ea`, `ubisoft`, `battlenet`, `igdb`, `rawg`, `agent`, `manual` |
 | `kind` | TEXT | no | | `ProviderKind` |
 | `source_kind` | TEXT | no | | `SourceKind` this provider writes with |
 | `licence_class` | TEXT | no | `'redistributable'` | `runtime_only` rows are excluded from every export |
@@ -203,10 +203,10 @@ checks both against the default database path.
 
 #### Local imports and derived accounts
 
-A `galaxy-2.0.db` upload is data read off the user's own machine, which is
-exactly what the `local_agent` rung of rule 5 describes. It differs from the
-future agent only in being a one-off upload instead of a daemon, so it needs no
-new `SourceKind`.
+This section was written for a `galaxy-2.0.db` upload, which was dropped
+(ADR-0038). The rows naming Galaxy stay as the worked example: the local agent
+in "Later" is the same shape, a reporter at the `local_agent` rung writing into
+derived accounts on platforms it has no client for.
 
 | Concern | Decision |
 |---|---|

@@ -199,15 +199,15 @@ Epic moved to M2b.
   Web API key and want a user access token, and a lent game is not the
   user's library. `family_shared` stays in the enum; a lent game can be a
   manual entry
-- [ ] `POST /api/ingest` as a public contract: one payload shape carrying the
+- [x] `POST /api/ingest` as a public contract: one payload shape carrying the
       reporting provider, the account it describes, and a list of items
       (`provider_item_id`, `title`, `ownership_type`, `playtime_minutes`,
       `installed`, `acquired_at`, plus an opaque `raw` object). Versioned,
-      documented, and validated the same way whoever posts it — the Galaxy
-      upload is its first consumer, the local agent in "Later" is the second
-- [ ] Upload and parse `galaxy-2.0.db` — reaches EA, Ubisoft, Battle.net in one
-      step without reverse-engineering three APIs. Posts through `/api/ingest`;
-      the accounts it discovers are created derived, with no credentials
+      documented, and validated the same way whoever posts it — the CSV
+      import is its first consumer, the local agent in "Later" is the second
+- ~~Upload and parse `galaxy-2.0.db`~~ — dropped (#131, ADR-0038): EA,
+  Ubisoft and Battle.net reach the file only through dead community plugins,
+  and the live Xbox integration reports play history, not ownership
 - [ ] CSV/JSON import
 - [x] Multiple accounts per platform, with labels: the backend has allowed it
       since M1, and an accounts screen makes it usable
