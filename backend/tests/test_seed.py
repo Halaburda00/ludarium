@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ludarium.db import Database
 from ludarium.enums import LicenceClass, ProviderKind, SourceKind, SyncStatus
 from ludarium.models import Entitlement, Provider, Work
-from ludarium.seed import ProviderSpec, reconcile_folded_keys, seed_providers
+from ludarium.seed import PROVIDER_SEED, ProviderSpec, reconcile_folded_keys, seed_providers
 
 
 def test_every_provider_column_is_either_seeded_or_runtime() -> None:
@@ -33,7 +33,35 @@ async def test_seeds_the_libraries_the_metadata_providers_and_manual(
 
     providers = {provider.key: provider for provider in await session.scalars(select(Provider))}
 
-    assert set(providers) == {"steam", "epic", "gog", "steam_store", "igdb", "rawg", "manual"}
+    clientless = {
+        "ea",
+        "ubisoft",
+        "battlenet",
+        "xbox",
+        "playstation",
+        "nintendo",
+        "itch",
+        "humble",
+        "amazon",
+        "other",
+    }
+    assert (
+        set(providers)
+        == {
+            "steam",
+            "epic",
+            "gog",
+            "steam_store",
+            "igdb",
+            "rawg",
+            "manual",
+        }
+        | clientless
+    )
+    for key in clientless:
+        # A platform an import can file a copy under, linking to no store.
+        assert providers[key].kind is ProviderKind.PLATFORM
+        assert providers[key].store_url_template is None
     steam = providers["steam"]
     assert steam.kind is ProviderKind.PLATFORM
     assert steam.source_kind is SourceKind.PLATFORM_API
@@ -147,15 +175,8 @@ async def test_a_second_instance_seeds_behind_the_first(db: Database) -> None:
 
     async with db.session_factory() as reader:
         providers = {row.key: row.display_name for row in await reader.scalars(select(Provider))}
-    assert providers == {
-        "steam": "Steam",
-        "epic": "Epic Games",
-        "gog": "GOG",
-        "steam_store": "Steam Store",
-        "igdb": "IGDB",
-        "rawg": "RAWG",
-        "manual": "Manual entry",
-    }
+    assert providers["steam"] == "Steam"
+    assert providers == {spec.key: spec.display_name for spec in PROVIDER_SEED}
 
 
 async def test_a_key_the_running_code_would_not_compute_is_rewritten(
