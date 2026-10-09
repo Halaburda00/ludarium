@@ -274,3 +274,14 @@ async def test_a_switched_off_account_takes_no_report(
     assert "switched off" in answer["detail"]
     # Nothing was swept: switching off is not removing (rule 1).
     assert signed_in.get("/api/entitlements/removed").json() == []
+
+
+def test_a_reported_copy_links_to_no_store(signed_in: TestClient) -> None:
+    send(signed_in, payload())
+
+    works = signed_in.get("/api/works").json()["works"]
+    copies = [copy for work in works for copy in work["entitlements"]]
+
+    # `292030` reads as an appid, but only Steam's own answer makes it one (ADR-0039).
+    assert copies
+    assert {copy["store_url"] for copy in copies} == {None}

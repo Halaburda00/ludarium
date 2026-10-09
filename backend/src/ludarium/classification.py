@@ -94,7 +94,13 @@ async def _library(database: Database) -> list[tuple[str, int]]:
             )
             .join(Account, Account.id == Entitlement.account_id)
             .join(Provider, Provider.id == Account.provider_id)
-            .where(Provider.key == LIBRARY, Entitlement.provider_item_id.is_not(None))
+            .where(
+                Provider.key == LIBRARY,
+                Entitlement.provider_item_id.is_not(None),
+                # A derived account's ids are whatever its report said, not
+                # appids Steam handed over (ADR-0039).
+                Account.is_derived.is_(False),
+            )
             .order_by(Entitlement.id)
         )
         # Not null by the predicate above; mypy cannot see that.
