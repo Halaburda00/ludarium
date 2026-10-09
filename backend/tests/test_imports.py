@@ -71,6 +71,10 @@ def test_a_quoted_newline_stays_inside_its_title() -> None:
         (b"[", "a.json", "not valid JSON"),
         ('[{"title": "Wiedźmin"}]'.encode("cp1250"), "a.json", "UTF-8"),
         (b"title\nGothic\n", "a.xlsx", ".csv or a .json"),
+        # Past Python's 4300-digit bound for an integer.
+        (b'[{"title": "a", "id": ' + b"1" * 5000 + b"}]", "a.json", "not valid JSON"),
+        # Within the size bound, past the recursion limit.
+        (b"[" * 100_000 + b"]" * 100_000, "a.json", "not valid JSON"),
     ],
 )
 def test_a_file_that_cannot_be_read_is_refused_whole(data: bytes, name: str, reason: str) -> None:
@@ -169,3 +173,11 @@ def test_an_id_is_the_key_and_a_repeated_one_is_a_problem() -> None:
     assert [(problem.row, problem.message) for problem in parsed.problems] == [
         (3, "`id` '1' is on row 2 too")
     ]
+
+
+@pytest.mark.parametrize("moment", ["0001-01-01T00:00:00+05:00", "9999-12-31T23:59:59-05:00"])
+def test_a_moment_past_what_utc_can_hold_costs_its_row(moment: str) -> None:
+    parsed = parse(json.dumps([{"title": "a", "acquired_at": moment}]).encode(), "a.json")
+
+    assert parsed.rows == []
+    assert [problem.row for problem in parsed.problems] == [1]

@@ -257,7 +257,10 @@ def _json(data: bytes) -> ParsedFile:
         raise UnreadableFileError("a JSON file has to be UTF-8") from exc
     try:
         document = json.loads(text)
-    except json.JSONDecodeError as exc:
+    # `ValueError` beyond the decode error: an integer past Python's 4300-digit
+    # bound. `RecursionError`: arrays nested thousands deep, which fit in the
+    # size bound.
+    except (ValueError, RecursionError) as exc:
         raise UnreadableFileError(f"the file is not valid JSON: {exc}") from exc
     if not isinstance(document, list):
         raise UnreadableFileError("expected a JSON array of objects, one per game")
@@ -378,8 +381,9 @@ def _moment(value: Any) -> datetime | None:
             moment = datetime.combine(date.fromisoformat(text), time())
         else:
             moment = datetime.fromisoformat(text)
-    except ValueError:
+        # Year 1 at +05:00 is before year 1 in UTC, which `datetime` cannot hold.
+        return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
+    except (ValueError, OverflowError):
         raise ValueError(
             f"`acquired_at` is {text!r}; expected YYYY-MM-DD, DD.MM.YYYY or an ISO 8601 time"
         ) from None
-    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
