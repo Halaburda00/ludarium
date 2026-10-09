@@ -229,3 +229,14 @@ def test_a_run_is_recorded_as_an_import(signed_in: TestClient) -> None:
     triggers = {run["trigger"] for run in signed_in.get("/api/sync/runs").json()["runs"]}
 
     assert triggers == {SyncTrigger.IMPORT.value}
+
+
+async def test_a_file_naming_too_many_platforms_creates_no_account(
+    signed_in: TestClient, session: AsyncSession
+) -> None:
+    rows = "".join(f"Game {n},Shelf {n}\n" for n in range(100))
+
+    answer = upload(signed_in, ("title,platform\n" + rows).encode(), expected=422)
+
+    assert "each would be an account" in answer["detail"]
+    assert await session.scalar(select(func.count()).select_from(Account)) == 0

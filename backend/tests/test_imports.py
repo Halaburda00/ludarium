@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from ludarium.enums import ItemKind, OwnershipType
-from ludarium.imports import NO_PLATFORM, UnreadableFileError, group, parse
+from ludarium.imports import MAX_ACCOUNTS, NO_PLATFORM, UnreadableFileError, group, parse
 
 
 def test_a_csv_is_read_with_its_columns_named_loosely() -> None:
@@ -181,3 +181,14 @@ def test_a_moment_past_what_utc_can_hold_costs_its_row(moment: str) -> None:
 
     assert parsed.rows == []
     assert [problem.row for problem in parsed.problems] == [1]
+
+
+def test_a_file_naming_more_platforms_than_anyone_keeps_is_refused() -> None:
+    rows = "".join(f"Game {n},Shelf {n}\n" for n in range(MAX_ACCOUNTS + 1))
+
+    within = parse(("title,platform\n" + rows.split("\n", 1)[1]).encode(), "a.csv")
+    past = parse(("title,platform\n" + rows).encode(), "a.csv")
+
+    assert len(group(within)) == MAX_ACCOUNTS
+    with pytest.raises(UnreadableFileError, match=f"names {MAX_ACCOUNTS + 1} platforms"):
+        group(past)

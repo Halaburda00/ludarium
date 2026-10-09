@@ -29,6 +29,11 @@ MAX_TITLE: Final = 1024
 # Room for the `id:` prefix inside the contract's 256.
 MAX_ID: Final = 200
 MAX_PLATFORM: Final = 100
+# Every platform name is an account and a run of its own. Far past the shelves
+# and stores one person keeps, and short of a notes column taken for `platform`,
+# which would make one account per row: measured, 2000 of them took 45 s in one
+# request holding the write lock.
+MAX_ACCOUNTS: Final = 50
 
 COLUMNS: Final = (
     "id",
@@ -148,6 +153,8 @@ def group(parsed: ParsedFile) -> list[Group]:
 
     An `id` used twice on one platform is a problem with the later row: the two
     would be one copy, and which of them wins would be an accident of order.
+
+    More than `MAX_ACCOUNTS` platform names refuses the file whole.
     """
 
     groups: dict[str, Group] = {}
@@ -169,6 +176,11 @@ def group(parsed: ParsedFile) -> list[Group]:
             digest = hashlib.sha256(folded.encode()).hexdigest()[:24]
             key = f"title:{digest}" + (f"#{count}" if count > 1 else "")
         target.items.append((key, row))
+    if len(groups) > MAX_ACCOUNTS:
+        raise UnreadableFileError(
+            f"the file names {len(groups)} platforms, and each would be an account; "
+            f"at most {MAX_ACCOUNTS} are taken. Is another column named `platform`?"
+        )
     return list(groups.values())
 
 

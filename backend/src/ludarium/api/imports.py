@@ -200,9 +200,9 @@ async def _read(file: UploadFile) -> tuple[ParsedFile, list[Group]]:
     data = await file.read(MAX_BYTES + 1)
     try:
         parsed = parse(data, file.filename or "")
+        groups = group(parsed)
     except UnreadableFileError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
-    groups = group(parsed)
     return parsed, groups
 
 

@@ -73,7 +73,7 @@ copies each account holds that the file does not list, and only a request
 with `sweep` sends `complete: true`. A file with unread rows cannot sweep:
 the copies behind those rows would be removed for being missing (rule 1).
 
-**Bounded, and nothing else kept.** 16 MB and 50 000 rows per file. `raw`
+**Bounded, and nothing else kept.** 16 MB, 50 000 rows and 50 platform names per file: each name is an account and a run, and 2000 of them took 45 s in one request holding the write lock. `raw`
 holds the row number only; the file's other columns may hold anything, and
 none of it is stored (rule 7).
 
