@@ -3,7 +3,7 @@
 from conftest import make_account, make_work
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ludarium import classification, matching, reviews
+from ludarium import classification, matching, metacritic, reviews
 from ludarium.db import Database
 from ludarium.enums import ItemKind, WorkLinkRole
 from ludarium.models import Account, Entitlement, EntitlementWork, Work
@@ -68,3 +68,17 @@ async def test_an_epic_copy_on_a_derived_account_is_not_matched(
     await session.commit()
 
     assert reported.id not in {work for _, work, _ in await matching._unmatched_epic_games(db)}
+
+
+async def test_only_a_synced_appid_confirms_a_metacritic_match(
+    db: Database, session: AsyncSession
+) -> None:
+    synced, reported = await library(session, "steam")
+    synced.is_matched = reported.is_matched = True
+    await session.commit()
+
+    targets = await metacritic._matched(db)
+
+    assert [(target.work_id, target.appids) for target in targets] == [
+        (synced.id, frozenset({"620"}))
+    ]
