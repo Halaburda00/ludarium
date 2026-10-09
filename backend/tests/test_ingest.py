@@ -285,3 +285,17 @@ def test_a_reported_copy_links_to_no_store(signed_in: TestClient) -> None:
     # `292030` reads as an appid, but only Steam's own answer makes it one (ADR-0039).
     assert copies
     assert {copy["store_url"] for copy in copies} == {None}
+
+
+def test_a_release_year_is_asserted_about_the_work(signed_in: TestClient) -> None:
+    send(signed_in, payload(items=[item("1", "Gothic", release_year=2001)]))
+
+    (work,) = signed_in.get("/api/works").json()["works"]
+
+    assert work["release_year"] == 2001
+
+
+def test_a_release_year_past_the_filters_is_refused(signed_in: TestClient) -> None:
+    answer = send(signed_in, payload(items=[item("1", "Gothic", release_year=1949)]), 422)
+
+    assert "release_year" in str(answer["detail"])

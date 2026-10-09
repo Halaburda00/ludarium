@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ludarium.enums import EntitlementOrigin, ItemKind, OwnershipType, ProviderKind, SyncTrigger
-from ludarium.filters import MAX_MINUTES
+from ludarium.filters import FIRST_YEAR, LAST_YEAR, MAX_MINUTES
 from ludarium.models import Account, Provider, SyncRun
 from ludarium.providers.base import FetchedLibrary, LibraryItem
 from ludarium.sync import sync_account
@@ -60,6 +60,8 @@ class IngestItem(BaseModel):
     playtime_minutes: int | None = Field(default=None, ge=0, le=MAX_MINUTES)
     last_played_at: AwareDatetime | None = None
     acquired_at: AwareDatetime | None = None
+    # Asserted about the work, as `item_kind` is. Optional, so version 1 holds.
+    release_year: int | None = Field(default=None, ge=FIRST_YEAR, le=LAST_YEAR)
     # The `provider_item_id` of the game an add-on belongs to, in this report.
     parent_item_id: Key | None = None
     # Part of the contract, and refused until something may send it: whether a
@@ -83,6 +85,7 @@ class IngestItem(BaseModel):
             playtime_minutes=self.playtime_minutes,
             last_played_at=_utc(self.last_played_at),
             acquired_at=_utc(self.acquired_at),
+            release_year=self.release_year,
             parent_item_id=self.parent_item_id,
             raw=self.raw,
         )

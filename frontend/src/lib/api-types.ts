@@ -751,6 +751,8 @@ export interface components {
             raw?: {
                 [key: string]: unknown;
             };
+            /** Release Year */
+            release_year?: number | null;
             /** Title */
             title: string;
         };

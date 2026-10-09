@@ -510,6 +510,19 @@
             "title": "Raw",
             "type": "object"
           },
+          "release_year": {
+            "anyOf": [
+              {
+                "maximum": 2100.0,
+                "minimum": 1950.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Year"
+          },
           "title": {
             "maxLength": 1024,
             "title": "Title",
