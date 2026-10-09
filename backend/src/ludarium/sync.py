@@ -829,14 +829,19 @@ async def _classify(
     answer does not, and its items say nothing here — a separate step asks the
     store (ADR-0020). Provenance like any other, so a user's own label still
     wins (rules 3 and 9), and the matcher, which takes only works known to be
-    games, can take Epic's.
+    games, can take Epic's. A release year goes down the same way, and only an
+    import sends one.
     """
 
-    kinds = {
-        entitlement.id: item.item_kind
-        for entitlement, item in zip(entitlements, items, strict=True)
-        if item.item_kind is not None
-    }
+    kinds: dict[int, dict[str, ScalarValue | None]] = {}
+    for entitlement, item in zip(entitlements, items, strict=True):
+        said: dict[str, ScalarValue | None] = {}
+        if item.item_kind is not None:
+            said["item_kind"] = item.item_kind.value
+        if item.release_year is not None:
+            said["release_year"] = item.release_year
+        if said:
+            kinds[entitlement.id] = said
     if not kinds:
         return
     works: dict[int, int] = {}
@@ -849,7 +854,7 @@ async def _classify(
         )
         for entitlement_id, work_id in rows:
             works[entitlement_id] = work_id
-    for entitlement_id, kind in kinds.items():
+    for entitlement_id, said in kinds.items():
         work_id = works.get(entitlement_id)
         if work_id is None:
             continue
@@ -859,14 +864,14 @@ async def _classify(
             entity_id=work_id,
             source_kind=reporter.source_kind,
             source_ref=reporter.key,
-            values={"item_kind": kind.value},
+            values=said,
             run_id=run.id,
         )
         await resolve(
             session,
             entity_type=EntityType.WORK,
             entity_id=work_id,
-            fields=["item_kind"],
+            fields=list(said),
             recorded=recorded,
         )
 

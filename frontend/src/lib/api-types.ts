@@ -293,6 +293,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply
+         * @description Import every group the preview offered, one run each.
+         *
+         *     A group failing does not stop the others, as one platform's outage does not
+         *     stop another's sync (rule 4). `sweep` marks removed what an account holds
+         *     and the file does not list, and is refused for a file with unread rows.
+         */
+        post: operations["apply_api_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview
+         * @description What the file holds and where it would go. Writes nothing.
+         */
+        post: operations["preview_api_import_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ingest": {
         parameters: {
             query?: never;
@@ -610,6 +654,21 @@ export interface components {
          * @enum {string}
          */
         Addons: "fold" | "separate";
+        /** Body_apply_api_import_post */
+        Body_apply_api_import_post: {
+            /** File */
+            file: string;
+            /**
+             * Sweep
+             * @default false
+             */
+            sweep: boolean;
+        };
+        /** Body_preview_api_import_preview_post */
+        Body_preview_api_import_preview_post: {
+            /** File */
+            file: string;
+        };
         /**
          * CompanyRole
          * @enum {string}
@@ -695,6 +754,8 @@ export interface components {
             /** Slug */
             slug: string;
         };
+        /** @enum {string} */
+        GroupStatus: "new" | "existing" | "connected" | "switched_off";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -720,6 +781,82 @@ export interface components {
          * @enum {string}
          */
         Hidden: "exclude" | "include" | "only";
+        /**
+         * ImportGroup
+         * @description One account the file fills, and what importing into it would do.
+         */
+        ImportGroup: {
+            /** Account Id */
+            account_id: number | null;
+            /** Items */
+            items: number;
+            /** Label */
+            label: string;
+            /** Provider */
+            provider: string;
+            /** Provider Name */
+            provider_name: string;
+            status: components["schemas"]["GroupStatus"];
+            /** Would Remove */
+            would_remove: number;
+        };
+        /** ImportOutcome */
+        ImportOutcome: {
+            /** Detail */
+            detail: string | null;
+            /** Label */
+            label: string;
+            /** Provider */
+            provider: string;
+            run: components["schemas"]["SyncRunResponse"] | null;
+            status: components["schemas"]["GroupStatus"];
+        };
+        /** ImportPreview */
+        ImportPreview: {
+            /** Can Sweep */
+            can_sweep: boolean;
+            /** Columns */
+            columns: string[];
+            /** Delimiter */
+            delimiter: string | null;
+            /** Encoding */
+            encoding: string | null;
+            /** Format */
+            format: string;
+            /** Groups */
+            groups: components["schemas"]["ImportGroup"][];
+            /** Ignored Columns */
+            ignored_columns: string[];
+            /** Problem Count */
+            problem_count: number;
+            /** Problems */
+            problems: components["schemas"]["ImportProblem"][];
+            /** Rows Read */
+            rows_read: number;
+            /** Sample */
+            sample: components["schemas"]["ImportSample"][];
+        };
+        /** ImportProblem */
+        ImportProblem: {
+            /** Message */
+            message: string;
+            /** Row */
+            row: number;
+        };
+        /** ImportResult */
+        ImportResult: {
+            /** Outcomes */
+            outcomes: components["schemas"]["ImportOutcome"][];
+        };
+        /** ImportSample */
+        ImportSample: {
+            /** Platform */
+            platform: string;
+            /** Row */
+            row: number;
+            /** Title */
+            title: string;
+        };
         /**
          * IngestAccount
          * @description The account a report describes: on which platform, and which one there.
@@ -751,6 +888,8 @@ export interface components {
             raw?: {
                 [key: string]: unknown;
             };
+            /** Release Year */
+            release_year?: number | null;
             /** Title */
             title: string;
         };
@@ -1695,6 +1834,76 @@ export interface operations {
                 };
                 content: {
                     "image/jpeg": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_api_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_apply_api_import_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_api_import_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                ludarium_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_preview_api_import_preview_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportPreview"];
                 };
             };
             /** @description Validation Error */

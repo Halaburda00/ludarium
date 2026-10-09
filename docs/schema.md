@@ -100,7 +100,7 @@ rows too, so that every entitlement has a source and no FK needs to be nullable.
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
 | `id` | INTEGER | no | PK | |
-| `key` | TEXT | no | | `UNIQUE`. `steam`, `steam_store`, `gog`, `epic`, `ea`, `ubisoft`, `battlenet`, `igdb`, `rawg`, `galaxy`, `agent`, `manual` |
+| `key` | TEXT | no | | `UNIQUE`. `steam`, `steam_store`, `gog`, `epic`, `igdb`, `rawg`, `galaxy`, `agent`, `manual`, and the platforms only an import fills: `ea`, `ubisoft`, `battlenet`, `xbox`, `playstation`, `nintendo`, `itch`, `humble`, `amazon`, `other` (ADR-0039) |
 | `kind` | TEXT | no | | `ProviderKind` |
 | `source_kind` | TEXT | no | | `SourceKind` this provider writes with |
 | `licence_class` | TEXT | no | `'redistributable'` | `runtime_only` rows are excluded from every export |
@@ -214,7 +214,7 @@ new `SourceKind`.
 | Who owns the entitlements | Derived accounts on `ea`, `ubisoft`, `battlenet` (`kind = platform`), created with `is_derived = true` and no credentials |
 | Which `source_kind` lands on the provenance rows | The **reporting** provider's, not the account's. A Galaxy import writes `local_agent` rows even though the account belongs to `battlenet`. `provider.source_kind` on those three says `platform_api`, describing what they would write if we ever add real clients |
 | `sync_run` shape | `provider_id = galaxy`, `account_id` = the derived account. This is the one case where a run's provider differs from its account's provider |
-| CSV/JSON import | Runs against the `manual` provider with `source_kind = manual` and `origin = import`. It is the user asserting something, with no machine behind it |
+| CSV/JSON import | Runs against the `manual` provider with `source_kind = manual` and `origin = import`. It is the user asserting something, with no machine behind it. One derived account per platform name the file uses, `external_account_id = import:<folded name>` (ADR-0039) |
 | Re-import | The same upsert key as any sync, so a second upload updates rather than duplicates |
 | Removal | Only a report that says it is the whole library (`complete: true`) sweeps. A partial one never marks anything removed (ADR-0035) |
 | Entry point | `POST /api/ingest`, applied by `sync_account` with `trigger = ingest` and `origin = import`. A report about an account the user connected is refused (ADR-0035) |

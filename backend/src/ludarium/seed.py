@@ -56,6 +56,30 @@ PROVIDER_SEED: tuple[ProviderSpec, ...] = (
         # No store link: GOG's pages are keyed by a slug, and `/game/{id}`
         # sends the visitor to the catalogue's front page (ADR-0037).
     ),
+    *(
+        # Platforms with no client of ours, which only an import fills (#130).
+        # No store links: what an import calls an id is the file's, not the
+        # store's (ADR-0039).
+        ProviderSpec(
+            key=key,
+            kind=ProviderKind.PLATFORM,
+            source_kind=SourceKind.PLATFORM_API,
+            display_name=name,
+        )
+        for key, name in (
+            ("ea", "EA app"),
+            ("ubisoft", "Ubisoft Connect"),
+            ("battlenet", "Battle.net"),
+            ("xbox", "Xbox"),
+            ("playstation", "PlayStation"),
+            ("nintendo", "Nintendo"),
+            ("itch", "itch.io"),
+            ("humble", "Humble"),
+            ("amazon", "Amazon Games"),
+            # Whatever a file names that is none of the above: a shelf, a box.
+            ("other", "Other"),
+        )
+    ),
     ProviderSpec(
         key="igdb",
         kind=ProviderKind.METADATA,

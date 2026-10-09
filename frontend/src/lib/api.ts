@@ -23,15 +23,18 @@ export class ApiError extends Error {
 type Options = {
   method?: string
   body?: unknown
+  // A file upload. The browser writes its own `Content-Type`, boundary included.
+  form?: FormData
   signal?: AbortSignal
 }
 
 export async function api<T>(path: string, options: Options = {}): Promise<T> {
+  const json = options.body !== undefined
   const response = await fetch(path, {
     method: options.method ?? 'GET',
     credentials: 'include',
-    headers: options.body === undefined ? undefined : { 'Content-Type': 'application/json' },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    headers: json ? { 'Content-Type': 'application/json' } : undefined,
+    body: json ? JSON.stringify(options.body) : options.form,
     signal: options.signal,
   })
 
