@@ -7,6 +7,7 @@ import RequireSession from '@/components/RequireSession'
 import { createClient } from '@/lib/client'
 import { useAppliedTheme } from '@/lib/theme'
 import Accounts from '@/routes/Accounts'
+import Import from '@/routes/Import'
 import Library from '@/routes/Library'
 import WorkPage from '@/routes/WorkPage'
 import Login from '@/routes/Login'
@@ -21,6 +22,8 @@ export function Router() {
       <Route path="/login" element={<Login />} />
       <Route element={<RequireSession />}>
         <Route path="/onboarding" element={<Onboarding />} />
+        {/* Without `needsAccount`: a file can be where a library starts. */}
+        <Route path="/import" element={<Import />} />
       </Route>
       <Route element={<RequireSession needsAccount />}>
         <Route path="/library" element={<Library />} />

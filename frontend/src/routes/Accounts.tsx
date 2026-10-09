@@ -70,6 +70,11 @@ export default function Accounts() {
       <div className="grid gap-2">
         <h1 className="font-heading text-2xl font-semibold">{t('accounts.title')}</h1>
         <p className="text-sm text-muted-foreground">{t('accounts.intro')}</p>
+        {demo ? null : (
+          <Link to="/import" className="text-sm text-primary underline-offset-4 hover:underline">
+            {t('accounts.importLink')}
+          </Link>
+        )}
       </div>
       {update.isError ? <Notice>{update.error.detail}</Notice> : null}
       {body}

@@ -583,3 +583,36 @@ export function useDeleteManualEntry() {
     onSuccess: () => client.invalidateQueries({ queryKey: worksKey, refetchType: 'none' }),
   })
 }
+
+export type ImportPreview = Schemas['ImportPreview']
+export type ImportResult = Schemas['ImportResult']
+
+function importForm(file: File, sweep = false): FormData {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('sweep', String(sweep))
+  return form
+}
+
+/** What a file holds and where each row would go (#130). Writes nothing. */
+export function usePreviewImport() {
+  return useMutation<ImportPreview, ApiError, File>({
+    mutationFn: (file) =>
+      api<ImportPreview>('/api/import/preview', { method: 'POST', form: importForm(file) }),
+  })
+}
+
+/** Import a previewed file. The server reads it again: nothing was kept between the two. */
+export function useApplyImport() {
+  const client = useQueryClient()
+  return useMutation<ImportResult, ApiError, { file: File; sweep: boolean }>({
+    mutationFn: ({ file, sweep }) =>
+      api<ImportResult>('/api/import', { method: 'POST', form: importForm(file, sweep) }),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: worksKey }),
+        client.invalidateQueries({ queryKey: accountsKey }),
+      ])
+    },
+  })
+}

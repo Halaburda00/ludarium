@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Field, Notice } from '@/components/ui/field'
@@ -48,6 +48,12 @@ export default function Onboarding() {
             {t('onboarding.repairing', { label: params.get('label') || label, id: repairing })}
           </p>
         ) : null}
+        {repairing ? null : (
+          // A library with no account to sync can still start from a file.
+          <Link to="/import" className="text-sm text-primary underline-offset-4 hover:underline">
+            {t('onboarding.orImport')}
+          </Link>
+        )}
       </header>
 
       <div role="group" aria-label={t('onboarding.platform')} className="flex gap-2">
