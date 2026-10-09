@@ -143,7 +143,8 @@ function Preview({
     (group) => group.status === 'new' || group.status === 'existing',
   )
   const games = importable.reduce((total, group) => total + group.items, 0)
-  const removable = importable.reduce((total, group) => total + group.would_remove, 0)
+  // Connected platforms count too: a sweep retires what an earlier import put there.
+  const removable = preview.groups.reduce((total, group) => total + group.would_remove, 0)
   const more = preview.problem_count - preview.problems.length
 
   return (

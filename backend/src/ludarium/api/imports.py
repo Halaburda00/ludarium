@@ -69,7 +69,8 @@ class ImportGroup(BaseModel):
     status: GroupStatus
     account_id: int | None
     # Copies the account holds that the file does not list: what a removal
-    # sweep would mark removed. Zero for a new account.
+    # sweep would mark removed. Zero for a new account. For a `connected`
+    # group, every copy an earlier import left on that platform.
     would_remove: int
 
 
@@ -157,7 +158,12 @@ async def apply(
             provider=plan.provider, label=plan.label, status=plan.status, run=None, detail=None
         )
         outcomes.append(outcome)
-        if plan.status in ("connected", "switched_off"):
+        if plan.status == "switched_off":
+            continue
+        # A connected platform's rows are its sync's. What an earlier import
+        # put on it is retired only when asked, by reporting it empty and whole.
+        retire = plan.status == "connected"
+        if retire and not (sweep and plan.would_remove):
             continue
         report = IngestReport(
             version=1,
@@ -182,6 +188,7 @@ async def apply(
                     raw={"row": row.row},
                 )
                 for key, row in rows.items
+                if not retire
             ],
         )
         try:
@@ -246,8 +253,10 @@ async def _plan(
         else:
             state = "existing"
         would_remove = 0
-        if account is not None and state == "existing":
-            listed = {key for key, _ in each.items}
+        if account is not None and account.is_active and state in ("existing", "connected"):
+            # Under a connected platform the import's own account is superseded
+            # whole: its sync lists these games now, so none of them is kept.
+            listed = {key for key, _ in each.items} if state == "existing" else set()
             held = await session.scalars(
                 select(Entitlement.provider_item_id).where(
                     Entitlement.account_id == account.id,

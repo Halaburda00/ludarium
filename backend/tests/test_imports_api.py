@@ -240,3 +240,20 @@ async def test_a_file_naming_too_many_platforms_creates_no_account(
 
     assert "each would be an account" in answer["detail"]
     assert await session.scalar(select(func.count()).select_from(Account)) == 0
+
+
+async def test_connecting_a_platform_lets_a_sweep_retire_what_an_import_put_there(
+    signed_in: TestClient, session: AsyncSession
+) -> None:
+    upload(signed_in, LIBRARY)
+    await connect_steam(session)
+
+    steam = by_label(preview(signed_in, LIBRARY), "groups")["Steam"]
+    kept = by_label(upload(signed_in, LIBRARY), "outcomes")["Steam"]
+    retired = by_label(upload(signed_in, LIBRARY, sweep=True), "outcomes")["Steam"]
+
+    assert (steam["status"], steam["would_remove"]) == ("connected", 1)
+    assert kept["run"] is None
+    assert (retired["status"], retired["run"]["items_removed"]) == ("connected", 1)
+    removed = signed_in.get("/api/entitlements/removed").json()
+    assert [entry["provider_title"] for entry in removed] == ["Portal 2"]

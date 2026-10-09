@@ -39,8 +39,10 @@ accounts. A row with no platform goes to an account labelled "Imported".
 own sync is the better source, and a second copy of every game would be noise.
 With none connected the rows land in a derived account on that platform, as a
 file is then the only word on it. Connecting the platform later does not take
-that account over, because its id is `import:steam`, not a SteamID: its copies
-stay until the user switches it off.
+that account over, because its id is `import:steam`, not a SteamID, so its
+copies would sit beside the synced ones. The preview counts them, and an import
+with removal asked for reports that account empty and whole, which moves them
+to removed games where they can be restored.
 
 **A derived account's ids are its report's.** Classification, review scores,
 layer 1 matching and store links all read an entitlement's `provider_item_id`
