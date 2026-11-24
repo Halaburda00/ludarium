@@ -23,8 +23,8 @@ current whether or not the gaming PC is switched on.
 
 A second goal comes with it. Matching titles across storefronts requires a
 dataset of cross-platform aliases, and no openly licensed one exists.
-`ludamatch-data` is built as a public CC0 dataset so that the next project does
-not have to solve this again.
+`ludamatch-data` is planned as a public CC0 dataset so that the next project
+does not have to solve this again.
 
 ## Prior art
 
