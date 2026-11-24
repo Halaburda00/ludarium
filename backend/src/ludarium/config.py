@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     sync_intervals: Annotated[dict[str, Annotated[int, Field(ge=0)]], NoDecode] = Field(
         default_factory=dict
     )
+    # The built frontend (`frontend/dist`), served for every path the API does
+    # not claim. Unset in development, where `pnpm dev` serves it instead.
+    frontend_dir: Path | None = None
     # A made-up library on an empty database, shown read-only to anyone who
     # opens it, signed in without a password (`ludarium.demo`).
     demo: bool = False
