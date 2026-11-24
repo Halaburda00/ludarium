@@ -168,6 +168,14 @@ def test_a_platform_name_that_grows_when_folded_keeps_its_account_id_in_bounds()
     assert (first.label, len(first.items)) == (name, 2)
 
 
+def test_a_platform_name_that_folds_long_but_fits_keeps_its_readable_id() -> None:
+    # "ß" folds to "ss": 200 characters, within the contract, and the id an
+    # earlier import already wrote.
+    (only,) = group(parse(("title,platform\nA," + "ß" * MAX_PLATFORM + "\n").encode(), "a.csv"))
+
+    assert only.external_account_id == "import:" + "ss" * MAX_PLATFORM
+
+
 def test_two_copies_of_one_title_stay_two_and_keep_their_keys() -> None:
     data = b"title,platform\nDoom,Shelf\ndoom ,Shelf\nDoom,Other shelf\n"
 
