@@ -139,6 +139,39 @@
         "title": "Addons",
         "type": "string"
       },
+      "Body_apply_api_import_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "sweep": {
+            "default": false,
+            "title": "Sweep",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_apply_api_import_post",
+        "type": "object"
+      },
+      "Body_preview_api_import_preview_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_preview_api_import_preview_post",
+        "type": "object"
+      },
       "CompanyRole": {
         "enum": [
           "developer",
@@ -349,6 +382,15 @@
         "title": "GenreSummary",
         "type": "object"
       },
+      "GroupStatus": {
+        "enum": [
+          "new",
+          "existing",
+          "connected",
+          "switched_off"
+        ],
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -403,6 +445,250 @@
         ],
         "title": "Hidden",
         "type": "string"
+      },
+      "ImportGroup": {
+        "description": "One account the file fills, and what importing into it would do.",
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_name": {
+            "title": "Provider Name",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/GroupStatus"
+          },
+          "would_remove": {
+            "title": "Would Remove",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider",
+          "provider_name",
+          "label",
+          "items",
+          "status",
+          "account_id",
+          "would_remove"
+        ],
+        "title": "ImportGroup",
+        "type": "object"
+      },
+      "ImportOutcome": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SyncRunResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/GroupStatus"
+          }
+        },
+        "required": [
+          "provider",
+          "label",
+          "status",
+          "run",
+          "detail"
+        ],
+        "title": "ImportOutcome",
+        "type": "object"
+      },
+      "ImportPreview": {
+        "properties": {
+          "can_sweep": {
+            "title": "Can Sweep",
+            "type": "boolean"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "delimiter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delimiter"
+          },
+          "encoding": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Encoding"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/ImportGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "ignored_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ignored Columns",
+            "type": "array"
+          },
+          "problem_count": {
+            "title": "Problem Count",
+            "type": "integer"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/ImportProblem"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "rows_read": {
+            "title": "Rows Read",
+            "type": "integer"
+          },
+          "sample": {
+            "items": {
+              "$ref": "#/components/schemas/ImportSample"
+            },
+            "title": "Sample",
+            "type": "array"
+          }
+        },
+        "required": [
+          "format",
+          "encoding",
+          "delimiter",
+          "columns",
+          "ignored_columns",
+          "rows_read",
+          "problems",
+          "problem_count",
+          "sample",
+          "groups",
+          "can_sweep"
+        ],
+        "title": "ImportPreview",
+        "type": "object"
+      },
+      "ImportProblem": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "row": {
+            "title": "Row",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "row",
+          "message"
+        ],
+        "title": "ImportProblem",
+        "type": "object"
+      },
+      "ImportResult": {
+        "properties": {
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/ImportOutcome"
+            },
+            "title": "Outcomes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcomes"
+        ],
+        "title": "ImportResult",
+        "type": "object"
+      },
+      "ImportSample": {
+        "properties": {
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "row": {
+            "title": "Row",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "row",
+          "title",
+          "platform"
+        ],
+        "title": "ImportSample",
+        "type": "object"
       },
       "IngestAccount": {
         "additionalProperties": false,
@@ -509,6 +795,19 @@
             "additionalProperties": true,
             "title": "Raw",
             "type": "object"
+          },
+          "release_year": {
+            "anyOf": [
+              {
+                "maximum": 2100.0,
+                "minimum": 1950.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Year"
           },
           "title": {
             "maxLength": 1024,
@@ -2667,6 +2966,126 @@
         "summary": "Image",
         "tags": [
           "images"
+        ]
+      }
+    },
+    "/api/import": {
+      "post": {
+        "description": "Import every group the preview offered, one run each.\n\nA group failing does not stop the others, as one platform's outage does not\nstop another's sync (rule 4). `sweep` marks removed what an account holds\nand the file does not list, and is refused for a file with unread rows.",
+        "operationId": "apply_api_import_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_apply_api_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply",
+        "tags": [
+          "import"
+        ]
+      }
+    },
+    "/api/import/preview": {
+      "post": {
+        "description": "What the file holds and where it would go. Writes nothing.",
+        "operationId": "preview_api_import_preview_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ludarium_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ludarium Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_preview_api_import_preview_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "import"
         ]
       }
     },

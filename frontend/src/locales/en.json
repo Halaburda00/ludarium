@@ -53,7 +53,8 @@
       "working": "Signing in to GOG…"
     },
     "repairing": "Signing in again for {{label}} ({{id}}).",
-    "otherAccount": "That sign-in was for another {{provider}} account. It is connected as an account of its own; sign in with the one you meant to repair to fix that one."
+    "otherAccount": "That sign-in was for another {{provider}} account. It is connected as an account of its own; sign in with the one you meant to repair to fix that one.",
+    "orImport": "Or import a list of games from a file"
   },
   "library": {
     "title": "Library",
@@ -357,6 +358,71 @@
       "success": "Working",
       "partial": "Partly synced",
       "failed": "Failing"
+    },
+    "importLink": "Import a file"
+  },
+  "import": {
+    "title": "Import a file",
+    "intro": "Bring in games kept in a spreadsheet or exported from another tool. The file is read and shown to you first; nothing is added until you confirm. Importing the same file again updates what it added instead of adding it twice.",
+    "demo": "The demo is read-only, so it imports nothing.",
+    "file": "CSV or JSON file",
+    "reading": "Reading the file…",
+    "preview": "What the file holds",
+    "read_one": "Read {{count}} row as {{format}}, {{encoding}}.",
+    "read_other": "Read {{count}} rows as {{format}}, {{encoding}}.",
+    "delimiter": "Columns separated by “{{delimiter}}”.",
+    "tab": "tab",
+    "ignored": "Columns that are not used: {{columns}}.",
+    "problems_one": "{{count}} row could not be read and will be left out.",
+    "problems_other": "{{count}} rows could not be read and will be left out.",
+    "problem": "Row {{row}}: {{message}}",
+    "moreProblems_one": "…and {{count}} more.",
+    "moreProblems_other": "…and {{count}} more.",
+    "sample": "The first rows, as they were read",
+    "row": "Row",
+    "account": "{{provider}} · {{label}}",
+    "status": {
+      "new_one": "{{count}} game, into a new account",
+      "new_other": "{{count}} games, into a new account",
+      "existing_one": "{{count}} game, updating this account",
+      "existing_other": "{{count}} games, updating this account",
+      "connected_one": "{{count}} game skipped: {{provider}} syncs your library on its own",
+      "connected_other": "{{count}} games skipped: {{provider}} syncs your library on its own",
+      "switched_off_one": "{{count}} game skipped: this account is switched off",
+      "switched_off_other": "{{count}} games skipped: this account is switched off"
+    },
+    "sweep": "Also remove what this file no longer lists",
+    "sweepHint_one": "Moves {{count}} copy to removed games, where it can be restored. Only accounts this file names are touched.",
+    "sweepHint_other": "Moves {{count}} copies to removed games, where they can be restored. Only accounts this file names are touched.",
+    "sweepUnavailable": "Not available while some rows could not be read: they would be removed for being missing.",
+    "apply_one": "Import {{count}} game",
+    "apply_other": "Import {{count}} games",
+    "done": "Imported",
+    "counts": "{{added}} added, {{updated}} updated, {{removed}} removed",
+    "failed": "not imported: {{reason}}",
+    "skipped": {
+      "connected": "skipped, its platform syncs on its own",
+      "switched_off": "skipped, the account is switched off",
+      "new": "skipped",
+      "existing": "skipped"
+    },
+    "toLibrary": "Go to the library",
+    "format": {
+      "title": "What the file should look like",
+      "intro": "A CSV with a header row, or a JSON array of objects with the same names. Only title is required; column names are matched regardless of case.",
+      "encoding": "CSV may be UTF-8, UTF-16 or Windows-1250 (what Excel saves on Polish Windows), separated by commas, semicolons or tabs. JSON has to be UTF-8.",
+      "columns": {
+        "title": "The game's name. Required.",
+        "platform": "Where you own it: Steam, EA app, Ubisoft, Battle.net, Xbox, PlayStation, a shelf. Each different name becomes an account of its own.",
+        "id": "Optional. Your own id for the row; with it, a re-import finds the row even if its title changed.",
+        "ownership_type": "owned, physical, free, subscription, family_shared or trial. Owned if empty.",
+        "item_kind": "game, dlc, demo, playtest, soundtrack, video, tool or mod.",
+        "playtime_minutes": "Time played, in whole minutes.",
+        "acquired_at": "When you got it: 2024-05-01, 01.05.2024 or an ISO 8601 time.",
+        "release_year": "The year the game came out.",
+        "titleName": "Title",
+        "platformName": "Platform"
+      }
     }
   }
 }

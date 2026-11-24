@@ -180,6 +180,10 @@ async def _unmatched_games(database: Database, library: str) -> list[tuple[str, 
             .where(
                 Provider.key == library,
                 Entitlement.provider_item_id.is_not(None),
+                # A derived account's ids are whatever its report said, and
+                # anchoring on one would be a guess presented as a hard id
+                # (rule 6, ADR-0039).
+                Account.is_derived.is_(False),
                 Work.is_matched.is_(False),
                 Work.item_kind == ItemKind.GAME,
             )
@@ -495,6 +499,7 @@ async def _unmatched_epic_games(database: Database) -> list[tuple[str, int, str]
             .join(Provider, Provider.id == Account.provider_id)
             .where(
                 Provider.key == EPIC,
+                Account.is_derived.is_(False),
                 Work.is_matched.is_(False),
                 Work.item_kind == ItemKind.GAME,
             )
@@ -621,7 +626,9 @@ async def _without_steam_appid(database: Database) -> dict[int, int]:
             .join(Entitlement, Entitlement.id == EntitlementWork.entitlement_id)
             .join(Account, Account.id == Entitlement.account_id)
             .join(Provider, Provider.id == Account.provider_id)
-            .where(Provider.key == LIBRARY)
+            # A reported copy holds no appid Steam vouched for, so it does not
+            # stand in for one (ADR-0039).
+            .where(Provider.key == LIBRARY, Account.is_derived.is_(False))
         )
         has_appid = select(ExternalId.entity_id).where(
             ExternalId.namespace == STEAM_NAMESPACE, ExternalId.entity_type == EntityType.WORK

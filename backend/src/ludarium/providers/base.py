@@ -119,6 +119,9 @@ class LibraryItem:
     playtime_minutes: int | None = None
     last_played_at: datetime | None = None
     acquired_at: datetime | None = None
+    # What the source says of the work, where it says anything. No platform
+    # client does; an import can, at the reporter's rung (rule 5).
+    release_year: int | None = None
     # The platform's id for the game an add-on belongs to, on the same account.
     # None where the platform does not say, which for a game is always.
     parent_item_id: str | None = None

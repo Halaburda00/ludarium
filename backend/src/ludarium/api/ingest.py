@@ -1,5 +1,6 @@
 """`POST /api/ingest`: a library reported by something that is not a platform client (ADR-0035)."""
 
+from collections.abc import Mapping
 from typing import Final
 
 from fastapi import APIRouter, HTTPException, status
@@ -50,23 +51,30 @@ async def report(
 
 
 class BodyLimit:
-    """Refuse an ingest request past `MAX_BYTES`, before FastAPI buffers it to validate.
+    """Refuse a request past its path's bound, before FastAPI buffers it to validate.
 
     The declared length is checked first; a body sent without one, or longer
-    than it said, is counted as it arrives. Only this path: everything else the
-    API takes is a few fields.
+    than it said, is counted as it arrives. Only this path and those in
+    `others`, the ones that take a library: everything else the API takes is a
+    few fields.
     """
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, others: Mapping[str, int] | None = None) -> None:
         self.app = app
+        self.others = dict(others or {})
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope["path"] != PATH:
+        limit = None
+        if scope["type"] == "http":
+            # This path's bound read per request rather than captured, as it was
+            # before `others` existed.
+            limit = MAX_BYTES if scope["path"] == PATH else self.others.get(scope["path"])
+        if limit is None:
             await self.app(scope, receive, send)
             return
         declared = dict(scope["headers"]).get(b"content-length", b"")
-        if declared.isdigit() and int(declared) > MAX_BYTES:
-            await _too_large()(scope, receive, send)
+        if declared.isdigit() and int(declared) > limit:
+            await _too_large(limit)(scope, receive, send)
             return
 
         received = 0
@@ -76,17 +84,20 @@ class BodyLimit:
             message = await receive()
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
-                if received > MAX_BYTES:
+                if received > limit:
                     # Raised inside FastAPI's body read, which lets an
                     # HTTPException through as itself.
-                    raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, _TOO_LARGE)
+                    raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, _too_large_text(limit))
             return message
 
         await self.app(scope, counted, send)
 
 
-_TOO_LARGE: Final = f"an ingest report is at most {MAX_BYTES // (1024 * 1024)} MB"
+def _too_large_text(limit: int) -> str:
+    return f"this request is at most {limit // (1024 * 1024)} MB"
 
 
-def _too_large() -> JSONResponse:
-    return JSONResponse({"detail": _TOO_LARGE}, status_code=status.HTTP_413_CONTENT_TOO_LARGE)
+def _too_large(limit: int) -> JSONResponse:
+    return JSONResponse(
+        {"detail": _too_large_text(limit)}, status_code=status.HTTP_413_CONTENT_TOO_LARGE
+    )

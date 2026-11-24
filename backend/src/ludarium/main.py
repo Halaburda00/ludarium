@@ -17,6 +17,7 @@ from ludarium.api import (
     genres,
     health,
     images,
+    imports,
     ingest,
     manual,
     views,
@@ -160,7 +161,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(entitlements.router, prefix="/api", dependencies=guarded)
     app.include_router(manual.router, prefix="/api", dependencies=guarded)
     app.include_router(ingest.router, prefix="/api", dependencies=guarded)
-    app.add_middleware(ingest.BodyLimit)
+    app.include_router(imports.router, prefix="/api", dependencies=guarded)
+    app.add_middleware(
+        ingest.BodyLimit,
+        others={imports.PREVIEW_PATH: imports.UPLOAD_BYTES, imports.PATH: imports.UPLOAD_BYTES},
+    )
     return app
 
 
