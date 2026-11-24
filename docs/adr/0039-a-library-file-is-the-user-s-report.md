@@ -87,3 +87,8 @@ none of it is stored (rule 7).
 - Rows that change their title and carry no `id` are a new copy on the next
   import, and the old one is swept only if the user asks.
 - Nothing runs enrichment after an import, as after any ingest (ADR-0035).
+- An import's `item_kind` and `release_year` rows are the same provenance rows
+  the manual entry form writes (`manual`, `manual`). No path puts an imported
+  copy and a hand-entered one on one work today, since layer 1 skips derived
+  accounts. Whatever merges them in M6 has to give the import its own
+  `source_ref` first, or a re-import overwrites the user's own year and kind.
