@@ -191,6 +191,10 @@ def _account(platform: str) -> tuple[str, str, str]:
     provider = PLATFORMS.get(folded, OTHER)
     # The folded name rather than the provider: "EA" and "Origin" in one file
     # are two lists the user kept apart, and they stay two accounts.
+    if len(folded) > MAX_PLATFORM:
+        # Casefolding can triple a character ("ΐ"), which would carry the id
+        # past the contract's 256; a digest is as stable across imports.
+        folded = "sha256:" + hashlib.sha256(folded.encode()).hexdigest()
     return provider, f"import:{folded}", platform or NO_PLATFORM
 
 
