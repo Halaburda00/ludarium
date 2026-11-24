@@ -38,8 +38,8 @@ Alternatives considered:
   who will never run Ludarium.
 - Wikidata's coverage of games is uneven — thin for small releases, itch.io
   titles and non-English names. Layer 2 will miss its ~20% target on some
-  libraries, and the honest response is the measured per-layer numbers in M6,
-  not a better claim.
+  libraries, and the honest response is the measured per-layer numbers once
+  layer 2 is built, not a better claim.
 - Generation is an offline pipeline that has to be maintained and re-run, and
   `dataset_version` discipline is what makes a stale import diagnosable.
 - Because the data is CC0, it can ship in the image, which keeps layer 2 working

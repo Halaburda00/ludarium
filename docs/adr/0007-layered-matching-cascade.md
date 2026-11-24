@@ -46,7 +46,9 @@ Alternatives considered:
 ## Consequences
 
 - Each layer is measurable on its own, and the cheap layers carry the volume.
-  The M6 goal of ~95% with no manual work is checkable rather than claimable.
+  A coverage goal such as ~95% with no manual work is checkable rather than
+  claimable. (M6 was scoped down to layer 3 on 2026-11-24; layers 2, 4 and the
+  retriever wait in the roadmap's "Later".)
 - Five layers is five things to build, test and keep consistent, and a bug in an
   early layer silently starves the later ones of the cases they were tuned for.
 - The manual queue is work pushed onto the user. An empty queue is only

@@ -53,7 +53,7 @@ ludarium/
 │   ├── tests/
 │   └── pyproject.toml
 ├── frontend/             # React + TypeScript
-├── docs/                 # mkdocs-material, ADRs, schema, roadmap, openapi.json
+├── docs/                 # ADRs, schema, roadmap, openapi.json
 ├── docker/               # Dockerfile, compose
 ├── data/                 # local SQLite database (gitignored)
 ├── .github/workflows/    # CI

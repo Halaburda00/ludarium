@@ -83,7 +83,7 @@ addopts = "--cov=src/ludarium --cov-report=term-missing"
 concurrency = ["thread", "greenlet"]
 
 # A git dependency while `ludamatch` is a handful of functions, pinned to a tag
-# so a push to its main cannot change what this lockfile resolves. It has to be
-# a PyPI release by M5: a stranger's `docker compose up` should not fetch from git.
+# so a push to its main cannot change what this lockfile resolves. It stays one:
+# compose pulls a built image, so only the image build fetches from git.
 [tool.uv.sources]
 ludamatch = { git = "https://github.com/Halaburda00/ludamatch", tag = "v0.1.0" }

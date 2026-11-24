@@ -208,20 +208,25 @@ Epic moved to M2b.
 - ~~Upload and parse `galaxy-2.0.db`~~ — dropped (#131, ADR-0038): EA,
   Ubisoft and Battle.net reach the file only through dead community plugins,
   and the live Xbox integration reports play history, not ownership
-- [ ] CSV/JSON import
+- [x] CSV/JSON import, previewed before it writes, one derived account per
+      platform the file names (#130, ADR-0039)
 - [x] Multiple accounts per platform, with labels: the backend has allowed it
       since M1, and an accounts screen makes it usable
 - [x] Scheduled sync on APScheduler, writing runs with
       `SyncTrigger.scheduled`; per-provider interval, skipped while a run for
       that provider is already in flight (ADR-0036)
-- Matching layer 2 moved to M6: it consumes `ludamatch-data`, which M6 builds
+- Matching layer 2 moved to M6, then to Later: it consumes `ludamatch-data`,
+  which is not built yet
 
 **Done when:** the library covers every platform you actually use, and it
 refreshes itself without being asked.
 
 ---
 
-## M5 — Docker, docs, first public release · ~3 days
+## M5 — Docker and a first release · ~3 days
+
+Scoped down on 2026-11-24 to what makes Ludarium run on a NAS and readable
+from a README. The cuts are listed so they are not mistaken for omissions.
 
 - [ ] Multi-stage Dockerfile, target under 500 MB
 - [ ] GitHub Actions: buildx, `linux/amd64` + `linux/arm64`, push to GHCR
@@ -231,33 +236,38 @@ refreshes itself without being asked.
       `docs/schema.md` — IGDB and RAWG values are dropped on the way out. A
       self-hosted tool people cannot get their data out of is a trap, and the
       first release is the moment that promise has to hold
-- [ ] mkdocs-material on GitHub Pages, `ludarium.dev`
 - [ ] Screenshots — the single biggest factor in whether anyone tries it
-- [ ] Publish `ludamatch` to PyPI and replace the git dependency on it. A
-      compose file a stranger runs cannot be made to resolve a git URL
-- [ ] release-please, CHANGELOG, tag **v0.1.0**
+- [ ] A hand-written CHANGELOG, tag **v0.1.0**
+- ~~mkdocs-material on GitHub Pages, `ludarium.dev`~~ — dropped: the README
+  and `docs/` on GitHub are enough for an audience of one
+- ~~Publish `ludamatch` to PyPI~~ — dropped: a compose file pulls a built
+  image, so only the image build resolves the git dependency
+- ~~release-please~~ — dropped: one release does not need release automation
 
-**Done when:** a stranger can run Ludarium from one compose file.
+**Done when:** Ludarium runs on a NAS from one compose file, and the README
+shows what it looks like.
 
 ---
 
-## M6 — Matching layers 3–5 · ~1 week
+## M6 — Title matching and the review queue · ~4 days
 
-`ludamatch` already exists as its own MIT repository (M2). This milestone fills
-it out and finishes the cascade.
+Scoped down on 2026-11-24. Layer 3 and the queue reach what layer 1 cannot,
+imported copies first (ADR-0039); the heavier layers wait for a library that
+needs them.
 
+- [ ] Give an import's provenance its own `source_ref` before anything merges
+      an imported copy (ADR-0039)
 - [ ] Title normalisation extended: editions, trademarks, roman numerals,
       punctuation — beyond the minimum layer 1 needed
-- [ ] Candidate retrieval: trigram / BM25 + optional ANN over embeddings
-- [ ] Feature-based classifier for adjudication
-- [ ] Optional LLM layer, batched, structured output, cached
-- [ ] Golden set of ~300 pairs, precision/recall measured **per layer**
-- [ ] `ludamatch-data`: alias dataset generated offline from Wikidata, CC0
-- [ ] Matching layer 2: the curated alias dataset in the cascade (moved from M4)
+- [ ] Layer 3: candidates by normalised title, decided on year and fuzzy
+      ratio, derived accounts included; below the bar a pair goes to the queue
+      (rule 6)
 - [ ] Manual review queue in the Ludarium UI
+- [ ] Golden set of ~100 pairs from the owner's library, precision and recall
+      measured per layer
 
-**Done when:** the first user's library matches at ~95% with no manual work,
-and the README shows measured numbers rather than claims.
+**Done when:** the owner's library matches with no false positive in the
+golden set, and the README shows measured numbers rather than claims.
 
 ---
 
@@ -271,3 +281,6 @@ and the README shows measured numbers rather than claims.
 - Xbox, PlayStation
 - Subscription catalogues (Game Pass)
 - Paid mobile client
+- The rest of the matching cascade, cut from M6: retrieval over embeddings,
+  a feature-based classifier, LLM adjudication, `ludamatch-data` and layer 2
+- mkdocs-material on GitHub Pages

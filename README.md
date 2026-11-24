@@ -23,8 +23,8 @@ current whether or not the gaming PC is switched on.
 
 A second goal comes with it. Matching titles across storefronts requires a
 dataset of cross-platform aliases, and no openly licensed one exists.
-`ludamatch-data` is built as a public CC0 dataset so that the next project does
-not have to solve this again.
+`ludamatch-data` is planned as a public CC0 dataset so that the next project
+does not have to solve this again.
 
 ## Prior art
 
@@ -41,17 +41,17 @@ read from a browser**. That is the whole of Ludarium's claim.
 
 ## Status
 
-**Pre-alpha. Nothing runs yet.**
+**Pre-alpha.**
 
 | Milestone | State |
 |---|---|
-| M0 — documentation and decisions | complete |
-| M1 — Steam → database → an ugly list | next |
-| M2a … M6 | planned |
+| M0 … M4 | complete |
+| M5 — Docker and a first release | next |
+| M6 — title matching and the review queue | planned |
 
-There is no release, no Docker image and no usable application at this point.
-The design is settled and written down; the code is not. `v0.1.0` arrives at M5,
-and that is the first version worth anyone's time.
+Steam, Epic and GOG sync on a schedule; everything else comes in from a CSV or
+JSON file or by hand. There is no release and no Docker image yet: `v0.1.0`
+arrives at M5.
 
 If you want to follow along, [`docs/roadmap.md`](docs/roadmap.md) is honest
 about what exists and what does not.
@@ -69,8 +69,8 @@ Vertical slices — every milestone ends with something that runs end to end.
 | M2c | A real grid | Virtualised grid, search, detail view, dark mode |
 | M3 | Filters, statuses, backlog | Filter registry, `PlayStatus`, manual entries, saved views |
 | M4 | GOG, local import | GOG, CSV/JSON import, ingest contract, scheduled sync |
-| M5 | Docker, docs, first public release | Multi-arch image, export/backup, `v0.1.0` |
-| M6 | Matching layers 3–5 | Retrieval, classifier, LLM adjudication, the alias dataset |
+| M5 | Docker and a first release | Multi-arch image, export/backup, screenshots, `v0.1.0` |
+| M6 | Title matching and the review queue | Matching layer 3, manual review queue, a measured golden set |
 
 Details, estimates and per-milestone exit criteria: [`docs/roadmap.md`](docs/roadmap.md).
 
