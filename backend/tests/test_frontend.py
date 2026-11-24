@@ -19,6 +19,7 @@ def dist(tmp_path: Path) -> Path:
     (root / "assets" / "index-abc123.js").write_text("console.log(1)")
     (root / "favicon.svg").write_text("<svg/>")
     (tmp_path / "secret.txt").write_text("outside")
+    (root / "link.txt").symlink_to(tmp_path / "secret.txt")
     return root
 
 
@@ -81,11 +82,19 @@ def test_the_page_is_not_part_of_the_api_contract(served: TestClient, client: Te
 
 
 # httpx collapses a literal `..` before sending; the encoded one reaches us.
-@pytest.mark.parametrize("path", ["/%2e%2e/secret.txt", "/assets/%2e%2e/%2e%2e/secret.txt"])
+@pytest.mark.parametrize(
+    "path", ["/%2e%2e/secret.txt", "/assets/%2e%2e/%2e%2e/secret.txt", "/link.txt"]
+)
 def test_nothing_outside_the_directory_is_served(served: TestClient, path: str) -> None:
     response = served.get(path)
 
-    assert "outside" not in response.text
+    assert (response.status_code, response.text) == (200, PAGE)
+
+
+def test_the_page_by_its_own_name_is_revalidated(served: TestClient) -> None:
+    response = served.get("/index.html")
+
+    assert (response.text, response.headers["cache-control"]) == (PAGE, REVALIDATE)
 
 
 def test_a_directory_without_a_page_is_refused_at_start(settings: Settings, tmp_path: Path) -> None:
