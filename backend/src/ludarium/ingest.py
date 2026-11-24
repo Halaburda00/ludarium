@@ -29,7 +29,11 @@ MAX_ITEMS: Final = 50_000
 # through its own sync, and a metadata provider describes works, not accounts.
 REPORTERS: Final = frozenset({ProviderKind.AGENT, ProviderKind.MANUAL})
 
-type Key = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
+MAX_KEY: Final = 256
+
+type Key = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_KEY)
+]
 
 
 class IngestAccount(BaseModel):

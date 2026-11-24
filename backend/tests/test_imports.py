@@ -5,7 +5,14 @@ from datetime import UTC, datetime
 import pytest
 
 from ludarium.enums import ItemKind, OwnershipType
-from ludarium.imports import MAX_ACCOUNTS, NO_PLATFORM, UnreadableFileError, group, parse
+from ludarium.imports import (
+    MAX_ACCOUNTS,
+    MAX_PLATFORM,
+    NO_PLATFORM,
+    UnreadableFileError,
+    group,
+    parse,
+)
 
 
 def test_a_csv_is_read_with_its_columns_named_loosely() -> None:
@@ -146,6 +153,27 @@ def test_rows_land_on_the_platform_their_name_means() -> None:
         "import:": ("other", NO_PLATFORM),
     }
     assert [row.title for _, row in groups["import:origin"].items] == ["A", "F"]
+
+
+def test_a_platform_name_that_grows_when_folded_keeps_its_account_id_in_bounds() -> None:
+    # "ΐ" casefolds to three characters: 100 of them would be a 307-character id.
+    name = "ΐ" * MAX_PLATFORM
+    data = f"title,platform\nA,{name}\nB,{name}\n".encode()
+
+    (first,) = group(parse(data, "a.csv"))
+    (again,) = group(parse(data, "a.csv"))
+
+    assert len(first.external_account_id) <= 256
+    assert first.external_account_id == again.external_account_id
+    assert (first.label, len(first.items)) == (name, 2)
+
+
+def test_a_platform_name_that_folds_long_but_fits_keeps_its_readable_id() -> None:
+    # "ß" folds to "ss": 200 characters, within the contract, and the id an
+    # earlier import already wrote.
+    (only,) = group(parse(("title,platform\nA," + "ß" * MAX_PLATFORM + "\n").encode(), "a.csv"))
+
+    assert only.external_account_id == "import:" + "ss" * MAX_PLATFORM
 
 
 def test_two_copies_of_one_title_stay_two_and_keep_their_keys() -> None:

@@ -19,7 +19,7 @@ from typing import Any, Final
 
 from ludarium.enums import ItemKind, OwnershipType
 from ludarium.filters import FIRST_YEAR, LAST_YEAR, MAX_MINUTES
-from ludarium.ingest import MAX_ITEMS
+from ludarium.ingest import MAX_ITEMS, MAX_KEY
 
 # A spreadsheet of every game anyone owns is a few MB; this is a bound on what
 # one upload can make us hold, not a guess at a library.
@@ -191,7 +191,13 @@ def _account(platform: str) -> tuple[str, str, str]:
     provider = PLATFORMS.get(folded, OTHER)
     # The folded name rather than the provider: "EA" and "Origin" in one file
     # are two lists the user kept apart, and they stay two accounts.
-    return provider, f"import:{folded}", platform or NO_PLATFORM
+    account = f"import:{folded}"
+    if len(account) > MAX_KEY:
+        # Casefolding can triple a character ("ΐ"), which would carry the id
+        # past the contract's bound. Only those are hashed: an id #139 already
+        # wrote has to be found again by the next import.
+        account = "import:sha256:" + hashlib.sha256(folded.encode()).hexdigest()
+    return provider, account, platform or NO_PLATFORM
 
 
 def _fold(text: str) -> str:
