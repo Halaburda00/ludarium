@@ -91,6 +91,19 @@ def test_nothing_outside_the_directory_is_served(served: TestClient, path: str) 
     assert (response.status_code, response.text) == (200, PAGE)
 
 
+@pytest.mark.parametrize(
+    "path",
+    ["/a%00b", "/" + "a" * 5000, "/" + "/".join(["a" * 200] * 30)],
+    ids=["null byte", "long name", "long path"],
+)
+def test_a_path_no_file_system_can_hold_is_the_page_not_a_500(
+    served: TestClient, path: str
+) -> None:
+    response = served.get(path)
+
+    assert (response.status_code, response.text) == (200, PAGE)
+
+
 def test_the_page_by_its_own_name_is_revalidated(served: TestClient) -> None:
     response = served.get("/index.html")
 

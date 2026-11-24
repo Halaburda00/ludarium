@@ -55,8 +55,8 @@ def mount_frontend(app: FastAPI, directory: Path) -> None:
         ):
             await not_found(scope, receive, send)
             return
-        file = (root / path.lstrip("/")).resolve()
-        if file.is_relative_to(root) and file.is_file() and file != root / INDEX:
+        file = _file(root, path)
+        if file is not None:
             cache = IMMUTABLE if file.parent == root / ASSETS else REVALIDATE
             response = FileResponse(file, headers={"Cache-Control": cache})
         else:
@@ -66,3 +66,17 @@ def mount_frontend(app: FastAPI, directory: Path) -> None:
         await response(scope, receive, send)
 
     app.router.default = frontend
+
+
+def _file(root: Path, path: str) -> Path | None:
+    """The file `path` names under `root`, or None for anything else."""
+
+    try:
+        file = (root / path.lstrip("/")).resolve()
+        if file.is_relative_to(root) and file.is_file():
+            return file
+    # A URL can name what no file system can hold: a null byte, a name past
+    # NAME_MAX, a path past PATH_MAX. Those are no file, and get the page.
+    except (OSError, ValueError):
+        pass
+    return None
