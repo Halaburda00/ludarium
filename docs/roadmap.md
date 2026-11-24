@@ -215,7 +215,8 @@ Epic moved to M2b.
 - [x] Scheduled sync on APScheduler, writing runs with
       `SyncTrigger.scheduled`; per-provider interval, skipped while a run for
       that provider is already in flight (ADR-0036)
-- Matching layer 2 moved to M6: it consumes `ludamatch-data`, which M6 builds
+- Matching layer 2 moved to M6, then to Later: it consumes `ludamatch-data`,
+  which is not built yet
 
 **Done when:** the library covers every platform you actually use, and it
 refreshes itself without being asked.
