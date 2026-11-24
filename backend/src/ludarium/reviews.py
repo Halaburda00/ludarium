@@ -162,7 +162,12 @@ async def _library(database: Database) -> dict[int, frozenset[str]]:
             )
             .join(Account, Account.id == Entitlement.account_id)
             .join(Provider, Provider.id == Account.provider_id)
-            .where(Provider.key == LIBRARY, Entitlement.provider_item_id.is_not(None))
+            .where(
+                Provider.key == LIBRARY,
+                Entitlement.provider_item_id.is_not(None),
+                # Reported ids, not appids Steam handed over (ADR-0039).
+                Account.is_derived.is_(False),
+            )
         ):
             appids.setdefault(work_id, set()).add(str(appid))
         for work_id, appid in await session.execute(

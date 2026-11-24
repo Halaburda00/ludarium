@@ -57,7 +57,12 @@ export function stubFetch(routes: Record<string, Reply>) {
     calls.push({
       method,
       path,
-      body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
+      body:
+        typeof init?.body === 'string'
+          ? JSON.parse(init.body)
+          : init?.body instanceof FormData
+            ? Object.fromEntries(init.body)
+            : undefined,
       credentials: init?.credentials,
     })
     const reply = routes[`${method} ${path}`] ?? AMBIENT[`${method} ${path}`]

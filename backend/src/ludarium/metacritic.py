@@ -170,6 +170,9 @@ async def _matched(database: Database) -> list[Target]:
             .where(
                 Provider.key == LIBRARY,
                 Entitlement.provider_item_id.is_not(None),
+                # A reported id is not one Steam vouched for, so it confirms
+                # nothing (rule 6, ADR-0039).
+                Account.is_derived.is_(False),
                 Work.is_matched.is_(True),
             )
         ):

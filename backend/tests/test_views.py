@@ -70,7 +70,7 @@ def test_a_view_of_the_whole_library_is_a_view(signed_in: TestClient) -> None:
         "mood=cosy",
         "kind=spaceship",
         "sort=rating",
-        "platform=xbox",
+        "platform=stadia",
         "year_min=2020&year_max=2010",
     ],
 )
@@ -113,7 +113,7 @@ async def test_a_view_that_names_what_no_longer_exists_opens_without_it(
             user_id=1,
             name="From an older version",
             query=(
-                "platform=steam&platform=xbox&kind=dlc&kind=spaceship&mood=cosy"
+                "platform=steam&platform=stadia&kind=dlc&kind=spaceship&mood=cosy"
                 "&metacritic_min=90&metacritic_max=80&year_min=2010&sort=rating"
             ),
         )
@@ -128,7 +128,7 @@ async def test_a_view_that_names_what_no_longer_exists_opens_without_it(
         "metacritic_max=80",
         "metacritic_min=90",
         "mood=cosy",
-        "platform=xbox",
+        "platform=stadia",
         "sort=rating",
     ]
 

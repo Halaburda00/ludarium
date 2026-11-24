@@ -180,7 +180,7 @@ def test_connecting_an_account_again_replaces_its_key_and_keeps_the_account(
 
 
 def test_an_unknown_provider_is_a_404(signed_in: TestClient) -> None:
-    response = connect(signed_in, provider="xbox")
+    response = connect(signed_in, provider="stadia")
 
     assert response.status_code == 404
 

@@ -329,7 +329,9 @@ def _store_url(template: str | None, provider_item_id: str | None) -> str | None
     return template.replace("{id}", quote(provider_item_id, safe=""))
 
 
-def _summarise(entitlement: Entitlement, provider: Provider) -> EntitlementSummary:
+def _summarise(
+    entitlement: Entitlement, provider: Provider, *, derived: bool
+) -> EntitlementSummary:
     return EntitlementSummary(
         id=entitlement.id,
         provider=provider.key,
@@ -338,7 +340,11 @@ def _summarise(entitlement: Entitlement, provider: Provider) -> EntitlementSumma
         provider_title=entitlement.provider_title,
         store_label=entitlement.store_label,
         playtime_minutes=entitlement.playtime_minutes,
-        store_url=_store_url(provider.store_url_template, entitlement.provider_item_id),
+        # A derived account's id is its report's, and a link built from it
+        # would be a store page about something else (ADR-0039).
+        store_url=None
+        if derived
+        else _store_url(provider.store_url_template, entitlement.provider_item_id),
         kept=entitlement.kept_at is not None,
     )
 
@@ -798,7 +804,7 @@ async def _entitlements(
     if not work_ids:
         return {}
     rows = await session.execute(
-        select(EntitlementWork.work_id, Entitlement, Provider)
+        select(EntitlementWork.work_id, Entitlement, Provider, Account.is_derived)
         .join(Entitlement, Entitlement.id == EntitlementWork.entitlement_id)
         .join(Account, Account.id == Entitlement.account_id)
         .join(Provider, Provider.id == Account.provider_id)
@@ -806,6 +812,6 @@ async def _entitlements(
         .order_by(Provider.key, Entitlement.id)
     )
     grouped: dict[int, list[EntitlementSummary]] = {}
-    for work_id, entitlement, provider in rows:
-        grouped.setdefault(work_id, []).append(_summarise(entitlement, provider))
+    for work_id, entitlement, provider, derived in rows:
+        grouped.setdefault(work_id, []).append(_summarise(entitlement, provider, derived=derived))
     return grouped
