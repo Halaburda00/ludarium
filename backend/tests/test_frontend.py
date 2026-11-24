@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,7 @@ def dist(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def served(settings: Settings, dist: Path) -> TestClient:
+def served(settings: Settings, dist: Path) -> Iterator[TestClient]:
     create_schema(settings.database_url)
     app = create_app(settings.model_copy(update={"frontend_dir": dist}))
     with TestClient(app) as client:
