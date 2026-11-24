@@ -28,6 +28,7 @@ from ludarium.auth import bootstrap_user, current_session
 from ludarium.config import Settings, get_settings
 from ludarium.db import SAFE_METHODS, Database
 from ludarium.demo import seed_demo, visitor
+from ludarium.frontend import mount_frontend
 from ludarium.models import Provider
 from ludarium.schedule import SyncSchedule
 from ludarium.seed import reconcile_folded_keys, seed_providers
@@ -166,6 +167,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ingest.BodyLimit,
         others={imports.PREVIEW_PATH: imports.UPLOAD_BYTES, imports.PATH: imports.UPLOAD_BYTES},
     )
+    # Last: its catch-all route must not shadow any route included above.
+    if settings.frontend_dir is not None:
+        mount_frontend(app, settings.frontend_dir)
     return app
 
 
