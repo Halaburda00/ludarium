@@ -167,7 +167,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ingest.BodyLimit,
         others={imports.PREVIEW_PATH: imports.UPLOAD_BYTES, imports.PATH: imports.UPLOAD_BYTES},
     )
-    # Last: its catch-all route must not shadow any route included above.
+    # What answers a request no route above matched.
     if settings.frontend_dir is not None:
         mount_frontend(app, settings.frontend_dir)
     return app

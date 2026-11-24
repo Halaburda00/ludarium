@@ -61,14 +61,23 @@ def test_an_unknown_api_path_stays_a_json_404(served: TestClient, path: str) -> 
     assert response.headers["content-type"] == "application/json"
 
 
+def test_the_api_keeps_its_own_404_and_405(served: TestClient, client: TestClient) -> None:
+    probes = [("POST", "/api/nope"), ("GET", "/api/auth/logout"), ("POST", "/library")]
+
+    with_page = [served.request(method, path).status_code for method, path in probes]
+    without = [client.request(method, path).status_code for method, path in probes]
+
+    assert with_page == without == [404, 405, 404]
+
+
 def test_the_api_still_answers_first(served: TestClient) -> None:
     assert served.get("/api/health").json()["status"] == "ok"
     assert served.get("/api/works").status_code == 401
     assert served.get("/openapi.json").json()["info"]["title"] == "Ludarium"
 
 
-def test_the_page_is_not_part_of_the_api_contract(served: TestClient) -> None:
-    assert "/{path}" not in served.get("/openapi.json").json()["paths"]
+def test_the_page_is_not_part_of_the_api_contract(served: TestClient, client: TestClient) -> None:
+    assert served.get("/openapi.json").json() == client.get("/openapi.json").json()
 
 
 # httpx collapses a literal `..` before sending; the encoded one reaches us.
